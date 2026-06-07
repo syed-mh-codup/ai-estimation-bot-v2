@@ -10,3 +10,4 @@ export * from './archivist';
 export * from './complexity';
 export * from './specialist';
 export * from './taxation';
+export * from './audit';
