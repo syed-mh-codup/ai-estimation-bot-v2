@@ -49,7 +49,9 @@ export function decryptSecret(ciphertext: string, masterKey: string): string {
 
 // ─── McpProvider ──────────────────────────────────────────────────────────────
 
-export type McpTestResult = { ok: true } | { ok: false; error: string };
+export type McpTestResult =
+  | { ok: true; tools: McpTool[] }
+  | { ok: false; error: string };
 
 export interface IMcpProvider {
   listTools(connectorId: string): Promise<McpTool[]>;
@@ -86,7 +88,95 @@ export class StubMcpProvider implements IMcpProvider {
     if (!endpoint || endpoint === 'unreachable') {
       return { ok: false, error: 'Connection refused' };
     }
-    return { ok: true };
+    return { ok: true, tools: [] };
+  }
+}
+
+/**
+ * Live MCP provider — connects to real MCP servers over Streamable HTTP (or SSE).
+ * Uses the official @modelcontextprotocol/sdk client. The SDK is imported lazily
+ * so that merely importing this module (e.g. for the StubMcpProvider) doesn't
+ * pull the SDK into bundles that never talk to a live server.
+ */
+export class LiveMcpProvider implements IMcpProvider {
+  private readonly connectors: Map<string, McpConnectorRecord>;
+
+  constructor(connectors: McpConnectorRecord[] = []) {
+    this.connectors = new Map(connectors.map((c) => [c.id, c]));
+  }
+
+  /** Open a connected client to an endpoint; caller must close it. */
+  private async connect(endpoint: string, transport: string) {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const url = new URL(endpoint);
+
+    let clientTransport;
+    if (transport.toLowerCase().includes('sse')) {
+      const { SSEClientTransport } = await import(
+        '@modelcontextprotocol/sdk/client/sse.js'
+      );
+      clientTransport = new SSEClientTransport(url);
+    } else {
+      // Default to Streamable HTTP (what Shopify and most hosted servers use).
+      const { StreamableHTTPClientTransport } = await import(
+        '@modelcontextprotocol/sdk/client/streamableHttp.js'
+      );
+      clientTransport = new StreamableHTTPClientTransport(url);
+    }
+
+    const client = new Client(
+      { name: 'codup-ai-estimation', version: '0.0.1' },
+      { capabilities: {} },
+    );
+    await client.connect(clientTransport);
+    return client;
+  }
+
+  private static toTools(result: { tools: Array<{ name: string; description?: string; inputSchema?: unknown }> }): McpTool[] {
+    return result.tools.map((t) => ({
+      name: t.name,
+      description: t.description ?? '',
+      inputSchema: (t.inputSchema as Record<string, unknown>) ?? {},
+    }));
+  }
+
+  async testConnector(endpoint: string, transport: string): Promise<McpTestResult> {
+    if (!endpoint) {
+      return { ok: false, error: 'Endpoint is required' };
+    }
+    let client: Awaited<ReturnType<LiveMcpProvider['connect']>> | undefined;
+    try {
+      client = await this.connect(endpoint, transport);
+      const result = await client.listTools();
+      return { ok: true, tools: LiveMcpProvider.toTools(result) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      try {
+        await client?.close();
+      } catch {
+        // ignore close errors
+      }
+    }
+  }
+
+  async listTools(connectorId: string): Promise<McpTool[]> {
+    const connector = this.connectors.get(connectorId);
+    if (!connector) return [];
+    const result = await this.testConnector(connector.endpoint, connector.transport);
+    return result.ok ? result.tools : [];
+  }
+
+  async listAllTools(): Promise<Array<McpTool & { connectorId: string }>> {
+    const out: Array<McpTool & { connectorId: string }> = [];
+    for (const connector of this.connectors.values()) {
+      if (!connector.enabled) continue;
+      const tools = await this.listTools(connector.id);
+      for (const tool of tools) {
+        out.push({ ...tool, connectorId: connector.id });
+      }
+    }
+    return out;
   }
 }
 

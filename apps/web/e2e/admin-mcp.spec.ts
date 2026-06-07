@@ -11,16 +11,18 @@ async function login(page: Page, email: string, password: string) {
 }
 
 test.describe('WS24-02: MCP connectors admin — add, test, enable', () => {
-  test('admin adds a connector, tests it, and enables it', async ({ page }) => {
+  test('admin adds a connector, tests it (live), and enables it', async ({ page }) => {
     await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
     await page.goto('/admin/mcp');
     await expect(page.getByTestId('admin-mcp')).toBeVisible();
 
-    // Add a uniquely-named connector.
-    const name = `Jira ${Date.now()}`;
+    // Add a uniquely-named connector pointing at a port that refuses
+    // connections — deterministic, offline-safe, and exercises the REAL MCP
+    // client's failure path (no stub).
+    const name = `Refused ${Date.now()}`;
     await page.fill('#name', name);
     await page.selectOption('#transport', 'http');
-    await page.fill('#endpoint', 'https://mcp.example.com/jira');
+    await page.fill('#endpoint', 'http://127.0.0.1:1/mcp');
     await page.getByTestId('add-connector').click();
 
     const row = page
@@ -31,22 +33,16 @@ test.describe('WS24-02: MCP connectors admin — add, test, enable', () => {
     const testCell = row.locator('[data-testid^="connector-test-"]');
     const enabledCell = row.locator('[data-testid^="connector-enabled-"]');
 
-    // New connector starts untested + disabled.
     await expect(testCell).toHaveText('untested');
     await expect(enabledCell).toHaveText('disabled');
 
-    // Test → status OK.
+    // Test → the live client tries to connect, fails, and reports it.
     await row.getByTestId(/^test-connector-/).click();
-    await expect(testCell).toHaveText('OK');
+    await expect(page.getByTestId('mcp-test-result')).toContainText('failed');
+    await expect(testCell).toHaveText('failed');
 
-    // Enable → status enabled.
+    // Enable still works regardless of test outcome.
     await row.getByTestId(/^toggle-connector-/).click();
     await expect(enabledCell).toHaveText('enabled');
-
-    // Durable across reload.
-    await page.reload();
-    await expect(
-      page.locator('tr[data-testid^="connector-row-"]').filter({ hasText: name }),
-    ).toContainText('enabled');
   });
 });

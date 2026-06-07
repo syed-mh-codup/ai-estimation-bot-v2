@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   StubMcpProvider,
+  LiveMcpProvider,
   buildMcpProvider,
   encryptSecret,
   decryptSecret,
@@ -73,6 +74,22 @@ describe('WS4-02: testConnector', () => {
     if (!result.ok) {
       expect(typeof result.error).toBe('string');
     }
+  });
+});
+
+describe('WS24-02: LiveMcpProvider', () => {
+  it('returns ok:false with a message for an empty endpoint', async () => {
+    const result = await new LiveMcpProvider().testConnector('', 'http');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/required/i);
+  });
+
+  it('returns ok:false (does not throw) when the server refuses the connection', async () => {
+    // Port 1 on loopback refuses instantly — exercises the real client + the
+    // error-to-result wrapping without any external network.
+    const result = await new LiveMcpProvider().testConnector('http://127.0.0.1:1/mcp', 'http');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(typeof result.error).toBe('string');
   });
 });
 

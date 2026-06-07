@@ -1,5 +1,7 @@
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
+import { LiveMcpProvider } from '@repo/providers';
 import { requireAdmin } from '@/lib/rbac';
 
 async function addConnector(formData: FormData) {
@@ -36,20 +38,54 @@ async function testConnector(formData: FormData) {
   const id = formData.get('id');
   if (typeof id !== 'string') return;
 
-  // Stub: a real test would open the transport and probe the endpoint. Until
-  // connector wiring lands, mark the connection as having been tested OK so the
-  // admin flow (add → test → enable) is exercisable end to end.
-  await prisma.mcpConnector.update({ where: { id }, data: { lastTestOk: true } });
-  revalidatePath('/admin/mcp');
+  const connector = await prisma.mcpConnector.findUnique({ where: { id } });
+  if (!connector) return;
+
+  // Actually connect to the MCP server and list its tools.
+  const result = await new LiveMcpProvider().testConnector(
+    connector.endpoint,
+    connector.transport,
+  );
+  await prisma.mcpConnector.update({ where: { id }, data: { lastTestOk: result.ok } });
+
+  const detail = result.ok
+    ? `Connected — ${result.tools.length} tool(s)${
+        result.tools.length ? `: ${result.tools.map((t) => t.name).join(', ')}` : ''
+      }`
+    : result.error;
+  redirect(
+    `/admin/mcp?tested=${encodeURIComponent(connector.name)}&ok=${result.ok}&detail=${encodeURIComponent(
+      detail.slice(0, 400),
+    )}`,
+  );
 }
 
-export default async function McpAdminPage() {
+export default async function McpAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tested?: string; ok?: string; detail?: string }>;
+}) {
+  const sp = await searchParams;
   const connectors = await prisma.mcpConnector.findMany({ orderBy: { createdAt: 'asc' } });
 
   return (
     <div data-testid="admin-mcp">
       <h1 className="text-2xl font-semibold text-gray-900">MCP Connectors</h1>
       <p className="mt-1 text-sm text-gray-500">Add a connector, test it, then enable it.</p>
+
+      {sp.tested && (
+        <div
+          data-testid="mcp-test-result"
+          className={`mt-4 rounded-md border px-3 py-2 text-sm ${
+            sp.ok === 'true'
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-red-200 bg-red-50 text-red-700'
+          }`}
+        >
+          <span className="font-medium">{sp.tested}:</span>{' '}
+          {sp.ok === 'true' ? sp.detail : `Test failed — ${sp.detail}`}
+        </div>
+      )}
 
       <form action={addConnector} className="mt-6 flex flex-wrap items-end gap-3">
         <div>
