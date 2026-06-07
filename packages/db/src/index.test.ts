@@ -1,7 +1,67 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { PrismaClient } from './generated/client/index.js';
 
-describe('db package', () => {
-  it('exports successfully', () => {
-    expect(true).toBe(true);
+const db = new PrismaClient({
+  datasources: {
+    db: { url: process.env['DATABASE_URL'] ?? 'postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public' },
+  },
+});
+
+beforeAll(async () => {
+  await db.$connect();
+});
+
+afterAll(async () => {
+  await db.$executeRaw`DELETE FROM "PresetVersion" WHERE "presetId" = 'TEST_P01'`;
+  await db.$executeRaw`DELETE FROM "Preset" WHERE "id" = 'TEST_P01'`;
+  await db.$disconnect();
+});
+
+describe('WS1-01: Prisma client importable', () => {
+  it('connects to the database', async () => {
+    const result = await db.$queryRaw<[{ one: number }]>`SELECT 1 AS one`;
+    expect(result[0]?.one).toBe(1);
+  });
+});
+
+describe('WS1-02: Preset + PresetVersion CRUD', () => {
+  it('creates a Preset and PresetVersion and reads it back', async () => {
+    await db.preset.create({ data: { id: 'TEST_P01' } });
+
+    const pv = await db.presetVersion.create({
+      data: {
+        presetId: 'TEST_P01',
+        version: 1,
+        active: true,
+        category: 'Shopify/Ecommerce',
+        name: 'Test Preset',
+        description: 'A test preset',
+        beHours: 40,
+        feHours: 20,
+        platforms: ['Shopify'],
+        reqType: 'functional',
+        keywords: ['checkout'],
+        userStoryTags: [],
+        projectSizeFit: ['SMB'],
+        integrationCount: 1,
+        dataVolume: 'NONE',
+        phase: 'CORE',
+        requires: [],
+        blocks: [],
+        canParallel: false,
+        aiAssist: 'LOW',
+        risk: 'MEDIUM',
+        spikeNeeded: false,
+        notes: 'test',
+      },
+    });
+
+    expect(pv.presetId).toBe('TEST_P01');
+    expect(pv.version).toBe(1);
+    expect(pv.active).toBe(true);
+
+    const read = await db.presetVersion.findFirst({ where: { presetId: 'TEST_P01' } });
+    expect(read?.name).toBe('Test Preset');
+    expect(read?.beHours).toBe(40);
   });
 });

@@ -1,0 +1,260 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  output          = "../src/generated/client"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  ESTIMATOR
+}
+
+enum ChangeMotivation {
+  UPSKILL
+  TECH_ADVANCEMENT
+  NEW_PROCESS
+  POST_DELIVERY_VALIDATION
+  CORRECTION
+  OTHER
+}
+
+enum DataVolume {
+  NONE
+  LOW
+  HIGH
+}
+
+enum PresetPhase {
+  FOUNDATION
+  CORE
+  ENHANCEMENT
+}
+
+enum Level {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AgentKind {
+  SUPERVISOR
+  LIBRARIAN
+  DETECTIVE
+  ARCHIVIST
+  SPECIALIST_DEV
+  SPECIALIST_QA
+  SPECIALIST_PM
+  SPECIALIST_BA
+  ARCHITECT
+}
+
+enum EstimateStatus {
+  DRAFT
+  REVIEW
+  FINALISED
+}
+
+enum RoleKind {
+  DEV
+  QA
+  PM
+  BA
+}
+
+// ─── Identity & Access ────────────────────────────────────────────────────────
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  hash      String
+  name      String?
+  role      Role       @default(ESTIMATOR)
+  createdAt DateTime   @default(now())
+  estimates Estimate[]
+}
+
+// ─── Taxonomy ─────────────────────────────────────────────────────────────────
+
+model TaxonomyNode {
+  id       String               @id @default(cuid())
+  key      String               @unique
+  label    String
+  parentKey String?
+  versions TaxonomyNodeVersion[]
+}
+
+model TaxonomyNodeVersion {
+  id               String           @id @default(cuid())
+  nodeKey          String
+  node             TaxonomyNode     @relation(fields: [nodeKey], references: [key])
+  version          Int
+  label            String
+  reqType          String?
+  keywords         String[]
+  active           Boolean          @default(false)
+  changeReason     String?
+  changeMotivation ChangeMotivation @default(OTHER)
+  createdAt        DateTime         @default(now())
+  createdBy        String?
+
+  @@unique([nodeKey, version])
+}
+
+// ─── Preset Library ───────────────────────────────────────────────────────────
+
+model Preset {
+  id       String          @id
+  versions PresetVersion[]
+}
+
+model PresetVersion {
+  id               String           @id @default(cuid())
+  presetId         String
+  preset           Preset           @relation(fields: [presetId], references: [id])
+  version          Int
+  active           Boolean          @default(false)
+
+  category         String
+  name             String
+  description      String
+  beHours          Int
+  feHours          Int
+  platforms        String[]
+  reqType          String
+  keywords         String[]
+  userStoryTags    String[]
+  projectSizeFit   String[]
+  integrationCount Int
+  dataVolume       DataVolume
+  phase            PresetPhase
+  requires         String[]
+  blocks           String[]
+  canParallel      Boolean
+  aiAssist         Level
+  risk             Level
+  spikeNeeded      Boolean
+  notes            String
+
+  taxonomyKey      String?
+  /// pgvector embedding for Archivist similarity search
+  embedding        Unsupported("vector(1536)")?
+
+  changeReason     String?
+  changeMotivation ChangeMotivation @default(OTHER)
+  createdAt        DateTime         @default(now())
+  createdBy        String?
+  sourceEstimateId String?
+
+  @@unique([presetId, version])
+}
+
+// ─── Prompts ─────────────────────────────────────────────────────────────────
+
+model Prompt {
+  kind     AgentKind       @id
+  versions PromptVersion[]
+}
+
+model PromptVersion {
+  id               String           @id @default(cuid())
+  kind             AgentKind
+  prompt           Prompt           @relation(fields: [kind], references: [kind])
+  version          Int
+  body             String
+  modelString      String
+  active           Boolean          @default(false)
+  changeReason     String?
+  changeMotivation ChangeMotivation @default(OTHER)
+  createdAt        DateTime         @default(now())
+  createdBy        String?
+
+  @@unique([kind, version])
+}
+
+// ─── Estimation Config ────────────────────────────────────────────────────────
+
+model EstimationConfig {
+  id                    String           @id @default(cuid())
+  version               Int              @unique
+  active                Boolean          @default(false)
+  complexityRules       Json
+  pmCommunicationTaxPct Float
+  baCommunicationTaxPct Float
+  qaRegressionBufferPct Float
+  infraBaseline         Json
+  changeReason          String?
+  changeMotivation      ChangeMotivation @default(OTHER)
+  createdAt             DateTime         @default(now())
+}
+
+// ─── MCP Connectors ───────────────────────────────────────────────────────────
+
+model McpConnector {
+  id         String   @id @default(cuid())
+  name       String
+  transport  String
+  endpoint   String
+  authRef    String?
+  enabled    Boolean  @default(false)
+  lastTestOk Boolean?
+  createdAt  DateTime @default(now())
+}
+
+// ─── Estimates ────────────────────────────────────────────────────────────────
+
+model Estimate {
+  id                     String         @id @default(cuid())
+  title                  String
+  sowText                String
+  sowHash                String
+  status                 EstimateStatus @default(DRAFT)
+  complexityScore        Int?
+  taxonomyVersionsPinned Json
+  configVersion          Int
+  promptVersionsPinned   Json
+  modelConfig            Json
+  narrative              String[]
+  assumptions            String[]
+  agentState             Json
+  ownerId                String
+  owner                  User           @relation(fields: [ownerId], references: [id])
+  menuItems              MenuItem[]
+  sheetUrl               String?
+  createdAt              DateTime       @default(now())
+
+  @@index([sowHash])
+}
+
+model MenuItem {
+  id             String       @id @default(cuid())
+  estimateId     String
+  estimate       Estimate     @relation(fields: [estimateId], references: [id])
+  taxonomyKey    String
+  sourcePresetId String?
+  matchScore     Float?
+  title          String
+  enabled        Boolean      @default(true)
+  parentItemId   String?
+  lineItems      RoleLineItem[]
+}
+
+model RoleLineItem {
+  id         String   @id @default(cuid())
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  role       RoleKind
+  baseHours  Float
+  taxedHours Float
+  notes      String?
+  edited     Boolean  @default(false)
+
+  @@unique([menuItemId, role])
+}
