@@ -5,6 +5,9 @@ import type { NextAuthConfig } from 'next-auth';
  * Full auth config (with credentials provider + DB) lives in auth.ts.
  */
 export const authConfig: NextAuthConfig = {
+  // Derive the origin from each request's Host header instead of a hardcoded
+  // AUTH_URL, so the same build works on any port (manual dev 3000, e2e 3001).
+  trustHost: true,
   pages: { signIn: '/login' },
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {

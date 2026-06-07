@@ -8,7 +8,8 @@ test.describe('WS2-03: Auth flow', () => {
 
   test('login page is accessible', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.locator('h1')).toHaveText('Sign In');
+    await expect(page.locator('h1')).toHaveText('AI Estimation');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await expect(page.locator('input#email')).toBeVisible();
     await expect(page.locator('input#password')).toBeVisible();
   });
