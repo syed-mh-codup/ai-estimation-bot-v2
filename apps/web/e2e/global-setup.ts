@@ -76,6 +76,9 @@ export default async function globalSetup() {
       },
     });
 
+    // The WS24-02 MCP test adds connectors; reset so it starts from empty.
+    await prisma.mcpConnector.deleteMany({});
+
     await prisma.estimate.upsert({
       where: { id: SEED_ESTIMATE.id },
       update: {},
