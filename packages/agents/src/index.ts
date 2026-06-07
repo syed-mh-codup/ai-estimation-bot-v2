@@ -12,3 +12,4 @@ export * from './specialist';
 export * from './taxation';
 export * from './audit';
 export * from './architect';
+export * from './rollup';
