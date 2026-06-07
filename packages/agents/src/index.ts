@@ -7,3 +7,4 @@ export * from './rag-retriever';
 export * from './librarian';
 export * from './detective';
 export * from './archivist';
+export * from './complexity';
