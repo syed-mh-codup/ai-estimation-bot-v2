@@ -87,6 +87,9 @@ async function main() {
     }
 
     // 2. Active EstimationConfig (v1) — Estimate.configVersion needs this ---
+    // Deactivate any other versions first so re-seeding a dirty DB (e.g. after
+    // an e2e run created v2+) can't leave two active configs.
+    await prisma.estimationConfig.updateMany({ where: { active: true }, data: { active: false } });
     const config = await prisma.estimationConfig.upsert({
       where: { version: 1 },
       update: { active: true },
@@ -132,6 +135,11 @@ async function main() {
         where: { kind: p.kind },
         update: {},
         create: { kind: p.kind },
+      });
+      // Single-active guarantee per kind (same reasoning as the config above).
+      await prisma.promptVersion.updateMany({
+        where: { kind: p.kind, active: true },
+        data: { active: false },
       });
       await prisma.promptVersion.upsert({
         where: { kind_version: { kind: p.kind, version: 1 } },
