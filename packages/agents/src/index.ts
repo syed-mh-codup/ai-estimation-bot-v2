@@ -6,3 +6,4 @@ export * from './supervisor';
 export * from './rag-retriever';
 export * from './librarian';
 export * from './detective';
+export * from './archivist';
