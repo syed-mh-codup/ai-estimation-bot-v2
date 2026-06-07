@@ -12,10 +12,10 @@
   },
   "dependencies": {
     "@repo/shared": "workspace:*",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
-    "vitest": "^2.0.5"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }
