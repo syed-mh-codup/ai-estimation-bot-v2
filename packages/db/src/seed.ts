@@ -90,22 +90,24 @@ async function main() {
     // Deactivate any other versions first so re-seeding a dirty DB (e.g. after
     // an e2e run created v2+) can't leave two active configs.
     await prisma.estimationConfig.updateMany({ where: { active: true }, data: { active: false } });
+    const configData = {
+      active: true,
+      complexityRules: {
+        thresholds: { simple: 0, moderate: 40, complex: 100 },
+        weights: { integrationCount: 5, dataVolume: 3, risk: 4 },
+      },
+      pmCommunicationTaxPct: 15,
+      baCommunicationTaxPct: 10,
+      qaRegressionBufferPct: 20,
+      infraBaseline: { devops: 24, environments: ['dev', 'staging', 'prod'] },
+      changeReason: 'bootstrap seed',
+    };
+    // Restore the full values on update too, so re-seeding over an existing v1
+    // (e.g. an e2e run left it with empty JSON) brings back the rich seed data.
     const config = await prisma.estimationConfig.upsert({
       where: { version: 1 },
-      update: { active: true },
-      create: {
-        version: 1,
-        active: true,
-        complexityRules: {
-          thresholds: { simple: 0, moderate: 40, complex: 100 },
-          weights: { integrationCount: 5, dataVolume: 3, risk: 4 },
-        },
-        pmCommunicationTaxPct: 15,
-        baCommunicationTaxPct: 10,
-        qaRegressionBufferPct: 20,
-        infraBaseline: { devops: 24, environments: ['dev', 'staging', 'prod'] },
-        changeReason: 'bootstrap seed',
-      },
+      update: configData,
+      create: { version: 1, ...configData },
     });
 
     // 3. Sample estimates --------------------------------------------------
