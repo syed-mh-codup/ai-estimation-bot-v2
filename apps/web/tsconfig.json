@@ -1,0 +1,50 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "ES2022"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@repo/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@repo/db": [
+        "../../packages/db/src/index.ts"
+      ],
+      "@repo/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@repo/providers": [
+        "../../packages/providers/src/index.ts"
+      ]
+    },
+    "allowJs": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

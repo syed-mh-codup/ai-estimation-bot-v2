@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "paths": {
+      "@repo/shared": ["../shared/src/index.ts"],
+      "@repo/db": ["../db/src/index.ts"],
+      "@repo/providers": ["../providers/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../shared" },
+    { "path": "../db" },
+    { "path": "../providers" }
+  ],
+  "include": ["src"]
+}
