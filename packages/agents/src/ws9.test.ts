@@ -10,9 +10,11 @@ const DB_URL =
 
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
-function makeVec(first: number): number[] {
+// Use orthogonal unit vectors (each preset in a unique dimension) to ensure
+// cosine similarity ordering is deterministic across parallel test suites.
+function makeVec(dim: number): number[] {
   const v = new Array<number>(1536).fill(0);
-  v[0] = first;
+  v[dim] = 1.0;
   return v;
 }
 
@@ -66,6 +68,7 @@ beforeAll(async () => {
   });
 
   // Seed presets (embedding is Unsupported type — set via raw SQL after create)
+  // WS9 uses dimensions 0 and 1 (orthogonal unit vectors for isolation)
   const preset1 = await db.preset.create({
     data: {
       id: PRESET_ID1,
@@ -99,10 +102,9 @@ beforeAll(async () => {
     },
     include: { versions: true },
   });
-  const vec1 = makeVec(0.9);
   await db.$executeRawUnsafe(
     `UPDATE "PresetVersion" SET embedding = $1::vector WHERE id = $2`,
-    `[${vec1.join(',')}]`,
+    `[${makeVec(0).join(',')}]`,
     preset1.versions[0]!.id,
   );
 
@@ -139,10 +141,9 @@ beforeAll(async () => {
     },
     include: { versions: true },
   });
-  const vec2 = makeVec(0.1);
   await db.$executeRawUnsafe(
     `UPDATE "PresetVersion" SET embedding = $1::vector WHERE id = $2`,
-    `[${vec2.join(',')}]`,
+    `[${makeVec(1).join(',')}]`,
     preset2.versions[0]!.id,
   );
 });
@@ -175,11 +176,11 @@ describe('WS9-01: RAG retriever over taxonomy + preset corpus', () => {
   });
 
   it('queryPresetsByVector returns presets ordered by cosine similarity', async () => {
-    // Query vector closest to preset1 (first element = 0.9)
-    const queryVec = makeVec(0.95);
+    // Query with dim=0 unit vector → PRESET_ID1 (dim=0) should be first
+    const queryVec = makeVec(0);
     const results = await queryPresetsByVector(db, queryVec, 5);
     expect(results.length).toBeGreaterThan(0);
-    // First result should be the one with embedding [0.9, 0, 0, ...]
+    // First result should be PRESET_ID1 (only one with non-zero in dim 0)
     expect(results[0]?.presetId).toBe(PRESET_ID1);
     expect(typeof results[0]?.score).toBe('number');
     expect(results[0]?.score).toBeGreaterThanOrEqual(0);
@@ -187,7 +188,7 @@ describe('WS9-01: RAG retriever over taxonomy + preset corpus', () => {
   });
 
   it('queryPresetsByVector returns fewer results than k if not enough presets', async () => {
-    const queryVec = makeVec(0.5);
+    const queryVec = makeVec(0);
     const results = await queryPresetsByVector(db, queryVec, 100);
     // We only seeded 2 presets in this test
     expect(results.length).toBeLessThanOrEqual(100);

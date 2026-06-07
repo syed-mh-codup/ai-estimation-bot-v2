@@ -14,9 +14,9 @@ const DB_URL =
 
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
-function makeVec(first: number): number[] {
+function makeVec(dim: number): number[] {
   const v = new Array<number>(1536).fill(0);
-  v[0] = first;
+  v[dim] = 1.0;
   return v;
 }
 
@@ -120,7 +120,7 @@ describe('WS20-01: Finalise — promote menu items to PresetVersions', () => {
 
 describe('WS20-02: Embeddings stored for promoted presets', () => {
   it('embedPromotedPresets stores embeddings so Archivist can match them', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(0.7)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(400)]);
 
     await embedPromotedPresets(db, promotedPresetIds, mockEmbedding);
 

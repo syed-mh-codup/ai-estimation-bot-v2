@@ -10,9 +10,10 @@ const DB_URL =
 
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
-function makeVec(first: number): number[] {
+// Orthogonal unit vectors: each preset uses a unique dimension so cosine ordering is deterministic
+function makeVec(dim: number): number[] {
   const v = new Array<number>(1536).fill(0);
-  v[0] = first;
+  v[dim] = 1.0;
   return v;
 }
 
@@ -30,11 +31,11 @@ const requirements: Requirement[] = [
 beforeAll(async () => {
   await db.$connect();
 
-  // Seed 3 presets with distinct embeddings
-  for (const [id, first, name] of [
-    [PRESET_ID1, 0.95, 'B2B Checkout Pro'],
-    [PRESET_ID2, 0.5, 'Generic E-commerce'],
-    [PRESET_ID3, 0.1, 'Auth Service'],
+  // Seed 3 presets with orthogonal embeddings (dims 100/200/300 to avoid WS9 overlap)
+  for (const [id, dim, name] of [
+    [PRESET_ID1, 100, 'B2B Checkout Pro'],
+    [PRESET_ID2, 200, 'Generic E-commerce'],
+    [PRESET_ID3, 300, 'Auth Service'],
   ] as [string, number, string][]) {
     const p = await db.preset.create({
       data: {
@@ -70,7 +71,7 @@ beforeAll(async () => {
       },
       include: { versions: true },
     });
-    const vec = makeVec(first);
+    const vec = makeVec(dim);
     await db.$executeRawUnsafe(
       `UPDATE "PresetVersion" SET embedding = $1::vector WHERE id = $2`,
       `[${vec.join(',')}]`,
@@ -89,8 +90,8 @@ afterAll(async () => {
 
 describe('WS11-01: Embed requirements + ANN match against PresetVersion.embedding', () => {
   it('returns top-k presets with scores for a requirement', async () => {
-    // Query vector closest to preset1 (first element = 0.95)
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(0.95)]);
+    // Query with dim=100 → PRESET_ID1 has cosine=1.0; others orthogonal
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
 
     const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 3 };
     const result = await runArchivist(requirements, ctx);
@@ -103,12 +104,12 @@ describe('WS11-01: Embed requirements + ANN match against PresetVersion.embeddin
   });
 
   it('orders results by cosine similarity (closest first)', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(0.95)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
 
     const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 3 };
     const result = await runArchivist(requirements, ctx);
 
-    // First result should have highest score
+    // First result should have highest score (PRESET_ID1 is at dim=100, query is at dim=100)
     expect(result.matches[0]!.presetId).toBe(PRESET_ID1);
     for (let i = 1; i < result.matches.length; i++) {
       expect(result.matches[i - 1]!.score).toBeGreaterThanOrEqual(result.matches[i]!.score);
@@ -116,6 +117,7 @@ describe('WS11-01: Embed requirements + ANN match against PresetVersion.embeddin
   });
 
   it('returns empty matches when requirements list is empty', async () => {
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
     const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding };
     const result = await runArchivist([], ctx);
     expect(result.matches).toHaveLength(0);
@@ -126,7 +128,7 @@ describe('WS11-01: Embed requirements + ANN match against PresetVersion.embeddin
 
 describe('WS11-02: Match payload schema-valid and version-pinned', () => {
   it('each match carries presetId, presetVersion, beHours, feHours, risk, aiAssist', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(0.9)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
 
     const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 2 };
     const result = await runArchivist(requirements, ctx);
@@ -147,7 +149,7 @@ describe('WS11-02: Match payload schema-valid and version-pinned', () => {
 
 describe('WS11-03: Optional LLM re-rank of top-k', () => {
   it('re-rank keeps or improves ordering on labelled fixture', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(0.5)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
     // LLM re-ranks: prefer index 1 (PRESET_ID1) over index 0
     vi.mocked(mockModel.chat).mockResolvedValue(
       JSON.stringify({ reranked: ['1', '0', '2'] }),
@@ -173,7 +175,7 @@ describe('WS11-03: Optional LLM re-rank of top-k', () => {
   });
 
   it('falls back to original order when re-rank fails', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(0.9)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
     vi.mocked(mockModel.chat).mockRejectedValue(new Error('LLM error'));
 
     const ctx: ArchivistContext = {
