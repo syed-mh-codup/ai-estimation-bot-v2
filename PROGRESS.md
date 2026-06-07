@@ -5,7 +5,7 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-07 — WS24-01/02/04/05 COMPLETE. 16/16 e2e pass. Live role invalidation + self-demote guard added._
+_Last updated: 2026-06-08 — Live MCP provider + 45-preset library seeded. OpenRouter key present but NO CREDITS (402)._
 
 ## Where we are
 
@@ -13,7 +13,8 @@ _Last updated: 2026-06-07 — WS24-01/02/04/05 COMPLETE. 16/16 e2e pass. Live ro
 - **WS21-02** ✅ Dashboard lists estimates (title/status/owner/created) → row click opens `/estimates/[id]` detail.
 - **WS22-01** ✅ `/estimates/new` form (title + SOW) → server action creates DRAFT → redirects to detail.
 - **WS24-01** ✅ Users admin (`/admin/users`): list + toggle role. **Live role invalidation** — the `jwt` callback in `auth.ts` (Node) re-reads role from DB each request, so a role change takes effect on the target's session after a plain reload (no re-login). **Self-demote guard** — acting admin's own demote button disabled + action refuses it.
-- **WS24-02** ✅ MCP connectors admin (`/admin/mcp`): add → test (stub sets `lastTestOk`) → enable/disable.
+- **WS24-02** ✅ MCP connectors admin (`/admin/mcp`): add → test → enable/disable. **Test is now LIVE** — `LiveMcpProvider` (packages/providers, official `@modelcontextprotocol/sdk`, Streamable HTTP/SSE) actually connects + lists tools; banner shows tools or error. Credential-free (MCP ≠ LLM).
+- **WS1-10** ✅ Preset library: 45 presets (P01–P45) seeded from `docs/Estimate Presets (ISM).xlsx` via `pnpm --filter @repo/db db:seed:presets` (idempotent). `embedding` + `taxonomyKey` left null (follow-ups). DataVolume None/Medium/High → NONE/LOW/HIGH (ordinal).
 - **WS24-04** ✅ Config admin (`/admin/config`): edit % + JSON → new active `EstimationConfig` version (transactional, single-active preserved).
 - **WS24-05/WS7-03** ✅ Prompts admin (`/admin/prompts` + `/admin/prompts/[kind]`): edit body/model → new active `PromptVersion` (transactional) + version history.
 - **Login restyle** ✅ `/login` matches the app (centered card, styled inputs, loading state). h1 = "AI Estimation".
@@ -34,12 +35,27 @@ Flows: **login → dashboard list → open detail**; **new → create draft → 
 ### What an admin can test now
 - **Users**: flip a user's role; note your own demote button is disabled. (Live invalidation: log a 2nd user in elsewhere, change their role, they reload → nav updates without re-login.)
 - **Config**: change a % or JSON, Save new version → version badge bumps.
-- **MCP**: add a connector → Test (status OK) → Enable.
+- **MCP**: add a connector with a real MCP URL → Test → banner shows connected tools (or the error). Try a Shopify storefront MCP: `https://<store>.myshopify.com/api/mcp`.
 - **Prompts**: open LIBRARIAN → edit body → Save → version bumps, history grows.
 
-## NOT yet built (needs provisioning when we get there)
+## OpenRouter status (2026-06-08)
 
-- **WS22-02** "Run estimate" (agent pipeline) — this is the ONLY near-term piece that needs **OpenRouter API key** (+ embeddings). Not blocked on it for the flow above.
+Key is in `apps/web/.env.local` (`OPENROUTER_API_KEY`). `GET /key` shows a $20 *limit* but
+actual calls return **402 Insufficient credits** — the account has no loaded balance. So
+chat (agent pipeline) AND embeddings are blocked until credits are added at
+https://openrouter.ai/settings/credits. (NOTE: the `limit_remaining` field is a spend cap,
+not balance — don't trust it; the smoke test is the truth.) MCP does NOT use OpenRouter.
+
+## NOT yet built (gated on OpenRouter CREDITS, not just the key)
+
+- **WS22-02** "Run estimate" (agent pipeline) — needs chat credits.
+- **Preset embeddings** (WS1-10 step 6) — needs embedding credits. NOTE: Prisma can't write the
+  `Unsupported("vector")` column via the typed client — use raw SQL with `::vector` (see
+  `packages/db/src/vector.ts` for the read side; `vectorToSql` helper exists). Smoke-test ONE
+  preset before looping 45; OpenRouter embedding routing is unproven.
+- **Taxonomy derivation** (WS1-10 step 3) — credential-free; derive TaxonomyNodes from preset
+  Category + Req.type and set `PresetVersion.taxonomyKey`. Can be done now.
+- **WS24-03 Presets admin** — now has real data to browse; same versioning pattern as Config/Prompts.
 - Full preset-library seed (WS1-10) — xlsx import of 45 presets + embeddings. Current seed is a minimal bootstrap only.
 
 ## DoD status
