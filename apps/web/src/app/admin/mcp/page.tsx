@@ -60,6 +60,17 @@ async function testConnector(formData: FormData) {
   );
 }
 
+async function deleteConnector(formData: FormData) {
+  'use server';
+  await requireAdmin();
+
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+
+  await prisma.mcpConnector.delete({ where: { id } });
+  revalidatePath('/admin/mcp');
+}
+
 export default async function McpAdminPage({
   searchParams,
 }: {
@@ -196,6 +207,16 @@ export default async function McpAdminPage({
                         data-testid={`toggle-connector-${c.id}`}
                       >
                         {c.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                    </form>
+                    <form action={deleteConnector}>
+                      <input type="hidden" name="id" value={c.id} />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                        data-testid={`delete-connector-${c.id}`}
+                      >
+                        Delete
                       </button>
                     </form>
                   </div>
