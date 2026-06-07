@@ -79,6 +79,25 @@ export default async function globalSetup() {
     // The WS24-02 MCP test adds connectors; reset so it starts from empty.
     await prisma.mcpConnector.deleteMany({});
 
+    // Prompts: reset to a clean active v1 each run. The WS24-05 prompt editor
+    // test creates new versions, so delete+recreate keeps the version
+    // deterministic and the single-active invariant intact.
+    await prisma.promptVersion.deleteMany({});
+    await prisma.prompt.deleteMany({});
+    for (const kind of ['LIBRARIAN', 'ARCHITECT'] as const) {
+      await prisma.prompt.create({ data: { kind } });
+      await prisma.promptVersion.create({
+        data: {
+          kind,
+          version: 1,
+          body: `Seeded ${kind} prompt body.`,
+          modelString: 'anthropic/claude-3.5-sonnet',
+          active: true,
+          changeReason: 'e2e bootstrap',
+        },
+      });
+    }
+
     await prisma.estimate.upsert({
       where: { id: SEED_ESTIMATE.id },
       update: {},

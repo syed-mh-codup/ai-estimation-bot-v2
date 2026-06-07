@@ -58,6 +58,19 @@ const SAMPLE_SOWS = [
   },
 ];
 
+const SEED_PROMPTS = [
+  {
+    kind: 'LIBRARIAN' as const,
+    body: 'You are the Librarian. Read the SOW and extract a list of requirements, each mapped to a taxonomy key with a confidence score.',
+    modelString: 'anthropic/claude-3.5-sonnet',
+  },
+  {
+    kind: 'ARCHITECT' as const,
+    body: 'You are the Architect. Synthesise the specialists’ outputs into a coherent Menu Card with a narrative and assumptions.',
+    modelString: 'anthropic/claude-3.5-sonnet',
+  },
+];
+
 async function main() {
   const prisma = new PrismaClient();
   try {
@@ -113,9 +126,30 @@ async function main() {
       });
     }
 
+    // 4. Active prompt per seeded agent kind -------------------------------
+    for (const p of SEED_PROMPTS) {
+      await prisma.prompt.upsert({
+        where: { kind: p.kind },
+        update: {},
+        create: { kind: p.kind },
+      });
+      await prisma.promptVersion.upsert({
+        where: { kind_version: { kind: p.kind, version: 1 } },
+        update: { body: p.body, modelString: p.modelString, active: true },
+        create: {
+          kind: p.kind,
+          version: 1,
+          body: p.body,
+          modelString: p.modelString,
+          active: true,
+          changeReason: 'bootstrap seed',
+        },
+      });
+    }
+
     // eslint-disable-next-line no-console
     console.log(
-      `Seed complete: ${Object.keys(SEED_USERS).length} users, config v${config.version}, ${SAMPLE_SOWS.length} estimates.`,
+      `Seed complete: ${Object.keys(SEED_USERS).length} users, config v${config.version}, ${SAMPLE_SOWS.length} estimates, ${SEED_PROMPTS.length} prompts.`,
     );
   } finally {
     await prisma.$disconnect();
