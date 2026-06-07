@@ -59,10 +59,12 @@ export default async function globalSetup() {
 
     // Estimate.configVersion is required, so an active config must exist before
     // any estimate (seeded here or created via the UI) can be persisted.
-    const config = await prisma.estimationConfig.upsert({
-      where: { version: 1 },
-      update: { active: true },
-      create: {
+    // Reset to a clean single active v1 each run: the WS24-04 config test
+    // creates new versions, so deleting+recreating keeps the starting version
+    // deterministic (and the single-active invariant intact).
+    await prisma.estimationConfig.deleteMany({});
+    const config = await prisma.estimationConfig.create({
+      data: {
         version: 1,
         active: true,
         complexityRules: {},
