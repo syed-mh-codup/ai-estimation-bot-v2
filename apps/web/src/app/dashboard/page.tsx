@@ -8,10 +8,10 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main>
-      <h1>Dashboard</h1>
-      <p>Welcome, {session.user.email}</p>
-      <p>Role: {session.user.role}</p>
-    </main>
+    <div data-testid="dashboard">
+      <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
+      <p className="mt-2 text-gray-600">Welcome, {session.user.email}</p>
+      <p className="text-gray-600">Role: {session.user.role}</p>
+    </div>
   );
 }
