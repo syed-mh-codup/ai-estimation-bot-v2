@@ -16,6 +16,14 @@ export const TEST_USERS = {
     password: 'e2e-estimator-pw',
     role: 'ESTIMATOR' as const,
   },
+  // Dedicated throwaway user whose role the WS24-01 test flips. Kept separate
+  // from admin/estimator so the role-change test can't corrupt fixtures that
+  // other specs depend on. The upsert below resets its role each run.
+  roleTarget: {
+    email: 'e2e-roletarget@example.com',
+    password: 'e2e-roletarget-pw',
+    role: 'ESTIMATOR' as const,
+  },
 };
 
 // A deterministic, pre-seeded estimate so list/detail tests (WS21-02) don't

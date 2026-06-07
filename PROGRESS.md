@@ -5,13 +5,16 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-07 — WS21-02 + WS22-01 COMPLETE. 10/10 e2e pass. Bootstrap seed added._
+_Last updated: 2026-06-07 — WS24-01 COMPLETE. 11/11 e2e pass. Login restyled; auth made port-agnostic (trustHost)._
 
 ## Where we are
 
 - **WS21-01** ✅ App shell: role-aware nav + shadcn theme + admin stubs.
 - **WS21-02** ✅ Dashboard lists estimates (title/status/owner/created) → row click opens `/estimates/[id]` detail.
 - **WS22-01** ✅ `/estimates/new` form (title + SOW) → server action creates DRAFT → redirects to detail.
+- **WS24-01** ✅ Users admin (`/admin/users`): lists users; admin toggles a user's role via server action (re-checks admin via `requireAdmin()`, `revalidatePath`). Role change shows on list immediately; target user's SESSION updates on next login (JWT bakes role at login — see auth.config callbacks).
+- **Login restyle** ✅ `/login` now matches the app (centered card, styled inputs, loading state). h1 = "AI Estimation".
+- **Auth port-agnostic** ✅ `trustHost: true` in `auth.config.ts`; removed hardcoded `AUTH_URL`/`NEXTAUTH_URL` from `apps/web/.env.local`. Origin derived per-request → works on 3000 (manual) and 3001 (e2e); fixed the incognito "redirects to 3001" bug.
 - **Bootstrap seed** ✅ `packages/db/src/seed.ts` (`pnpm --filter @repo/db db:seed`) — idempotent: admin+estimator users, active EstimationConfig v1, 2 sample estimates. Real unblock for manual UI testing (DB starts empty).
 
 ## ✅ The app is now manually testable end-to-end (no external credentials needed)
@@ -31,8 +34,8 @@ Flow: **login → dashboard list → open detail**, and **new → create draft �
 
 ## DoD status
 
-`pnpm --filter web exec playwright test` → **10/10 pass**
-(3 auth + 4 role-shell + 2 list/detail [WS21-02] + 1 create [WS22-01]).
+`pnpm --filter web exec playwright test` → **11/11 pass**
+(3 auth + 4 role-shell + 2 list/detail [WS21-02] + 1 create [WS22-01] + 1 users-admin [WS24-01]).
 apps/web typecheck: only the 5 **pre-existing** TS2742 errors in `auth.ts`/`middleware.ts`
 (next-auth v5 beta inference — tsc-only, do NOT block `next dev`). Zero new errors introduced.
 
@@ -45,10 +48,15 @@ apps/web typecheck: only the 5 **pre-existing** TS2742 errors in `auth.ts`/`midd
 - Routes with Nav: `/dashboard`, `/admin/*`, `/estimates/*` each have a layout rendering `<Nav/>`.
 - Branch: `master` (PRs target `main`). `.claude/settings.json` is untracked (permission allowlist from /fewer-permission-prompts) — intentionally not committed with WS slices.
 
-## NEXT WORKSTREAM: WS22-02 — "Run estimate" trigger + live progress (agent step states)
-depends: WS22-01 (done), WS8-04. **Needs OpenRouter credential to actually run.**
+## NEXT WORKSTREAMS
+
+- **WS22-02** — "Run estimate" trigger + live progress. depends WS22-01 (done), WS8-04.
+  **BLOCKED on OpenRouter credential** (routes through supervisor → model provider). This is the
+  provisioning ask to give the user before wiring the run end-to-end.
+- Credential-free admin flows still open: **WS24-02** (MCP connectors), **WS24-03** (Presets),
+  **WS24-04** (Config), **WS24-05** (Prompt admin link). Any is a next testable flow without a key.
 
 ## Next action on resume
 
-WS21-02 + WS22-01 are committed. If continuing: WS22-02 needs an OpenRouter key — ask the user
-to provision it before wiring the run trigger end-to-end.
+WS24-01 committed. For the run pipeline (WS22-02) ask the user for an OpenRouter key. Otherwise
+continue with another WS24 admin flow (all credential-free, same pattern as WS24-01).
