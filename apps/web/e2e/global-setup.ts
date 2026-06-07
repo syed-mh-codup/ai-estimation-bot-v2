@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { config as loadEnv } from 'dotenv';
 import bcrypt from 'bcryptjs';
 // Import the generated Prisma client directly to avoid workspace-alias
@@ -17,17 +18,61 @@ export const TEST_USERS = {
   },
 };
 
+// A deterministic, pre-seeded estimate so list/detail tests (WS21-02) don't
+// depend on the create flow (WS22-01).
+export const SEED_ESTIMATE = {
+  id: 'e2e-seed-estimate',
+  title: 'E2E Seeded Estimate',
+  sowText: 'A seeded statement of work used by end-to-end tests.',
+};
+
 export default async function globalSetup() {
   const prisma = new PrismaClient();
   try {
-    for (const user of Object.values(TEST_USERS)) {
+    const users: Record<string, { id: string }> = {};
+    for (const [key, user] of Object.entries(TEST_USERS)) {
       const hash = await bcrypt.hash(user.password, 12);
-      await prisma.user.upsert({
+      users[key] = await prisma.user.upsert({
         where: { email: user.email },
         update: { hash, role: user.role },
         create: { email: user.email, hash, role: user.role, name: user.email },
       });
     }
+
+    // Estimate.configVersion is required, so an active config must exist before
+    // any estimate (seeded here or created via the UI) can be persisted.
+    const config = await prisma.estimationConfig.upsert({
+      where: { version: 1 },
+      update: { active: true },
+      create: {
+        version: 1,
+        active: true,
+        complexityRules: {},
+        pmCommunicationTaxPct: 15,
+        baCommunicationTaxPct: 10,
+        qaRegressionBufferPct: 20,
+        infraBaseline: {},
+        changeReason: 'e2e bootstrap',
+      },
+    });
+
+    await prisma.estimate.upsert({
+      where: { id: SEED_ESTIMATE.id },
+      update: {},
+      create: {
+        id: SEED_ESTIMATE.id,
+        title: SEED_ESTIMATE.title,
+        sowText: SEED_ESTIMATE.sowText,
+        sowHash: createHash('sha256').update(SEED_ESTIMATE.sowText).digest('hex'),
+        status: 'DRAFT',
+        configVersion: config.version,
+        taxonomyVersionsPinned: {},
+        promptVersionsPinned: {},
+        modelConfig: {},
+        agentState: {},
+        ownerId: users['estimator']!.id,
+      },
+    });
   } finally {
     await prisma.$disconnect();
   }

@@ -5,49 +5,50 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-07 — WS21-01 COMPLETE. 7/7 e2e pass. All 5 tasks done._
+_Last updated: 2026-06-07 — WS21-02 + WS22-01 COMPLETE. 10/10 e2e pass. Bootstrap seed added._
 
-## Current workstream
+## Where we are
 
-**WS21-01 [SLICE] — App shell: nav, role-aware menu (admin vs estimator), shadcn theme**
-(see `docs/04_WBS.md`, WS21 section)
+- **WS21-01** ✅ App shell: role-aware nav + shadcn theme + admin stubs.
+- **WS21-02** ✅ Dashboard lists estimates (title/status/owner/created) → row click opens `/estimates/[id]` detail.
+- **WS22-01** ✅ `/estimates/new` form (title + SOW) → server action creates DRAFT → redirects to detail.
+- **Bootstrap seed** ✅ `packages/db/src/seed.ts` (`pnpm --filter @repo/db db:seed`) — idempotent: admin+estimator users, active EstimationConfig v1, 2 sample estimates. Real unblock for manual UI testing (DB starts empty).
 
-**DoD:** admin sees admin nav; estimator does not (Playwright test).
+## ✅ The app is now manually testable end-to-end (no external credentials needed)
 
-## State of the working tree (uncommitted, in progress)
+Flow: **login → dashboard list → open detail**, and **new → create draft → detail → back in list**.
 
-Already created before the crash:
-- `apps/web/src/components/nav.tsx` — role-aware nav (admin links gated on `role === 'ADMIN'`). NOT yet rendered anywhere.
-- `apps/web/src/components/ui/button.tsx` — shadcn Button (uses theme tokens not yet defined).
-- `apps/web/src/lib/utils.ts` — `cn()` helper.
-- `apps/web/src/app/globals.css` — only has `--background`/`--foreground`; **missing** shadcn tokens.
-- `apps/web/src/app/layout.tsx` — imports globals.css.
-- Deps added to `apps/web/package.json` (radix, cva, clsx, tailwind-merge, lucide, tailwindcss v4, postcss, autoprefixer, @tailwindcss/forms) and root (`@playwright/test`, `playwright`). **Installed** (verified in node_modules).
+**To boot manually:**
+1. Postgres must be up: `docker compose up -d` (pg on host **5433**, already running this session).
+2. Seed: `pnpm --filter @repo/db db:seed` (idempotent).
+3. Dev server: `pnpm --filter web dev` → defaults to **http://localhost:3000** (NOTE: Playwright uses 3001; manual `next dev` is 3000).
+4. Log in: **admin@codup.co / admin1234** (ADMIN) or **estimator@codup.co / estimator1234** (ESTIMATOR).
 
-## Checklist (tracked as tasks too)
+## NOT yet built (needs provisioning when we get there)
 
-- [x] **1. Tailwind v4 PostCSS** — added `@tailwindcss/postcss` dep + `apps/web/postcss.config.mjs`. Dev server compiles CSS.
-- [x] **2. shadcn theme tokens** — `globals.css` now defines tokens via Tailwind v4 `@theme` (primary/secondary/muted/accent/destructive/border/input/ring + foregrounds). button.tsx variants resolve.
-- [x] **3. Wire Nav into layout** — `apps/web/src/app/dashboard/layout.tsx` renders `<Nav/>`; dashboard page uses a div (no nested `<main>`).
-- [x] **4. Stub admin pages** — `/admin/{users,config,presets,prompts,mcp}` placeholder pages + `admin/layout.tsx` that role-guards (non-admin → /dashboard, unauth → /login) and renders Nav.
-- [x] **5. Playwright test** — `e2e/nav.spec.ts` (4 tests) + `e2e/global-setup.ts` (seeds admin+estimator via Prisma generated client + dotenv). No `packages/db/src/seed.ts` needed — seeding lives in Playwright globalSetup.
+- **WS22-02** "Run estimate" (agent pipeline) — this is the ONLY near-term piece that needs **OpenRouter API key** (+ embeddings). Not blocked on it for the flow above.
+- Full preset-library seed (WS1-10) — xlsx import of 45 presets + embeddings. Current seed is a minimal bootstrap only.
 
-## DoD status: ✅ COMPLETE
-`pnpm --filter web exec playwright test` → **7/7 pass** (3 pre-existing auth + 4 new role-shell: admin-sees-nav, estimator-doesn't, admin-opens-admin-page, estimator-redirected-from-admin).
-apps/web typecheck adds NO new errors (pre-existing TS2742 in auth.ts/middleware.ts from next-auth v5 beta inference — needs explicit type annotations, separate concern, NOT introduced here).
+## DoD status
 
-## NEXT WORKSTREAM: WS21-02 — Dashboard: list estimates with status + owner
-depends: WS21-01 (done), WS1-07. DoD: estimates render; click opens detail (Playwright).
+`pnpm --filter web exec playwright test` → **10/10 pass**
+(3 auth + 4 role-shell + 2 list/detail [WS21-02] + 1 create [WS22-01]).
+apps/web typecheck: only the 5 **pre-existing** TS2742 errors in `auth.ts`/`middleware.ts`
+(next-auth v5 beta inference — tsc-only, do NOT block `next dev`). Zero new errors introduced.
 
 ## Key facts / gotchas
 
-- Web app dev port: **3001** (playwright webServer). DB on **5433** (docker-compose, pgvector pg16).
-- Existing e2e: `apps/web/e2e/auth.spec.ts` (redirect, login page, bad creds — none need a seeded user).
-- Auth: next-auth credentials provider; `session.user.role` is `Role` enum (`ADMIN` | ...). `auth()` from `@/lib/auth`.
-- Path aliases in `apps/web/tsconfig.json`: `@/* -> ./src/*`.
-- Recent commits: WS17–WS20 done. Branch: `master` (PRs target `main`).
+- Manual dev port **3000**; Playwright webServer port **3001**. DB **5433** (docker-compose, pgvector pg16).
+- `Estimate.configVersion` is required → an active `EstimationConfig` must exist before any estimate can be created (seed + e2e global-setup both ensure one).
+- e2e global-setup (`apps/web/e2e/global-setup.ts`) seeds e2e users + config + one fixed estimate (`e2e-seed-estimate`).
+- Create action does NOT import `@repo/core` (its `versioning.ts` has pre-existing Prisma JsonValue type errors that would pollute web typecheck) — it queries the active config directly.
+- Routes with Nav: `/dashboard`, `/admin/*`, `/estimates/*` each have a layout rendering `<Nav/>`.
+- Branch: `master` (PRs target `main`). `.claude/settings.json` is untracked (permission allowlist from /fewer-permission-prompts) — intentionally not committed with WS slices.
+
+## NEXT WORKSTREAM: WS22-02 — "Run estimate" trigger + live progress (agent step states)
+depends: WS22-01 (done), WS8-04. **Needs OpenRouter credential to actually run.**
 
 ## Next action on resume
 
-Start at the first unchecked box. Run `pnpm --filter @repo/... ` ... actually use root scripts:
-`pnpm dev` (web), `pnpm test` (vitest), playwright via `pnpm --filter web exec playwright test`.
+WS21-02 + WS22-01 are committed. If continuing: WS22-02 needs an OpenRouter key — ask the user
+to provision it before wiring the run trigger end-to-end.
