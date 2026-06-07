@@ -16,12 +16,22 @@ export const TEST_USERS = {
     password: 'e2e-estimator-pw',
     role: 'ESTIMATOR' as const,
   },
-  // Dedicated throwaway user whose role the WS24-01 test flips. Kept separate
-  // from admin/estimator so the role-change test can't corrupt fixtures that
-  // other specs depend on. The upsert below resets its role each run.
+  // Dedicated throwaway user whose role the WS24-01 list test flips. Kept
+  // separate from admin/estimator so the role-change test can't corrupt
+  // fixtures that other specs depend on. The upsert below resets its role each
+  // run.
   roleTarget: {
     email: 'e2e-roletarget@example.com',
     password: 'e2e-roletarget-pw',
+    role: 'ESTIMATOR' as const,
+  },
+  // A second throwaway user, used ONLY by the live-session-invalidation test
+  // (which logs this user in and watches their role change without re-login).
+  // Distinct from roleTarget so the two mutating tests don't collide given the
+  // single global-setup run.
+  liveInvalidation: {
+    email: 'e2e-liveinvalidation@example.com',
+    password: 'e2e-liveinvalidation-pw',
     role: 'ESTIMATOR' as const,
   },
 };

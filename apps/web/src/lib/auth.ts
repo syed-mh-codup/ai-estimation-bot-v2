@@ -45,4 +45,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   session: { strategy: 'jwt' },
+  callbacks: {
+    ...authConfig.callbacks,
+    // Override the lightweight (edge) jwt callback with a DB-backed one. This
+    // runs in the Node runtime (prisma available; middleware keeps using the
+    // edge config). Re-reading the role on every request makes role changes
+    // take effect live — e.g. an admin promoting/demoting another user — without
+    // requiring that user to log out and back in.
+    async jwt({ token, user }) {
+      if (user) {
+        token['role'] = (user as { role: Role }).role;
+        token['id'] = user.id;
+        return token;
+      }
+      if (token['id']) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token['id'] as string },
+          select: { role: true },
+        });
+        if (dbUser) {
+          token['role'] = dbUser.role;
+        }
+      }
+      return token;
+    },
+  },
 });

@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
+import { auth } from '@/lib/auth';
 import { requireAdmin } from '@/lib/rbac';
 
 async function setUserRole(formData: FormData) {
@@ -7,11 +8,16 @@ async function setUserRole(formData: FormData) {
 
   // Re-check admin here: the layout guard only protects page render, not a
   // server action (which can be invoked independently).
-  await requireAdmin();
+  const { id: actingUserId } = await requireAdmin();
 
   const userId = formData.get('userId');
   const role = formData.get('role');
   if (typeof userId !== 'string' || (role !== 'ADMIN' && role !== 'ESTIMATOR')) {
+    return;
+  }
+
+  // Guard: an admin cannot demote themselves (would lock them out of admin).
+  if (userId === actingUserId && role !== 'ADMIN') {
     return;
   }
 
@@ -20,6 +26,9 @@ async function setUserRole(formData: FormData) {
 }
 
 export default async function UsersAdminPage() {
+  const session = await auth();
+  const currentUserId = session?.user?.id;
+
   const users = await prisma.user.findMany({
     orderBy: { createdAt: 'asc' },
     select: { id: true, email: true, role: true, createdAt: true },
@@ -42,6 +51,8 @@ export default async function UsersAdminPage() {
         <tbody>
           {users.map((u) => {
             const nextRole = u.role === 'ADMIN' ? 'ESTIMATOR' : 'ADMIN';
+            // Block the acting admin from demoting their own account.
+            const isSelfDemotion = u.id === currentUserId && nextRole !== 'ADMIN';
             return (
               <tr
                 key={u.id}
@@ -70,7 +81,9 @@ export default async function UsersAdminPage() {
                     <input type="hidden" name="role" value={nextRole} />
                     <button
                       type="submit"
-                      className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      disabled={isSelfDemotion}
+                      title={isSelfDemotion ? "You can't demote your own account" : undefined}
+                      className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
                       data-testid={`set-role-${u.id}`}
                     >
                       {nextRole === 'ADMIN' ? 'Make admin' : 'Make estimator'}
