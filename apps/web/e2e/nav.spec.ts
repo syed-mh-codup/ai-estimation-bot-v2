@@ -40,4 +40,18 @@ test.describe('WS21-01: role-aware app shell', () => {
       await expect(page.getByTestId(testid)).toHaveCount(0);
     }
   });
+
+  test('admin can open an admin page', async ({ page }) => {
+    await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
+    await page.goto('/admin/users');
+    await expect(page).toHaveURL(/\/admin\/users/);
+    await expect(page.getByTestId('admin-users')).toBeVisible();
+  });
+
+  test('estimator is redirected away from admin pages', async ({ page }) => {
+    await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
+    await page.goto('/admin/users');
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByTestId('admin-users')).toHaveCount(0);
+  });
 });

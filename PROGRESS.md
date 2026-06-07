@@ -5,7 +5,7 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-07 — DoD MET, 5/5 e2e pass. Polish remaining._
+_Last updated: 2026-06-07 — WS21-01 COMPLETE. 7/7 e2e pass. All 5 tasks done._
 
 ## Current workstream
 
@@ -27,14 +27,17 @@ Already created before the crash:
 ## Checklist (tracked as tasks too)
 
 - [x] **1. Tailwind v4 PostCSS** — added `@tailwindcss/postcss` dep + `apps/web/postcss.config.mjs`. Dev server compiles CSS.
-- [ ] **2. shadcn theme tokens** — (POLISH, not DoD-gating) add tokens to `globals.css` via Tailwind v4 `@theme`. button.tsx depends on these but isn't imported anywhere yet.
+- [x] **2. shadcn theme tokens** — `globals.css` now defines tokens via Tailwind v4 `@theme` (primary/secondary/muted/accent/destructive/border/input/ring + foregrounds). button.tsx variants resolve.
 - [x] **3. Wire Nav into layout** — `apps/web/src/app/dashboard/layout.tsx` renders `<Nav/>`; dashboard page uses a div (no nested `<main>`).
-- [ ] **4. Stub admin pages** — (POLISH) `/admin/{users,config,presets,prompts,mcp}` placeholders so nav links don't 404; role-guard them.
-- [x] **5. Playwright test** — `e2e/nav.spec.ts` (2 tests) + `e2e/global-setup.ts` (seeds admin+estimator via Prisma generated client + dotenv). **DoD MET: 5/5 e2e pass.** No `packages/db/src/seed.ts` needed — seeding lives in Playwright globalSetup.
+- [x] **4. Stub admin pages** — `/admin/{users,config,presets,prompts,mcp}` placeholder pages + `admin/layout.tsx` that role-guards (non-admin → /dashboard, unauth → /login) and renders Nav.
+- [x] **5. Playwright test** — `e2e/nav.spec.ts` (4 tests) + `e2e/global-setup.ts` (seeds admin+estimator via Prisma generated client + dotenv). No `packages/db/src/seed.ts` needed — seeding lives in Playwright globalSetup.
 
-## DoD status: ✅ MET
-`pnpm --filter web exec playwright test` → 5/5 pass (3 pre-existing auth + 2 new role-nav).
-apps/web typecheck adds NO new errors (pre-existing TS2742 in auth.ts/middleware.ts from next-auth v5 beta inference — needs explicit type annotations, separate concern).
+## DoD status: ✅ COMPLETE
+`pnpm --filter web exec playwright test` → **7/7 pass** (3 pre-existing auth + 4 new role-shell: admin-sees-nav, estimator-doesn't, admin-opens-admin-page, estimator-redirected-from-admin).
+apps/web typecheck adds NO new errors (pre-existing TS2742 in auth.ts/middleware.ts from next-auth v5 beta inference — needs explicit type annotations, separate concern, NOT introduced here).
+
+## NEXT WORKSTREAM: WS21-02 — Dashboard: list estimates with status + owner
+depends: WS21-01 (done), WS1-07. DoD: estimates render; click opens detail (Playwright).
 
 ## Key facts / gotchas
 
