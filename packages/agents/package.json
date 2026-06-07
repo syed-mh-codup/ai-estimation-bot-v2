@@ -11,9 +11,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@repo/shared": "workspace:*",
+    "@mastra/core": "^1.41.0",
     "@repo/db": "workspace:*",
     "@repo/providers": "workspace:*",
+    "@repo/shared": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {
