@@ -79,6 +79,40 @@ export default async function globalSetup() {
     // The WS24-02 MCP test adds connectors; reset so it starts from empty.
     await prisma.mcpConnector.deleteMany({});
 
+    // A dedicated preset for the WS24-03 edit test. Reset to a clean active v1
+    // each run (the edit test creates new versions). Scoped to this id so it
+    // never touches the real 45-preset library in the shared DB.
+    await prisma.presetVersion.deleteMany({ where: { presetId: 'E2E-PRESET' } });
+    await prisma.preset.upsert({ where: { id: 'E2E-PRESET' }, update: {}, create: { id: 'E2E-PRESET' } });
+    await prisma.presetVersion.create({
+      data: {
+        presetId: 'E2E-PRESET',
+        version: 1,
+        active: true,
+        category: 'E2E',
+        name: 'E2E Seeded Preset',
+        description: 'A preset used by the WS24-03 admin test.',
+        beHours: 20,
+        feHours: 10,
+        platforms: ['web'],
+        reqType: 'Integration',
+        keywords: ['e2e'],
+        userStoryTags: [],
+        projectSizeFit: ['SMB'],
+        integrationCount: 1,
+        dataVolume: 'LOW',
+        phase: 'CORE',
+        requires: [],
+        blocks: [],
+        canParallel: true,
+        aiAssist: 'LOW',
+        risk: 'LOW',
+        spikeNeeded: false,
+        notes: '',
+        changeReason: 'e2e bootstrap',
+      },
+    });
+
     // Prompts: reset to a clean active v1 each run. The WS24-05 prompt editor
     // test creates new versions, so delete+recreate keeps the version
     // deterministic and the single-active invariant intact.
