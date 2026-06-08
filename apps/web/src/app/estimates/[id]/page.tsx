@@ -338,7 +338,9 @@ export default async function EstimateDetailPage({
                             data-testid={`base-${r}-${item.id}`}
                             className="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40"
                           />
-                          <span className="ml-1 text-gray-400">→ {li?.taxedHours ?? 0}h</span>
+                          <span className="ml-1 text-gray-400" data-testid={`taxed-${r}-${item.id}`}>
+                            → {li?.taxedHours ?? 0}h
+                          </span>
                         </label>
                       );
                     })}

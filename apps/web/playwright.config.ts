@@ -8,6 +8,10 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: 'list',
+  // Generous per-test timeout: the agents-heavy /estimates/[id] route's cold
+  // first-compile under `next dev` can exceed the 30s default when its spec runs
+  // first in the suite (passes in ~11s once warm).
+  timeout: 60_000,
   use: {
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
