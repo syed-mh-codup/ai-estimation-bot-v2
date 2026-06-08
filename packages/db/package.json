@@ -12,7 +12,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx src/seed.ts",
-    "db:seed:presets": "tsx src/seed-presets.ts"
+    "db:seed:presets": "tsx src/seed-presets.ts",
+    "db:seed:taxonomy": "tsx src/seed-taxonomy.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",
