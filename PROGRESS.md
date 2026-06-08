@@ -5,7 +5,23 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-08 — Live MCP provider + 45-preset library seeded. OpenRouter key present but NO CREDITS (402)._
+_Last updated: 2026-06-08 — Full Run pipeline wired (stub-proven) + costed Menu Card UI + taxonomy. AI-testing-ready pending OpenRouter credits._
+
+## ⚡ Ready for AI testing the moment credits land
+
+The whole estimate pipeline is wired and proven offline with a stub LLM. When credits are added
+(https://openrouter.ai/settings/credits):
+1. `docker compose up -d` · `pnpm --filter @repo/db db:seed && pnpm --filter @repo/db db:seed:presets && pnpm --filter @repo/db db:seed:taxonomy`
+2. `pnpm run dev` → http://localhost:3000 · log in `admin@codup.co` / `admin1234`
+3. Open an estimate (or create one) → **Run estimate** → costed Menu Card renders (narrative,
+   assumptions, complexity, per-role + grand totals).
+4. Fine-tune: **Prompts admin** → edit any of the 9 agent prompts → Save (new active version) →
+   re-run the estimate → compare. The run loads the ACTIVE prompt version of each agent.
+
+Pre-credits, clicking Run shows a graceful "Run failed: …402…" banner — that error IS the proof the
+wiring is correct and only awaiting money. What the stub proves: wiring (prompt-load → agent-exec →
+parse → persist → render). What it does NOT prove: prompt quality or that REAL LLM output parses
+against the Zod schemas — that's exactly what the credit window is for.
 
 ## Where we are
 
@@ -14,7 +30,8 @@ _Last updated: 2026-06-08 — Live MCP provider + 45-preset library seeded. Open
 - **WS22-01** ✅ `/estimates/new` form (title + SOW) → server action creates DRAFT → redirects to detail.
 - **WS24-01** ✅ Users admin (`/admin/users`): list + toggle role. **Live role invalidation** — the `jwt` callback in `auth.ts` (Node) re-reads role from DB each request, so a role change takes effect on the target's session after a plain reload (no re-login). **Self-demote guard** — acting admin's own demote button disabled + action refuses it.
 - **WS24-02** ✅ MCP connectors admin (`/admin/mcp`): add → test → enable/disable. **Test is now LIVE** — `LiveMcpProvider` (packages/providers, official `@modelcontextprotocol/sdk`, Streamable HTTP/SSE) actually connects + lists tools; banner shows tools or error. Credential-free (MCP ≠ LLM).
-- **WS1-10** ✅ Preset library: 45 presets (P01–P45) seeded from `docs/Estimate Presets (ISM).xlsx` via `pnpm --filter @repo/db db:seed:presets` (idempotent). `embedding` + `taxonomyKey` left null (follow-ups). DataVolume None/Medium/High → NONE/LOW/HIGH (ordinal).
+- **WS1-10** ✅ Preset library: 45 presets seeded (`db:seed:presets`). Taxonomy derived + presets linked (`db:seed:taxonomy`: 6 categories, 31 leaf nodes). `embedding` still null (needs credits). DataVolume None/Medium/High → NONE/LOW/HIGH (ordinal).
+- **WS22-02** ✅ Run pipeline: `runEstimate()` (packages/agents/run-estimate.ts) orchestrates Librarian→(Archivist)→Complexity→Specialists→Taxation→Architect→Rollup → persists a costed Menu Card. Stub-proven offline (run-estimate.test.ts). Web: estimate detail has **Run estimate** button + results + graceful error. Archivist RAG is gated behind an `embeddingProvider` (off until preset embeddings exist).
 - **WS24-04** ✅ Config admin (`/admin/config`): edit % + JSON → new active `EstimationConfig` version (transactional, single-active preserved).
 - **WS24-05/WS7-03** ✅ Prompts admin (`/admin/prompts` + `/admin/prompts/[kind]`): edit body/model → new active `PromptVersion` (transactional) + version history.
 - **Login restyle** ✅ `/login` matches the app (centered card, styled inputs, loading state). h1 = "AI Estimation".
@@ -46,23 +63,24 @@ chat (agent pipeline) AND embeddings are blocked until credits are added at
 https://openrouter.ai/settings/credits. (NOTE: the `limit_remaining` field is a spend cap,
 not balance — don't trust it; the smoke test is the truth.) MCP does NOT use OpenRouter.
 
-## NOT yet built (gated on OpenRouter CREDITS, not just the key)
+## Gated on OpenRouter CREDITS (wiring done — just needs balance)
 
-- **WS22-02** "Run estimate" (agent pipeline) — needs chat credits.
-- **Preset embeddings** (WS1-10 step 6) — needs embedding credits. NOTE: Prisma can't write the
-  `Unsupported("vector")` column via the typed client — use raw SQL with `::vector` (see
-  `packages/db/src/vector.ts` for the read side; `vectorToSql` helper exists). Smoke-test ONE
-  preset before looping 45; OpenRouter embedding routing is unproven.
-- **Taxonomy derivation** (WS1-10 step 3) — credential-free; derive TaxonomyNodes from preset
-  Category + Req.type and set `PresetVersion.taxonomyKey`. Can be done now.
-- **WS24-03 Presets admin** — now has real data to browse; same versioning pattern as Config/Prompts.
-- Full preset-library seed (WS1-10) — xlsx import of 45 presets + embeddings. Current seed is a minimal bootstrap only.
+- **Run estimate** — wired + stub-proven; clicking Run pre-credits shows the 402 banner.
+- **Preset embeddings** (WS1-10 step 6) → enables Archivist RAG. NOTE: Prisma can't write the
+  `Unsupported("vector")` column via the typed client — use raw SQL `::vector` (`vectorToSql` in
+  `packages/db/src/vector.ts`). Smoke-test ONE embedding before looping 45 (OpenRouter embedding
+  routing is unproven). Then pass an `embeddingProvider` into `runEstimate` to turn on Archivist.
+
+## Still open (credential-free, not yet built)
+
+- **WS24-03 Presets admin** — browse/edit the 45 presets (data + taxonomy now exist; same
+  versioning pattern as Config/Prompts). Most droppable: the run reads presets from the DB already.
+- **Detective** (external MCP/search) is not in the run path yet; findings are `[]`.
 
 ## DoD status
 
-`pnpm --filter web exec playwright test` → **16/16 pass**
-(3 auth + 4 role-shell + 2 list/detail [WS21-02] + 1 create [WS22-01] + 3 users-admin [WS24-01:
-list/self-demote/live-invalidation] + 1 config [WS24-04] + 1 mcp [WS24-02] + 1 prompts [WS24-05]).
+`pnpm --filter web exec playwright test` → **16/16 pass**; agents **111/111**; providers **22/22**.
+Run pipeline proven offline: `run-estimate.test.ts` (costed Menu Card via stub LLM).
 apps/web typecheck: only the 5 **pre-existing** TS2742 errors in `auth.ts`/`middleware.ts`
 (next-auth v5 beta inference — tsc-only, do NOT block `next dev`). Zero new errors introduced.
 
