@@ -39,22 +39,35 @@ export const SEED_USERS = {
   estimator: { email: 'estimator@codup.co', password: 'estimator1234', role: 'ESTIMATOR' as const },
 };
 
+// The WS26-01 sample SOW fixtures (simple / integration-heavy / legacy-heavy),
+// seeded as DRAFT estimates so they're ready to Run from the dashboard. Texts
+// mirror @repo/shared SAMPLE_SOWS (whose expected complexity bands are asserted
+// in agents/fixtures.test.ts).
 const SAMPLE_SOWS = [
   {
-    id: 'seed-estimate-loyalty',
-    title: 'Customer Loyalty Mobile App',
+    id: 'sow-simple',
+    title: 'Marketing Landing Page',
     sowText:
-      'Build a customer loyalty mobile app (iOS + Android) with points accrual, ' +
-      'a rewards catalogue, push notifications, and a basic admin dashboard for ' +
-      'managing campaigns. Integrate with the existing CRM for customer identity.',
+      'Build a single marketing landing page with a hero section, a features list, ' +
+      'testimonials, and a contact form that emails submissions to the team. ' +
+      'No user accounts and no integrations — just a static, responsive page with a small form.',
   },
   {
-    id: 'seed-estimate-portal',
-    title: 'B2B Supplier Onboarding Portal',
+    id: 'sow-integration',
+    title: 'Multi-System Order Hub',
     sowText:
-      'A web portal for onboarding B2B suppliers: multi-step KYC form, document ' +
-      'upload with virus scanning, approval workflow with role-based reviewers, ' +
-      'and an audit trail. Integrate with SAP for supplier master data sync.',
+      'Build an order hub that integrates with five external services. Connect to the ' +
+      'Stripe payment gateway via its API, sync inventory through a third-party SDK, ' +
+      'push fulfilment events to a shipping webhook, pull pricing from an external service API, ' +
+      'and expose a public REST API for partners. Each integration needs retry and rate-limit handling.',
+  },
+  {
+    id: 'sow-legacy',
+    title: 'Mainframe Modernisation',
+    sowText:
+      'Migrate a legacy COBOL mainframe monolith to a modern web stack. This is a ' +
+      'data migration of millions of records from the end-of-life system, including a ' +
+      'rewrite of core business rules currently locked in the mainframe.',
   },
 ];
 
