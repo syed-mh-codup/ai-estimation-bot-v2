@@ -75,18 +75,25 @@ not balance — don't trust it; the smoke test is the truth.) MCP does NOT use O
   `packages/db/src/vector.ts`). Smoke-test ONE embedding before looping 45 (OpenRouter embedding
   routing is unproven). Then pass an `embeddingProvider` into `runEstimate` to turn on Archivist.
 
-## Still open
+## Recently completed (full WBS push)
 
-- Credential-free: **WS25-01/02** (coverage passes to ≥90% on core engines / providers — pure QA
-  metric work). **Detective** (external MCP/search) not yet in the run path (findings `[]`).
-- Credit-gated: preset **embeddings** → Archivist RAG; **WS26-02/03** full-pipeline + validation-gate
-  e2e; **WS27** determinism/cache evals.
-- Deploy: **WS28-01/03/04** (prod env/secrets, deploy target, post-deploy smoke).
+- **WS23** ✅ Menu Card refinement UI (toggle/recompute, edit hours, change-log, export, finalise).
+- **WS25-01/02** ✅ coverage — engines ~100%, providers 96% lines.
+- **WS26-03 / WS27-02** ✅ already covered by `ws15.test` (gate block→unblock) / `ws8.test` (cache-hit=0 calls).
+- **WS26-02 / WS27-01 / WS27-03** ✅ offline (stub-LLM) evals in `agents/evals.test.ts` (pipeline→card→export, determinism ×3, config-change→predictable). Eval vs REAL model output stays credit-gated.
+- **WS28-01** ✅ env/secrets contract (`src/lib/env.ts`, `.env.production.example`).
+- **WS28-03** ✅ `/api/health` (public, DB+env probe). **WS28-04** ✅ `scripts/smoke.sh` (any URL). `docs/DEPLOY.md` runbook.
+
+## Truly still open (need credits or hosting — cannot complete here)
+
+- **Preset embeddings** → Archivist RAG (OpenRouter embedding credits). Pass `embeddingProvider` to `runEstimate` once present.
+- **Real-model evals**: WS26-02/WS27 against actual LLM output (vs the offline stub versions above).
+- **Actual deployment**: WS28-03/04 config + probes + smoke are ready; deploying needs hosting/secrets access. Detective (external MCP/search) not yet in the run path (findings `[]`).
 
 ## DoD status
 
-`pnpm --filter web exec playwright test` → **17/17 pass**; agents **115/115**; providers **22/22**.
-Run pipeline proven offline (`run-estimate.test.ts`) + against real seeded data + real-provider 402.
+`pnpm --filter web exec playwright test` → **19/19 pass**; agents **118/118**; providers **31/31**; core **13/13**.
+Run pipeline proven offline + against real seeded data + real-provider 402.
 apps/web typecheck: only the 5 **pre-existing** TS2742 errors in `auth.ts`/`middleware.ts`
 (next-auth v5 beta inference — tsc-only, do NOT block `next dev`). Zero new errors introduced.
 
