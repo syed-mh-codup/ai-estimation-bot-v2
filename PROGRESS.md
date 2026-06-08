@@ -31,7 +31,11 @@ against the Zod schemas — that's exactly what the credit window is for.
 - **WS24-01** ✅ Users admin (`/admin/users`): list + toggle role. **Live role invalidation** — the `jwt` callback in `auth.ts` (Node) re-reads role from DB each request, so a role change takes effect on the target's session after a plain reload (no re-login). **Self-demote guard** — acting admin's own demote button disabled + action refuses it.
 - **WS24-02** ✅ MCP connectors admin (`/admin/mcp`): add → test → enable/disable. **Test is now LIVE** — `LiveMcpProvider` (packages/providers, official `@modelcontextprotocol/sdk`, Streamable HTTP/SSE) actually connects + lists tools; banner shows tools or error. Credential-free (MCP ≠ LLM).
 - **WS1-10** ✅ Preset library: 45 presets seeded (`db:seed:presets`). Taxonomy derived + presets linked (`db:seed:taxonomy`: 6 categories, 31 leaf nodes). `embedding` still null (needs credits). DataVolume None/Medium/High → NONE/LOW/HIGH (ordinal).
-- **WS22-02** ✅ Run pipeline: `runEstimate()` (packages/agents/run-estimate.ts) orchestrates Librarian→(Archivist)→Complexity→Specialists→Taxation→Architect→Rollup → persists a costed Menu Card. Stub-proven offline (run-estimate.test.ts). Web: estimate detail has **Run estimate** button + results + graceful error. Archivist RAG is gated behind an `embeddingProvider` (off until preset embeddings exist).
+- **WS22-02** ✅ Run pipeline: `runEstimate()` (packages/agents/run-estimate.ts) orchestrates Librarian→(Archivist)→Complexity→Specialists→Taxation→Architect→Rollup → persists a costed Menu Card. Stub-proven offline (run-estimate.test.ts) + verified against real seeded data + real-provider-402. Web: estimate detail has **Run estimate** button + results + graceful error. Archivist RAG gated behind `embeddingProvider`.
+- **WS24-03** ✅ Presets admin (`/admin/presets` + `/admin/presets/[id]`): browse 45 presets, edit → new active version (transactional), version history + field-level diff.
+- **WS26-01** ✅ Sample SOW fixtures (`@repo/shared` SAMPLE_SOWS: simple/integration/legacy) with expected complexity bands (agents/fixtures.test.ts) — seeded as DRAFT estimates ready to Run.
+- **WS25-03** ✅ (already covered) versioning invariants — single-active/immutability/pin reproducibility in core `versioning.test.ts` (WS6-01/02/03); new admin versioning paths covered by their e2e.
+- **WS28-02** ✅ One-command setup: root `pnpm db:setup` (migrate + seed all) / `pnpm db:seed` (chained); `docs/SETUP.md` runbook.
 - **WS24-04** ✅ Config admin (`/admin/config`): edit % + JSON → new active `EstimationConfig` version (transactional, single-active preserved).
 - **WS24-05/WS7-03** ✅ Prompts admin (`/admin/prompts` + `/admin/prompts/[kind]`): edit body/model → new active `PromptVersion` (transactional) + version history.
 - **Login restyle** ✅ `/login` matches the app (centered card, styled inputs, loading state). h1 = "AI Estimation".
@@ -71,16 +75,18 @@ not balance — don't trust it; the smoke test is the truth.) MCP does NOT use O
   `packages/db/src/vector.ts`). Smoke-test ONE embedding before looping 45 (OpenRouter embedding
   routing is unproven). Then pass an `embeddingProvider` into `runEstimate` to turn on Archivist.
 
-## Still open (credential-free, not yet built)
+## Still open
 
-- **WS24-03 Presets admin** — browse/edit the 45 presets (data + taxonomy now exist; same
-  versioning pattern as Config/Prompts). Most droppable: the run reads presets from the DB already.
-- **Detective** (external MCP/search) is not in the run path yet; findings are `[]`.
+- Credential-free: **WS25-01/02** (coverage passes to ≥90% on core engines / providers — pure QA
+  metric work). **Detective** (external MCP/search) not yet in the run path (findings `[]`).
+- Credit-gated: preset **embeddings** → Archivist RAG; **WS26-02/03** full-pipeline + validation-gate
+  e2e; **WS27** determinism/cache evals.
+- Deploy: **WS28-01/03/04** (prod env/secrets, deploy target, post-deploy smoke).
 
 ## DoD status
 
-`pnpm --filter web exec playwright test` → **16/16 pass**; agents **111/111**; providers **22/22**.
-Run pipeline proven offline: `run-estimate.test.ts` (costed Menu Card via stub LLM).
+`pnpm --filter web exec playwright test` → **17/17 pass**; agents **115/115**; providers **22/22**.
+Run pipeline proven offline (`run-estimate.test.ts`) + against real seeded data + real-provider 402.
 apps/web typecheck: only the 5 **pre-existing** TS2742 errors in `auth.ts`/`middleware.ts`
 (next-auth v5 beta inference — tsc-only, do NOT block `next dev`). Zero new errors introduced.
 
