@@ -1,0 +1,49 @@
+import { test, expect, type Page } from '@playwright/test';
+import { TEST_USERS, COSTED_ESTIMATE } from './global-setup';
+
+async function login(page: Page, email: string, password: string) {
+  await page.goto('/login');
+  await page.fill('#email', email);
+  await page.fill('#password', password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard/);
+  await expect(page.getByTestId('nav')).toBeVisible();
+}
+
+const [MI1, MI2] = COSTED_ESTIMATE.itemIds;
+
+test.describe('WS23: Menu Card refinement', () => {
+  test('view, toggle, edit hours, export, finalise', async ({ page }) => {
+    await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
+    await page.goto(`/estimates/${COSTED_ESTIMATE.id}`);
+    await expect(page.getByTestId('estimate-detail')).toBeVisible();
+
+    const totalAll = page.getByTestId('total-all');
+    // 2 items × (DEV30+QA12+PM6+BA6 = 54) = 108.
+    await expect(totalAll).toContainText('108');
+
+    // WS23-02: disable item 1 → totals recompute to 54.
+    await page.getByTestId(`toggle-item-${MI1}`).click();
+    await expect(totalAll).toContainText('54');
+    // Re-enable.
+    await page.getByTestId(`toggle-item-${MI1}`).click();
+    await expect(totalAll).toContainText('108');
+
+    // WS23-03: edit item 2 DEV base hours 30 → 100; taxed DEV (untaxed) = 100.
+    await page.fill(`[data-testid="base-DEV-${MI2}"]`, '100');
+    await page.getByTestId(`save-item-${MI2}`).click();
+    await expect(page.getByTestId(`item-total-${MI2}`)).toContainText('124'); // 100+12+6+6
+    await expect(totalAll).toContainText('178'); // 54 + 124
+    // WS23-04: change log appears once an item is edited.
+    await expect(page.getByTestId('change-log')).toBeVisible();
+
+    // WS23-05: export to Sheets (stub) → link appears.
+    await page.getByTestId('export-sheets').click();
+    await expect(page.getByTestId('sheet-link')).toBeVisible();
+
+    // WS23-06: finalise → status FINALISED, finalise control removed.
+    await page.getByTestId('finalise-estimate').click();
+    await expect(page.getByTestId('estimate-status')).toHaveText('FINALISED');
+    await expect(page.getByTestId('finalise-estimate')).toHaveCount(0);
+  });
+});

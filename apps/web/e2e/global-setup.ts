@@ -44,6 +44,15 @@ export const SEED_ESTIMATE = {
   sowText: 'A seeded statement of work used by end-to-end tests.',
 };
 
+// A pre-costed estimate (REVIEW + Menu Card) so the WS23 refinement UI can be
+// tested without a (credit-gated) run. Menu item ids are fixed so tests target
+// them. Reset fully each run since the test toggles/edits/finalises it.
+export const COSTED_ESTIMATE = {
+  id: 'e2e-costed-estimate',
+  title: 'E2E Costed Estimate',
+  itemIds: ['e2e-mi-1', 'e2e-mi-2'],
+};
+
 export default async function globalSetup() {
   const prisma = new PrismaClient();
   try {
@@ -149,6 +158,53 @@ export default async function globalSetup() {
         ownerId: users['estimator']!.id,
       },
     });
+
+    // Pre-costed estimate for WS23. Full reset each run (the test mutates it).
+    await prisma.roleLineItem.deleteMany({
+      where: { menuItemId: { in: COSTED_ESTIMATE.itemIds } },
+    });
+    await prisma.menuItem.deleteMany({ where: { estimateId: COSTED_ESTIMATE.id } });
+    await prisma.estimate.upsert({
+      where: { id: COSTED_ESTIMATE.id },
+      update: { status: 'REVIEW', narrative: ['Seeded narrative.'], assumptions: ['Seeded assumption.'] },
+      create: {
+        id: COSTED_ESTIMATE.id,
+        title: COSTED_ESTIMATE.title,
+        sowText: 'A pre-costed estimate for refinement-UI tests.',
+        sowHash: createHash('sha256').update(COSTED_ESTIMATE.id).digest('hex'),
+        status: 'REVIEW',
+        configVersion: config.version,
+        complexityScore: 3,
+        taxonomyVersionsPinned: {},
+        promptVersionsPinned: {},
+        modelConfig: {},
+        narrative: ['Seeded narrative.'],
+        assumptions: ['Seeded assumption.'],
+        agentState: {},
+        ownerId: users['estimator']!.id,
+      },
+    });
+    const baseByRole = { DEV: 30, QA: 10, PM: 5, BA: 5 } as const;
+    const taxed = { DEV: 30, QA: 12, PM: 6, BA: 6 } as const; // matches seeded config %s
+    for (const [idx, itemId] of COSTED_ESTIMATE.itemIds.entries()) {
+      await prisma.menuItem.create({
+        data: {
+          id: itemId,
+          estimateId: COSTED_ESTIMATE.id,
+          taxonomyKey: `e2e.item-${idx + 1}`,
+          title: `Costed item ${idx + 1}`,
+          enabled: true,
+          lineItems: {
+            create: (['DEV', 'QA', 'PM', 'BA'] as const).map((role) => ({
+              role,
+              baseHours: baseByRole[role],
+              taxedHours: taxed[role],
+              edited: false,
+            })),
+          },
+        },
+      });
+    }
   } finally {
     await prisma.$disconnect();
   }

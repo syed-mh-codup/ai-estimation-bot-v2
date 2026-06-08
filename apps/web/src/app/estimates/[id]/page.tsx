@@ -1,31 +1,124 @@
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
-import { createModelProvider } from '@repo/providers';
-import { runEstimate } from '@repo/agents';
+import { createModelProvider, StubSheetsProvider } from '@repo/providers';
+import { runEstimate, exportToSheets } from '@repo/agents';
+import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
 
 const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
+type Role = (typeof ROLES)[number];
+
+async function requireSession() {
+  const session = await auth();
+  if (!session?.user) redirect('/login');
+}
+
+/** Tax % per role from the active config (DEV is untaxed). */
+async function taxPercents(): Promise<Record<Role, number>> {
+  const cfg = await prisma.estimationConfig.findFirst({
+    where: { active: true },
+    orderBy: { version: 'desc' },
+  });
+  return {
+    DEV: 0,
+    QA: cfg?.qaRegressionBufferPct ?? 0,
+    PM: cfg?.pmCommunicationTaxPct ?? 0,
+    BA: cfg?.baCommunicationTaxPct ?? 0,
+  };
+}
 
 async function runEstimateAction(formData: FormData) {
   'use server';
-  const session = await auth();
-  if (!session?.user) {
-    redirect('/login');
-  }
+  await requireSession();
   const id = formData.get('id');
   if (typeof id !== 'string') return;
-
   try {
-    const modelProvider = createModelProvider();
-    await runEstimate(id, { db: prisma, modelProvider });
+    await runEstimate(id, { db: prisma, modelProvider: createModelProvider() });
   } catch (err) {
-    // Surface the failure (e.g. OpenRouter 402) instead of a stack trace — this
-    // is exactly the signal that the wiring is correct and only awaiting credits.
     const msg = err instanceof Error ? err.message : String(err);
     redirect(`/estimates/${id}?runError=${encodeURIComponent(msg.slice(0, 400))}`);
   }
   redirect(`/estimates/${id}`);
+}
+
+async function toggleItem(formData: FormData) {
+  'use server';
+  await requireSession();
+  const estimateId = formData.get('estimateId');
+  const menuItemId = formData.get('menuItemId');
+  const enabled = formData.get('enabled') === 'true';
+  if (typeof estimateId !== 'string' || typeof menuItemId !== 'string') return;
+  await prisma.menuItem.update({ where: { id: menuItemId }, data: { enabled } });
+  revalidatePath(`/estimates/${estimateId}`);
+}
+
+async function saveItemHours(formData: FormData) {
+  'use server';
+  await requireSession();
+  const estimateId = formData.get('estimateId');
+  const menuItemId = formData.get('menuItemId');
+  if (typeof estimateId !== 'string' || typeof menuItemId !== 'string') return;
+
+  const pct = await taxPercents();
+  for (const role of ROLES) {
+    const raw = formData.get(`base-${role}`);
+    if (raw == null) continue;
+    const baseHours = Math.max(0, Math.round(Number(raw)) || 0);
+    const taxedHours = Math.round(baseHours * (1 + pct[role] / 100));
+    await prisma.roleLineItem.updateMany({
+      where: { menuItemId, role },
+      data: { baseHours, taxedHours, edited: true },
+    });
+  }
+  revalidatePath(`/estimates/${estimateId}`);
+}
+
+async function exportSheetsAction(formData: FormData) {
+  'use server';
+  await requireSession();
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  const estimate = await prisma.estimate.findUnique({
+    where: { id },
+    include: { menuItems: { include: { lineItems: true } } },
+  });
+  if (!estimate) return;
+
+  const items: MenuItemDTO[] = estimate.menuItems.map((m) => ({
+    id: m.id,
+    taxonomyKey: m.taxonomyKey,
+    title: m.title,
+    enabled: m.enabled,
+    sourcePresetId: m.sourcePresetId ?? undefined,
+    matchScore: m.matchScore ?? undefined,
+    parentItemId: m.parentItemId ?? undefined,
+    lineItems: m.lineItems.map((li) => ({
+      role: li.role,
+      baseHours: li.baseHours,
+      taxedHours: li.taxedHours,
+      notes: li.notes ?? undefined,
+      edited: li.edited,
+    })),
+  }));
+
+  // Sheets provider is a BLOCKED-CREDENTIAL stub: returns a synthetic URL until
+  // GOOGLE_SERVICE_ACCOUNT_JSON is configured.
+  const result = await exportToSheets(id, estimate.title, items, new StubSheetsProvider());
+  await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
+  revalidatePath(`/estimates/${id}`);
+}
+
+async function finaliseAction(formData: FormData) {
+  'use server';
+  await requireSession();
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  // Status -> FINALISED. (Promoting menu items into the preset corpus needs
+  // embeddings, which are credit-gated; see writeback.ts for that path.)
+  await prisma.estimate.update({ where: { id }, data: { status: 'FINALISED' } });
+  revalidatePath(`/estimates/${id}`);
 }
 
 export default async function EstimateDetailPage({
@@ -35,11 +128,7 @@ export default async function EstimateDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ runError?: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) {
-    redirect('/login');
-  }
-
+  await requireSession();
   const { id } = await params;
   const { runError } = await searchParams;
   const estimate = await prisma.estimate.findUnique({
@@ -49,21 +138,26 @@ export default async function EstimateDetailPage({
       menuItems: { include: { lineItems: true }, orderBy: { id: 'asc' } },
     },
   });
+  if (!estimate) notFound();
 
-  if (!estimate) {
-    notFound();
-  }
+  const hours = (itemId: string, role: Role) =>
+    estimate.menuItems.find((m) => m.id === itemId)?.lineItems.find((l) => l.role === role);
 
-  // Roll-up totals per role + grand total (enabled items only).
-  const roleTotals: Record<string, number> = { DEV: 0, QA: 0, PM: 0, BA: 0 };
+  // Roll-up (enabled items only).
+  const roleTotals: Record<Role, number> = { DEV: 0, QA: 0, PM: 0, BA: 0 };
   let grandTotal = 0;
   for (const item of estimate.menuItems) {
     if (!item.enabled) continue;
     for (const li of item.lineItems) {
-      roleTotals[li.role] = (roleTotals[li.role] ?? 0) + li.taxedHours;
-      grandTotal += li.taxedHours;
+      if ((ROLES as readonly string[]).includes(li.role)) {
+        roleTotals[li.role as Role] += li.taxedHours;
+        grandTotal += li.taxedHours;
+      }
     }
   }
+
+  const editedItems = estimate.menuItems.filter((m) => m.lineItems.some((li) => li.edited));
+  const isFinalised = estimate.status === 'FINALISED';
 
   return (
     <div data-testid="estimate-detail">
@@ -86,20 +180,62 @@ export default async function EstimateDetailPage({
         )}
       </div>
       <p className="mt-1 text-sm text-gray-500">
-        Owner: {estimate.owner.email} · Created{' '}
-        {new Date(estimate.createdAt).toLocaleString()} · Config v{estimate.configVersion}
+        Owner: {estimate.owner.email} · Created {new Date(estimate.createdAt).toLocaleString()} ·
+        Config v{estimate.configVersion}
       </p>
 
-      <form action={runEstimateAction} className="mt-4">
-        <input type="hidden" name="id" value={estimate.id} />
-        <button
-          type="submit"
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-          data-testid="run-estimate"
-        >
-          {estimate.menuItems.length > 0 ? 'Re-run estimate' : 'Run estimate'}
-        </button>
-      </form>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <form action={runEstimateAction}>
+          <input type="hidden" name="id" value={estimate.id} />
+          <button
+            type="submit"
+            className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
+            data-testid="run-estimate"
+          >
+            {estimate.menuItems.length > 0 ? 'Re-run estimate' : 'Run estimate'}
+          </button>
+        </form>
+        {estimate.menuItems.length > 0 && (
+          <>
+            <form action={exportSheetsAction}>
+              <input type="hidden" name="id" value={estimate.id} />
+              <button
+                type="submit"
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                data-testid="export-sheets"
+              >
+                Export to Sheets
+              </button>
+            </form>
+            {!isFinalised && (
+              <form action={finaliseAction}>
+                <input type="hidden" name="id" value={estimate.id} />
+                <button
+                  type="submit"
+                  className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800"
+                  data-testid="finalise-estimate"
+                >
+                  Finalise
+                </button>
+              </form>
+            )}
+          </>
+        )}
+      </div>
+
+      {estimate.sheetUrl && (
+        <p className="mt-3 text-sm">
+          <a
+            href={estimate.sheetUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-indigo-700 hover:underline"
+            data-testid="sheet-link"
+          >
+            Open exported spreadsheet ↗
+          </a>
+        </p>
+      )}
 
       {runError && (
         <div
@@ -120,87 +256,133 @@ export default async function EstimateDetailPage({
       </section>
 
       {estimate.narrative.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Narrative</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-800">
-            {estimate.narrative.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </section>
+        <Panel title="Narrative" items={estimate.narrative} />
       )}
-
       {estimate.assumptions.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Assumptions
-          </h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-800">
-            {estimate.assumptions.map((a, i) => (
-              <li key={i}>{a}</li>
-            ))}
-          </ul>
-        </section>
+        <Panel title="Assumptions" items={estimate.assumptions} />
       )}
 
-      {estimate.menuItems.length > 0 ? (
-        <section className="mt-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Menu Card
-          </h2>
-          <table className="mt-2 w-full border-collapse text-sm" data-testid="menu-card">
-            <thead>
-              <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="py-2 font-medium">Item</th>
-                {ROLES.map((r) => (
-                  <th key={r} className="py-2 text-right font-medium">
-                    {r}
-                  </th>
-                ))}
-                <th className="py-2 text-right font-medium">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {estimate.menuItems.map((item) => {
-                const byRole: Record<string, number> = {};
-                let itemTotal = 0;
-                for (const li of item.lineItems) {
-                  byRole[li.role] = li.taxedHours;
-                  itemTotal += li.taxedHours;
-                }
-                return (
-                  <tr key={item.id} className="border-b border-gray-100">
-                    <td className="py-2 text-gray-900">{item.title}</td>
-                    {ROLES.map((r) => (
-                      <td key={r} className="py-2 text-right text-gray-600">
-                        {byRole[r] ?? 0}
-                      </td>
-                    ))}
-                    <td className="py-2 text-right font-medium text-gray-900">{itemTotal}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-gray-300 font-semibold text-gray-900">
-                <td className="py-2">Total (taxed hours)</td>
-                {ROLES.map((r) => (
-                  <td key={r} className="py-2 text-right" data-testid={`total-${r}`}>
-                    {roleTotals[r] ?? 0}
-                  </td>
-                ))}
-                <td className="py-2 text-right" data-testid="total-all">
-                  {grandTotal}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </section>
-      ) : (
+      {estimate.menuItems.length === 0 ? (
         <p className="mt-6 text-sm text-gray-500" data-testid="estimate-not-run">
           This estimate has not been run yet — click “Run estimate” to generate a Menu Card.
         </p>
+      ) : (
+        <section className="mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+              Menu Card
+            </h2>
+            <div className="text-sm text-gray-600" data-testid="rollup-totals">
+              {ROLES.map((r) => (
+                <span key={r} className="ml-3" data-testid={`total-${r}`}>
+                  {r} {roleTotals[r]}
+                </span>
+              ))}
+              <span className="ml-3 font-semibold text-gray-900" data-testid="total-all">
+                Total {grandTotal}h
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {estimate.menuItems.map((item) => {
+              const itemTaxed = item.lineItems.reduce((s, li) => s + li.taxedHours, 0);
+              return (
+                <div
+                  key={item.id}
+                  data-testid={`menu-item-${item.id}`}
+                  className={`rounded-md border p-3 ${
+                    item.enabled ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className={item.parentItemId ? 'pl-4' : ''}>
+                      {item.parentItemId && <span className="text-gray-400">└ </span>}
+                      <span className="font-medium text-gray-900">{item.title}</span>
+                      <span className="ml-2 text-xs text-gray-400">{item.taxonomyKey}</span>
+                      <span className="ml-2 text-xs text-gray-500" data-testid={`item-total-${item.id}`}>
+                        {itemTaxed}h
+                      </span>
+                    </div>
+                    <form action={toggleItem}>
+                      <input type="hidden" name="estimateId" value={estimate.id} />
+                      <input type="hidden" name="menuItemId" value={item.id} />
+                      <input type="hidden" name="enabled" value={(!item.enabled).toString()} />
+                      <button
+                        type="submit"
+                        disabled={isFinalised}
+                        className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                        data-testid={`toggle-item-${item.id}`}
+                      >
+                        {item.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                    </form>
+                  </div>
+
+                  <form action={saveItemHours} className="mt-3 flex flex-wrap items-end gap-3">
+                    <input type="hidden" name="estimateId" value={estimate.id} />
+                    <input type="hidden" name="menuItemId" value={item.id} />
+                    {ROLES.map((r) => {
+                      const li = hours(item.id, r);
+                      return (
+                        <label key={r} className="text-xs text-gray-600">
+                          <span className="mr-1">
+                            {r}
+                            {li?.edited ? ' *' : ''}
+                          </span>
+                          <input
+                            name={`base-${r}`}
+                            type="number"
+                            defaultValue={li?.baseHours ?? 0}
+                            disabled={isFinalised}
+                            data-testid={`base-${r}-${item.id}`}
+                            className="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40"
+                          />
+                          <span className="ml-1 text-gray-400">→ {li?.taxedHours ?? 0}h</span>
+                        </label>
+                      );
+                    })}
+                    <button
+                      type="submit"
+                      disabled={isFinalised}
+                      className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                      data-testid={`save-item-${item.id}`}
+                    >
+                      Save hours
+                    </button>
+                  </form>
+                </div>
+              );
+            })}
+          </div>
+
+          {editedItems.length > 0 && (
+            <div className="mt-6" data-testid="change-log">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                Change log
+              </h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+                {editedItems.map((m) => (
+                  <li key={m.id}>Manually adjusted hours: {m.title}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
       )}
     </div>
+  );
+}
+
+function Panel({ title, items }: { title: string; items: string[] }) {
+  return (
+    <section className="mt-6">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">{title}</h2>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-800">
+        {items.map((t, i) => (
+          <li key={i}>{t}</li>
+        ))}
+      </ul>
+    </section>
   );
 }
