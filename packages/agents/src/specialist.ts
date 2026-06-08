@@ -43,7 +43,7 @@ async function estimateRoleHours(
   input: SpecialistInput,
   ctx: SpecialistContext,
   anchorHours: number,
-): Promise<LLMSpecialistSchema> {
+): Promise<z.infer<typeof LLMSpecialistSchema>> {
   const { menuItem, archivistMatch, detectiveFindings, complexityScore } = input;
 
   const riskFlags = [...new Set(detectiveFindings.flatMap((f) => f.riskFlags))];

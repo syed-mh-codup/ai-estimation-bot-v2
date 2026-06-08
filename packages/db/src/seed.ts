@@ -58,18 +58,48 @@ const SAMPLE_SOWS = [
   },
 ];
 
+// Starting instructions for every agent the pipeline loads. These are sensible
+// defaults to fine-tune from the Prompts admin — the run loads the ACTIVE
+// version of each, so editing one and re-running changes behaviour immediately.
+const MODEL = 'openai/gpt-4o-mini';
 const SEED_PROMPTS = [
   {
     kind: 'LIBRARIAN' as const,
-    body: 'You are the Librarian. Read the SOW and extract a list of requirements, each mapped to a taxonomy key with a confidence score.',
-    modelString: 'anthropic/claude-3.5-sonnet',
+    body: 'You are the Librarian. Decompose the Statement of Work into a list of discrete, buildable requirements. For each, map it to the best-fitting taxonomy key (or null) and assign a confidence 0–1. Respond with JSON only.',
+  },
+  {
+    kind: 'DETECTIVE' as const,
+    body: 'You are the Detective. Investigate external integrations and unknowns in the SOW using available tools. Surface findings, risk flags, and open questions with citations.',
+  },
+  {
+    kind: 'ARCHIVIST' as const,
+    body: 'You are the Archivist. Given extracted requirements, find the most similar historical presets and rerank them by relevance to the current scope.',
+  },
+  {
+    kind: 'SPECIALIST_DEV' as const,
+    body: 'You are the Development estimator. Estimate realistic engineering base hours for the menu item, grounded in the preset anchor, complexity score, and risk flags. Respond with JSON {"baseHours","rationale","assumptions"}.',
+  },
+  {
+    kind: 'SPECIALIST_QA' as const,
+    body: 'You are the QA estimator. Estimate QA/testing base hours for the menu item relative to development scope, complexity, and risk. Respond with JSON {"baseHours","rationale","assumptions"}.',
+  },
+  {
+    kind: 'SPECIALIST_PM' as const,
+    body: 'You are the Project Management estimator. Estimate PM coordination base hours for the menu item. Respond with JSON {"baseHours","rationale","assumptions"}.',
+  },
+  {
+    kind: 'SPECIALIST_BA' as const,
+    body: 'You are the Business Analysis estimator. Estimate BA/requirements base hours for the menu item. Respond with JSON {"baseHours","rationale","assumptions"}.',
   },
   {
     kind: 'ARCHITECT' as const,
-    body: 'You are the Architect. Synthesise the specialists’ outputs into a coherent Menu Card with a narrative and assumptions.',
-    modelString: 'anthropic/claude-3.5-sonnet',
+    body: 'You are the Architect. Synthesise the specialists’ outputs into a coherent Menu Card. Write one approach-narrative sentence per enabled item and collate assumptions. Respond with JSON for the narrative.',
   },
-];
+  {
+    kind: 'SUPERVISOR' as const,
+    body: 'You are the Supervisor. Orchestrate the estimation agents in order, enforce the validation gate, and ensure the output is internally consistent.',
+  },
+].map((p) => ({ ...p, modelString: MODEL }));
 
 async function main() {
   const prisma = new PrismaClient();
@@ -92,9 +122,21 @@ async function main() {
     await prisma.estimationConfig.updateMany({ where: { active: true }, data: { active: false } });
     const configData = {
       active: true,
+      // Shape MUST match the complexity engine's ComplexityRulesSchema
+      // (packages/agents/src/complexity.ts) or a run will fail to parse it.
       complexityRules: {
-        thresholds: { simple: 0, moderate: 40, complex: 100 },
-        weights: { integrationCount: 5, dataVolume: 3, risk: 4 },
+        apiIntegrationThresholds: [
+          { minCount: 0, maxCount: 1, score: 1 },
+          { minCount: 2, maxCount: 3, score: 3 },
+          { minCount: 4, maxCount: 6, score: 4 },
+          { minCount: 7, maxCount: 999, score: 5 },
+        ],
+        legacyKeywords: ['legacy', 'mainframe', 'cobol', 'migration', 'rewrite', 'monolith', 'end-of-life'],
+        legacyScoreBonus: 1.5,
+        dataVolumeMultipliers: { NONE: 1.0, LOW: 1.1, HIGH: 1.5 },
+        aiKeywords: ['machine learning', 'ai assist', 'neural', 'prediction model', 'llm', 'nlp'],
+        aiScoreBonus: 1.3,
+        perItemMultiplierDefault: 1.0,
       },
       pmCommunicationTaxPct: 15,
       baCommunicationTaxPct: 10,

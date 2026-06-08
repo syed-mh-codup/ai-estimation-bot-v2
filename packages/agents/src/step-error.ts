@@ -15,7 +15,7 @@ export type AgentStep =
 export class StepError extends Error {
   constructor(
     public readonly step: AgentStep,
-    public readonly cause: unknown,
+    public override readonly cause: unknown,
     public readonly retriable: boolean = true,
   ) {
     super(

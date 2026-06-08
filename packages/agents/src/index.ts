@@ -1,8 +1,11 @@
 export * from './sow-utils';
 export * from './cache';
-export * from './agent-factory';
+// NOTE: './agent-factory' is intentionally NOT re-exported — it pulls in
+// @mastra/core, which would bloat/break consumers (e.g. the Next.js app) that
+// only need the IModelProvider-based run path. Import it directly where needed.
 export * from './step-error';
 export * from './supervisor';
+export * from './run-estimate';
 export * from './rag-retriever';
 export * from './librarian';
 export * from './detective';

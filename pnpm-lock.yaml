@@ -59,6 +59,9 @@ importers:
       '@radix-ui/react-toast':
         specifier: ^1.2.16
         version: 1.2.16(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@repo/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@repo/core':
         specifier: workspace:*
         version: link:../../packages/core
