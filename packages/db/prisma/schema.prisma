@@ -6,7 +6,11 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
+  // App connections use the (pooled) DATABASE_URL. Migrations need a DIRECT
+  // (non-pooled) connection — on Neon the pooler can't run DDL/advisory locks.
+  // Locally DIRECT_URL can equal DATABASE_URL.
   url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
   extensions = [vector]
 }
 

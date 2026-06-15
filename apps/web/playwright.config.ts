@@ -1,4 +1,14 @@
+import path from 'node:path';
+import { config as loadEnv } from 'dotenv';
 import { defineConfig, devices } from '@playwright/test';
+
+// Load the same env the dev server uses so TEST_DATABASE_URL is available here.
+loadEnv({ path: path.resolve(__dirname, '.env.local') });
+
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+if (!TEST_DB_URL) {
+  throw new Error('TEST_DATABASE_URL must be set (apps/web/.env.local) to run e2e in isolation.');
+}
 
 export default defineConfig({
   testDir: './e2e',
@@ -27,5 +37,8 @@ export default defineConfig({
     url: 'http://localhost:3001',
     reuseExistingServer: !process.env['CI'],
     timeout: 60_000,
+    // Point the app-under-test at the isolated test DB. Next does not override
+    // env vars already present in process.env, so this wins over .env.local.
+    env: { ...process.env, DATABASE_URL: TEST_DB_URL, DIRECT_URL: TEST_DB_URL } as Record<string, string>,
   },
 });

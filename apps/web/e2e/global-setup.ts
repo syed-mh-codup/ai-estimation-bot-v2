@@ -5,9 +5,20 @@ import bcrypt from 'bcryptjs';
 // Import the generated Prisma client directly to avoid workspace-alias
 // resolution issues in Playwright's loader.
 import { PrismaClient } from '../../../packages/db/src/generated/client/index.js';
+import { SEED_PROMPTS } from '../../../packages/db/src/seed-prompts';
 
 // Playwright's setup runs outside Next, so load the same env the dev server uses.
 loadEnv({ path: path.resolve(__dirname, '../.env.local') });
+
+// e2e MUST run against an isolated database — never the dev/main DB. Fail loudly
+// if TEST_DATABASE_URL is missing rather than silently wiping real data.
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+if (!TEST_DB_URL) {
+  throw new Error(
+    'TEST_DATABASE_URL is not set — refusing to run e2e against the dev database. ' +
+      'Set it in apps/web/.env.local to a separate database (or a Neon test branch).',
+  );
+}
 
 export const TEST_USERS = {
   admin: { email: 'e2e-admin@example.com', password: 'e2e-admin-pw', role: 'ADMIN' as const },
@@ -54,7 +65,7 @@ export const COSTED_ESTIMATE = {
 };
 
 export default async function globalSetup() {
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
   try {
     const users: Record<string, { id: string }> = {};
     for (const [key, user] of Object.entries(TEST_USERS)) {
@@ -125,16 +136,19 @@ export default async function globalSetup() {
     // Prompts: reset to a clean active v1 each run. The WS24-05 prompt editor
     // test creates new versions, so delete+recreate keeps the version
     // deterministic and the single-active invariant intact.
+    // Seed the SAME required prompt set as production (all 9 agent kinds), so
+    // the test DB's required data matches main. Delete+recreate at v1 each run
+    // keeps version-number assertions deterministic.
     await prisma.promptVersion.deleteMany({});
     await prisma.prompt.deleteMany({});
-    for (const kind of ['LIBRARIAN', 'ARCHITECT'] as const) {
-      await prisma.prompt.create({ data: { kind } });
+    for (const p of SEED_PROMPTS) {
+      await prisma.prompt.create({ data: { kind: p.kind } });
       await prisma.promptVersion.create({
         data: {
-          kind,
+          kind: p.kind,
           version: 1,
-          body: `Seeded ${kind} prompt body.`,
-          modelString: 'anthropic/claude-3.5-sonnet',
+          body: p.body,
+          modelString: p.modelString,
           active: true,
           changeReason: 'e2e bootstrap',
         },

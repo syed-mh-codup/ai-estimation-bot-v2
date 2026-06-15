@@ -14,6 +14,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from './generated/client/index.js';
+// Required prompt set (side-effect-free) — shared with the e2e global-setup.
+import { SEED_PROMPTS } from './seed-prompts.js';
 
 // tsx does not auto-load .env, and Prisma Client does not load it at runtime.
 // Read packages/db/.env ourselves (dependency-free) if DATABASE_URL is unset.
@@ -71,48 +73,7 @@ const SAMPLE_SOWS = [
   },
 ];
 
-// Starting instructions for every agent the pipeline loads. These are sensible
-// defaults to fine-tune from the Prompts admin — the run loads the ACTIVE
-// version of each, so editing one and re-running changes behaviour immediately.
-const MODEL = 'openai/gpt-4o-mini';
-const SEED_PROMPTS = [
-  {
-    kind: 'LIBRARIAN' as const,
-    body: 'You are the Librarian. Decompose the Statement of Work into a list of discrete, buildable requirements. For each, map it to the best-fitting taxonomy key (or null) and assign a confidence 0–1. Respond with JSON only.',
-  },
-  {
-    kind: 'DETECTIVE' as const,
-    body: 'You are the Detective. Investigate external integrations and unknowns in the SOW using available tools. Surface findings, risk flags, and open questions with citations.',
-  },
-  {
-    kind: 'ARCHIVIST' as const,
-    body: 'You are the Archivist. Given extracted requirements, find the most similar historical presets and rerank them by relevance to the current scope.',
-  },
-  {
-    kind: 'SPECIALIST_DEV' as const,
-    body: 'You are the Development estimator. Estimate realistic engineering base hours for the menu item, grounded in the preset anchor, complexity score, and risk flags. Respond with JSON {"baseHours","rationale","assumptions"}.',
-  },
-  {
-    kind: 'SPECIALIST_QA' as const,
-    body: 'You are the QA estimator. Estimate QA/testing base hours for the menu item relative to development scope, complexity, and risk. Respond with JSON {"baseHours","rationale","assumptions"}.',
-  },
-  {
-    kind: 'SPECIALIST_PM' as const,
-    body: 'You are the Project Management estimator. Estimate PM coordination base hours for the menu item. Respond with JSON {"baseHours","rationale","assumptions"}.',
-  },
-  {
-    kind: 'SPECIALIST_BA' as const,
-    body: 'You are the Business Analysis estimator. Estimate BA/requirements base hours for the menu item. Respond with JSON {"baseHours","rationale","assumptions"}.',
-  },
-  {
-    kind: 'ARCHITECT' as const,
-    body: 'You are the Architect. Synthesise the specialists’ outputs into a coherent Menu Card. Write one approach-narrative sentence per enabled item and collate assumptions. Respond with JSON for the narrative.',
-  },
-  {
-    kind: 'SUPERVISOR' as const,
-    body: 'You are the Supervisor. Orchestrate the estimation agents in order, enforce the validation gate, and ensure the output is internally consistent.',
-  },
-].map((p) => ({ ...p, modelString: MODEL }));
+// (SEED_PROMPTS imported at the top from ./seed-prompts.js)
 
 async function main() {
   const prisma = new PrismaClient();

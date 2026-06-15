@@ -13,7 +13,9 @@
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "pnpm -r typecheck",
     "db:seed": "pnpm --filter @repo/db db:seed && pnpm --filter @repo/db db:seed:presets && pnpm --filter @repo/db db:seed:taxonomy",
-    "db:setup": "pnpm --filter @repo/db exec prisma migrate deploy && pnpm run db:seed"
+    "db:setup": "pnpm --filter @repo/db exec prisma migrate deploy && pnpm run db:seed",
+    "test:e2e:setup": "bash scripts/setup-test-db.sh",
+    "test:e2e": "bash scripts/setup-test-db.sh && pnpm --filter web exec playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
