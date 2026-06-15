@@ -2,13 +2,25 @@ import { z } from 'zod';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+/** Multimodal content parts (OpenRouter chat format). */
+export type TextPart = { type: 'text'; text: string };
+export type ImagePart = { type: 'image_url'; image_url: { url: string } };
+export type FilePart = { type: 'file'; file: { filename: string; file_data: string } };
+export type ContentPart = TextPart | ImagePart | FilePart;
+
+export type ChatMessage = {
+  role: 'system' | 'user' | 'assistant';
+  /** Plain string (text-only, back-compatible) or multimodal content parts. */
+  content: string | ContentPart[];
+};
 
 export type ChatOptions = {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
+  /** OpenRouter plugins, e.g. the PDF `file-parser` (passed through verbatim). */
+  plugins?: unknown[];
 };
 
 export type EmbedOptions = {
@@ -58,6 +70,7 @@ export class OpenRouterModelProvider implements IModelProvider {
       messages: options.messages,
       temperature: options.temperature ?? 0,
       max_tokens: options.maxTokens,
+      ...(options.plugins ? { plugins: options.plugins } : {}),
     });
     const parsed = ChatResponseSchema.parse(response);
     return parsed.choices[0]?.message.content ?? '';

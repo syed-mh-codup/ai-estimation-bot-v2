@@ -245,6 +245,12 @@ model Estimate {
   runStartedAt   DateTime?
   runFinishedAt  DateTime?
 
+  // ── Ingestion progress (uploaded client material → SOW) ──────────────────────
+  ingestStatus RunStatus @default(IDLE)
+  ingestStage  String?
+  ingestPct    Int       @default(0)
+  ingestError  String?
+
   @@index([sowHash])
 }
 

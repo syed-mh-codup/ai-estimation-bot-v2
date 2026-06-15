@@ -5,7 +5,34 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-08 — Full Run pipeline wired (stub-proven) + costed Menu Card UI + taxonomy. AI-testing-ready pending OpenRouter credits._
+_Last updated: 2026-06-15 — OpenRouter CREDITS ARE LIVE. Background run w/ reload-safe progress UI + multimodal document ingestion (PDF/DOCX/images→SOW) both shipped & live-verified._
+
+## 2026-06-15 session — run UX + document ingestion
+
+OpenRouter credits landed (live chat + embeddings work now; the old 402 is gone).
+Two user-driven features shipped this session:
+
+- **Background run + reload-safe progress** (commit ab4aeb1). Run no longer blocks
+  synchronously with zero feedback. `Estimate.runStatus/runStage/runPct/runError` +
+  `RunStatus` enum; `runEstimate` takes an `onProgress(stage,pct)` hook; `POST
+  /api/estimates/[id]/run` fires it in the background (guards double-run) and `GET
+  .../status` is polled by the `RunControls` client component — button disabled
+  while RUNNING, live stage + bar, refreshes into the Menu Card on done. Survives a
+  hard reload (all state DB-backed).
+- **Multimodal ingestion**. `/estimates/new` now accepts PDF / DOCX / images
+  (png/jpg/webp) / text + paste. `packages/agents/ingest.ts` parses each to text;
+  `POST /api/estimates/ingest-create` creates the DRAFT instantly then ingests in
+  the background with polled progress (`ingestStatus/Stage/Pct/Error`). Provider
+  extended to multimodal `content` parts + `plugins` passthrough.
+  - **Model gotcha (live-verified):** OpenAI models read IMAGES but REFUSE the
+    file-parser's parsed PDF text; Anthropic models read parsed PDFs but reject
+    image input. So images → `openai/gpt-4o-mini` (vision); PDFs →
+    `anthropic/claude-3.5-haiku` + `file-parser` engine `mistral-ocr` (OCR, reads
+    scans/diagrams), fallback `pdf-text`. Both proven end-to-end against the live key.
+  - DOCX: mammoth text + embedded images vision-transcribed.
+
+NOTE: the background jobs are detached promises — fine for `next dev`/`next start`
+(long-lived Node); a real deploy (serverless/multi-instance) needs a queue.
 
 ## ⚡ Ready for AI testing the moment credits land
 
