@@ -2,10 +2,11 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
-import { createModelProvider, StubSheetsProvider } from '@repo/providers';
-import { runEstimate, exportToSheets } from '@repo/agents';
+import { StubSheetsProvider } from '@repo/providers';
+import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
+import { RunControls } from './RunControls';
 
 const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
 type Role = (typeof ROLES)[number];
@@ -27,20 +28,6 @@ async function taxPercents(): Promise<Record<Role, number>> {
     PM: cfg?.pmCommunicationTaxPct ?? 0,
     BA: cfg?.baCommunicationTaxPct ?? 0,
   };
-}
-
-async function runEstimateAction(formData: FormData) {
-  'use server';
-  await requireSession();
-  const id = formData.get('id');
-  if (typeof id !== 'string') return;
-  try {
-    await runEstimate(id, { db: prisma, modelProvider: createModelProvider() });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    redirect(`/estimates/${id}?runError=${encodeURIComponent(msg.slice(0, 400))}`);
-  }
-  redirect(`/estimates/${id}`);
 }
 
 async function toggleItem(formData: FormData) {
@@ -123,14 +110,11 @@ async function finaliseAction(formData: FormData) {
 
 export default async function EstimateDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ runError?: string }>;
 }) {
   await requireSession();
   const { id } = await params;
-  const { runError } = await searchParams;
   const estimate = await prisma.estimate.findUnique({
     where: { id },
     include: {
@@ -184,17 +168,17 @@ export default async function EstimateDetailPage({
         Config v{estimate.configVersion}
       </p>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <form action={runEstimateAction}>
-          <input type="hidden" name="id" value={estimate.id} />
-          <button
-            type="submit"
-            className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-            data-testid="run-estimate"
-          >
-            {estimate.menuItems.length > 0 ? 'Re-run estimate' : 'Run estimate'}
-          </button>
-        </form>
+      <div className="mt-4 flex flex-wrap items-start gap-2">
+        <RunControls
+          estimateId={estimate.id}
+          hasMenu={estimate.menuItems.length > 0}
+          initial={{
+            status: estimate.runStatus,
+            stage: estimate.runStage,
+            pct: estimate.runPct,
+            error: estimate.runError,
+          }}
+        />
         {estimate.menuItems.length > 0 && (
           <>
             <form action={exportSheetsAction}>
@@ -235,15 +219,6 @@ export default async function EstimateDetailPage({
             Open exported spreadsheet ↗
           </a>
         </p>
-      )}
-
-      {runError && (
-        <div
-          data-testid="run-error"
-          className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
-          <span className="font-medium">Run failed:</span> {runError}
-        </div>
       )}
 
       <section className="mt-6">

@@ -10,11 +10,20 @@ import { applyTaxationToMenuItems } from './taxation';
 import { runArchitect } from './architect';
 import { computeRollup } from './rollup';
 
+/** A single progress tick: a human-readable stage label + 0–100 percentage. */
+export type RunProgress = { stage: string; pct: number };
+
 export type RunEstimateDeps = {
   db: PrismaClient;
   modelProvider: IModelProvider;
   /** Optional: enables Archivist preset RAG (needs preset embeddings). */
   embeddingProvider?: IEmbeddingProvider;
+  /**
+   * Optional progress callback, fired at each pipeline stage. The web layer
+   * persists these to the Estimate row so the UI can poll a reload-safe status.
+   * Awaited so a slow DB write can't let two ticks interleave out of order.
+   */
+  onProgress?: (p: RunProgress) => void | Promise<void>;
 };
 
 export type RunEstimateResult = {
@@ -38,6 +47,13 @@ export async function runEstimate(
   deps: RunEstimateDeps,
 ): Promise<RunEstimateResult> {
   const { db, modelProvider } = deps;
+  // Progress is awaited so ticks can't interleave; pct weights are coarse but
+  // monotonic so the UI bar only ever moves forward.
+  const report = async (stage: string, pct: number): Promise<void> => {
+    if (deps.onProgress) await deps.onProgress({ stage, pct });
+  };
+
+  await report('Loading prompts & config', 2);
   const est = await db.estimate.findUniqueOrThrow({ where: { id: estimateId } });
 
   // ── Active prompts (one per agent kind) ─────────────────────────────────────
@@ -60,6 +76,7 @@ export async function runEstimate(
   const taxonomy = await loadTaxonomyEntries(db);
 
   // ── 1. Librarian: SOW → requirements ────────────────────────────────────────
+  await report('Analysing scope (Librarian)', 10);
   const lib = await runLibrarian(est.sowText, taxonomy, {
     modelProvider,
     modelString: libP.modelString,
@@ -79,6 +96,7 @@ export async function runEstimate(
   }
 
   // ── 3. Complexity (deterministic) ───────────────────────────────────────────
+  await report('Scoring complexity', 25);
   const complexity = runComplexityScorecard(lib.requirements, [], config.complexityRules);
 
   // ── 4. Menu items from requirements + 5. Specialist council per item ────────
@@ -90,7 +108,13 @@ export async function runEstimate(
 
   const allSpecialistOutputs: SpecialistOutput[] = [];
   const draftMenuItems: MenuItem[] = [];
+  const reqCount = lib.requirements.length;
   for (let i = 0; i < lib.requirements.length; i += 1) {
+    // Specialists span 25→85% of the bar, spread across the requirement count.
+    await report(
+      `Estimating items (Specialists ${i + 1}/${reqCount})`,
+      reqCount > 0 ? Math.round(25 + (60 * i) / reqCount) : 25,
+    );
     const req = lib.requirements[i]!;
     const taxonomyKey = req.taxonomyKey ?? 'uncategorised';
     const stub = { id: `mi-${i}`, taxonomyKey, title: req.text.slice(0, 120) };
@@ -133,6 +157,7 @@ export async function runEstimate(
   });
 
   // ── 7. Architect: narrative + assumptions + assembled menu card ─────────────
+  await report('Writing narrative (Architect)', 88);
   const arch = await runArchitect({
     ctx: { modelProvider, modelString: archP.modelString, instructions: archP.body },
     requirements: lib.requirements,
@@ -145,6 +170,7 @@ export async function runEstimate(
   computeRollup(arch.menuItems);
 
   // ── 9. Persist a costed Menu Card + run state ───────────────────────────────
+  await report('Saving menu card', 95);
   await db.$transaction(async (tx) => {
     const existing = await tx.menuItem.findMany({
       where: { estimateId },

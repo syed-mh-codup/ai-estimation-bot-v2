@@ -62,6 +62,13 @@ enum EstimateStatus {
   FINALISED
 }
 
+enum RunStatus {
+  IDLE
+  RUNNING
+  DONE
+  FAILED
+}
+
 enum RoleKind {
   DEV
   QA
@@ -229,6 +236,14 @@ model Estimate {
   menuItems              MenuItem[]
   sheetUrl               String?
   createdAt              DateTime       @default(now())
+
+  // ── Run progress (background job + reload-safe polling) ──────────────────────
+  runStatus      RunStatus @default(IDLE)
+  runStage       String?
+  runPct         Int       @default(0)
+  runError       String?
+  runStartedAt   DateTime?
+  runFinishedAt  DateTime?
 
   @@index([sowHash])
 }
