@@ -6,5 +6,6 @@ export default defineConfig({
     environment: 'node',
     root: resolve(__dirname, '.'),
     include: ['packages/*/src/**/*.test.ts', 'apps/*/src/**/*.test.ts'],
+    setupFiles: [resolve(__dirname, 'vitest.setup.ts')],
   },
 });

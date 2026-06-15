@@ -7,6 +7,32 @@
 
 _Last updated: 2026-06-15 — OpenRouter CREDITS ARE LIVE. Background run w/ reload-safe progress UI + multimodal document ingestion (PDF/DOCX/images→SOW) both shipped & live-verified._
 
+## 2026-06-15 (latest) — Inngest durable jobs (serverless-ready)
+
+Run + ingest are now durable **Inngest** functions instead of detached promises
+(which die on serverless). Proven end-to-end against Neon via the Inngest dev
+server: a real `sow-simple` run went Librarian→Complexity→Specialists 1–10→
+Architect→Saving→**DONE** with factual per-stage status, persisting a 10-item
+Menu Card. (This also finally proved REAL LLM output parses the Zod schemas.)
+
+- `apps/web/src/lib/inngest.ts` client; `app/api/inngest/route.ts` serve endpoint
+  (public in auth.config); `src/inngest/functions.ts` = `estimate-run` +
+  `estimate-ingest`, each with onProgress→DB status + onFailure→FAILED.
+- Triggers now emit events: `POST /run` and `/ingest-create` send Inngest events.
+- Uploaded files persisted to `UploadedFile` (bytea) so the ingest function can
+  read bytes after the request returns (serverless-safe). Deleted after ingest.
+- **Run-pipeline fix:** the persist `$transaction` got `{ maxWait:15s, timeout:60s }`
+  — Neon latency was blowing Prisma's default 5s tx timeout.
+- **Test-infra fix:** agents DB-integration tests + root suite now pin
+  `DATABASE_URL` to LOCAL via `vitest.setup.ts` (Prisma auto-loads packages/db/.env
+  = Neon, which was making integration tests hit Neon and time out — and earlier
+  polluted Neon prompts with `stub/model`; re-seed fixed it).
+- pnpm gate: `protobufjs: false` in pnpm-workspace.yaml (inngest transitive dep).
+
+**Local dev now needs two processes:** `pnpm dev` (app) + `pnpm dev:inngest`
+(Inngest dev server) with `INNGEST_DEV=1` in apps/web/.env.local. **Prod (serverless):**
+set `INNGEST_EVENT_KEY` + `INNGEST_SIGNING_KEY`.
+
 ## 2026-06-15 (later) — Neon + e2e isolation
 
 - **DB is on Neon now.** App runtime → POOLED endpoint (`-pooler`, `&pgbouncer=true`);

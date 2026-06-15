@@ -171,7 +171,11 @@ export async function runEstimate(
 
   // ── 9. Persist a costed Menu Card + run state ───────────────────────────────
   await report('Saving menu card', 95);
-  await db.$transaction(async (tx) => {
+  // Many sequential writes (per menu item + line items). Over a remote DB (Neon)
+  // network latency pushes this past Prisma's default 5s interactive-transaction
+  // timeout, so raise it generously.
+  await db.$transaction(
+    async (tx) => {
     const existing = await tx.menuItem.findMany({
       where: { estimateId },
       select: { id: true },
@@ -218,7 +222,9 @@ export async function runEstimate(
         },
       },
     });
-  });
+    },
+    { maxWait: 15_000, timeout: 60_000 },
+  );
 
   return {
     estimateId,

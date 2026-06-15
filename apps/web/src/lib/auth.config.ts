@@ -15,7 +15,8 @@ export const authConfig: NextAuthConfig = {
       const isPublic =
         nextUrl.pathname === '/login' ||
         nextUrl.pathname === '/api/health' ||
-        nextUrl.pathname.startsWith('/api/auth');
+        nextUrl.pathname.startsWith('/api/auth') ||
+        nextUrl.pathname.startsWith('/api/inngest');
 
       if (isPublic) return true;
       if (!isLoggedIn) return false;

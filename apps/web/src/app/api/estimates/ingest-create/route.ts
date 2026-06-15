@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@repo/db';
-import { createModelProvider } from '@repo/providers';
-import { ingestFiles, type IngestFile } from '@repo/agents';
 import { auth } from '@/lib/auth';
+import { inngest } from '@/lib/inngest';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,10 +10,10 @@ export const dynamic = 'force-dynamic';
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
- * Create a DRAFT estimate from pasted text and/or uploaded client material
- * (PDF/DOCX/images/text). Returns the new id immediately; if files were
- * uploaded, ingestion (vision/OCR — slow) runs in the background and appends the
- * parsed text to the SOW. The client polls GET /[id]/ingest-status.
+ * Create a DRAFT estimate from pasted text and/or uploaded client material.
+ * Uploaded bytes are persisted to UploadedFile (so the durable ingest function
+ * can read them after this request returns — required on serverless), then an
+ * Inngest event triggers background parsing. Returns the new id immediately.
  */
 export async function POST(req: Request) {
   const session = await auth();
@@ -30,13 +29,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'provide pasted text or at least one file' }, { status: 400 });
   }
 
-  // Read file bytes NOW — the File objects are only valid during this request;
-  // the background task runs after we've returned.
-  const files: IngestFile[] = await Promise.all(
+  // Read bytes now — the File objects are only valid during this request.
+  const files = await Promise.all(
     uploads.map(async (f) => ({
       filename: f.name,
       mimeType: f.type || 'application/octet-stream',
-      bytes: new Uint8Array(await f.arrayBuffer()),
+      bytes: Buffer.from(await f.arrayBuffer()),
     })),
   );
 
@@ -62,39 +60,16 @@ export async function POST(req: Request) {
       ingestStatus: hasFiles ? 'RUNNING' : 'IDLE',
       ingestStage: hasFiles ? 'Queued' : null,
       ingestPct: 0,
+      uploadedFiles: hasFiles
+        ? { create: files.map((f) => ({ filename: f.filename, mimeType: f.mimeType, bytes: f.bytes })) }
+        : undefined,
     },
     select: { id: true },
   });
 
-  if (hasFiles) void executeIngest(estimate.id, pasted, files);
+  if (hasFiles) {
+    await inngest.send({ name: 'estimate/ingest.requested', data: { estimateId: estimate.id } });
+  }
 
   return NextResponse.json({ id: estimate.id, ingesting: hasFiles }, { status: 202 });
-}
-
-async function executeIngest(id: string, pasted: string, files: IngestFile[]): Promise<void> {
-  try {
-    const { text } = await ingestFiles(files, {
-      modelProvider: createModelProvider(),
-      onProgress: async ({ stage, pct }) => {
-        await prisma.estimate.update({ where: { id }, data: { ingestStage: stage, ingestPct: pct } });
-      },
-    });
-    const combined = [pasted, text].filter((s) => s.trim().length > 0).join('\n\n');
-    await prisma.estimate.update({
-      where: { id },
-      data: {
-        sowText: combined,
-        sowHash: sha(combined),
-        ingestStatus: 'DONE',
-        ingestStage: 'Done',
-        ingestPct: 100,
-      },
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await prisma.estimate.update({
-      where: { id },
-      data: { ingestStatus: 'FAILED', ingestStage: 'Failed', ingestError: msg.slice(0, 500) },
-    });
-  }
 }

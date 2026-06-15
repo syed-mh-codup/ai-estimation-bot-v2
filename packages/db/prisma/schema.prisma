@@ -238,6 +238,7 @@ model Estimate {
   ownerId                String
   owner                  User           @relation(fields: [ownerId], references: [id])
   menuItems              MenuItem[]
+  uploadedFiles          UploadedFile[]
   sheetUrl               String?
   createdAt              DateTime       @default(now())
 
@@ -256,6 +257,22 @@ model Estimate {
   ingestError  String?
 
   @@index([sowHash])
+}
+
+// Transient storage for uploaded client material so the background ingestion
+// function (Inngest) can read the bytes after the upload request returns — the
+// upload handler can't hold them in memory on serverless. Rows are deleted once
+// ingestion completes.
+model UploadedFile {
+  id         String   @id @default(cuid())
+  estimateId String
+  estimate   Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  filename   String
+  mimeType   String
+  bytes      Bytes
+  createdAt  DateTime @default(now())
+
+  @@index([estimateId])
 }
 
 model MenuItem {
