@@ -7,6 +7,23 @@
 
 _Last updated: 2026-06-15 — OpenRouter CREDITS ARE LIVE. Background run w/ reload-safe progress UI + multimodal document ingestion (PDF/DOCX/images→SOW) both shipped & live-verified._
 
+## 2026-06-15 (later) — Neon + e2e isolation
+
+- **DB is on Neon now.** App runtime → POOLED endpoint (`-pooler`, `&pgbouncer=true`);
+  CLI/migrate/seed → DIRECT endpoint. Prisma datasource gained `directUrl`. Verified:
+  migrate deploy + full seed (9 prompts, 45 presets, taxonomy, config) ran clean,
+  pgvector installed, pooled connectivity works, app boots + `/api/health` = ok.
+  Env lives in git-ignored `apps/web/.env.local` (pooled+direct) and
+  `packages/db/.env` (direct). Local docker pg now only used by e2e.
+- **e2e is isolated** (commit 228730e). Runs against `TEST_DATABASE_URL`
+  (`ai_estimation_test` locally; can be a Neon branch). `global-setup` THROWS if it's
+  unset, so it can never wipe the dev/main DB again. It seeds the SAME 9 prompts as
+  prod (shared `packages/db/src/seed-prompts.ts`). `pnpm test:e2e` provisions +
+  runs. Verified 19/19 in ~1min with dev DB untouched.
+- **Still TODO: Inngest** — serverless deploy chosen, so detached promises MUST become
+  durable Inngest functions (run + ingest) with step-level status. Needs INNGEST_EVENT_KEY
+  + INNGEST_SIGNING_KEY for prod; local uses `npx inngest-cli dev`.
+
 ## 2026-06-15 session — run UX + document ingestion
 
 OpenRouter credits landed (live chat + embeddings work now; the old 402 is gone).
