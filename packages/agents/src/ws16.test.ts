@@ -213,6 +213,49 @@ describe('runArchitect — narrative + card assembly', () => {
     expect(result.consistencyFlags.length).toBeGreaterThan(0);
   });
 
+  it('surfaces the strongest non-none Archivist match as the card sourcePresetId/matchScore', async () => {
+    mockArchitectResponse(['Sentence.'], [{ menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core' }]);
+
+    const archivistMatches = [
+      {
+        requirementId: 'REQ-001',
+        taxonomyKey: 'b2b.checkout',
+        coverage: 'full' as const,
+        presetId: 'P32',
+        presetVersion: 1,
+        score: 0.82,
+        beHours: 20,
+        feHours: 10,
+        adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
+        rationale: 'Closely matches preset "B2B cart logic" (P32).',
+        sequencing: { requires: [], blocks: [], canParallel: true },
+      },
+    ];
+
+    const result = await runArchitect({ ctx, requirements, archivistMatches, specialistOutputs });
+    expect(result.menuItems[0]?.sourcePresetId).toBe('P32');
+    expect(result.menuItems[0]?.matchScore).toBe(0.82);
+  });
+
+  it('leaves sourcePresetId/matchScore unset when every requirement on the card is coverage:none', async () => {
+    mockArchitectResponse(['Sentence.'], [{ menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core' }]);
+
+    const archivistMatches = [
+      {
+        requirementId: 'REQ-001',
+        taxonomyKey: null,
+        coverage: 'none' as const,
+        adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
+        rationale: 'No historical analogue found.',
+        sequencing: { requires: [], blocks: [], canParallel: true },
+      },
+    ];
+
+    const result = await runArchitect({ ctx, requirements, archivistMatches, specialistOutputs });
+    expect(result.menuItems[0]?.sourcePresetId).toBeUndefined();
+    expect(result.menuItems[0]?.matchScore).toBeUndefined();
+  });
+
   it('produces no menu cards (and skips the LLM call) when there are no line items', async () => {
     const result = await runArchitect({ ctx, requirements, archivistMatches: [], specialistOutputs: [] });
     expect(result.menuItems).toHaveLength(0);

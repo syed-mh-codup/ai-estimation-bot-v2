@@ -19,7 +19,14 @@ export type SpecialistContext = {
  */
 const LLMLineItemSchema = z.object({
   description: z.string(),
-  hours: z.number().min(0.25).max(FOUR_HOUR_CAP),
+  // No min/max here despite the four-hour rule: the model sometimes emits a
+  // 0h "not needed" placeholder instead of omitting the item, or exceeds the
+  // cap on a genuinely large unit of work despite the explicit instruction
+  // not to. Both are normalized below (0h items dropped, oversized items
+  // split into <=4h chunks) rather than rejected — a hard bound here would
+  // kill the whole run on an otherwise well-formed response instead of
+  // actually enforcing the four-hour rule.
+  hours: z.number().min(0),
   complexity: ComplexityTierSchema,
   aiAssistApplied: z.boolean().default(false),
   dependsOn: z.array(z.number().int().min(0)).default([]),
@@ -79,11 +86,28 @@ Respond with JSON only, matching exactly this shape:
   ],
   "assumptions": ["..."]
 }
-HARD CAP: no item's "hours" may exceed 4.0. If a unit of work needs more, split it into multiple items.`;
+HARD CAP: no item's "hours" may exceed 4.0. If a unit of work needs more, split it into multiple items.
+If a category of work genuinely isn't needed for this requirement (e.g. no integration to test), OMIT it from "lineItems" entirely — do not include a 0-hour placeholder item.`;
 }
 
 function snapToQuarterHour(hours: number): number {
   return Math.max(0.25, Math.min(FOUR_HOUR_CAP, Math.round(hours * 4) / 4));
+}
+
+/**
+ * Split a total that exceeds FOUR_HOUR_CAP into N<=4h, >=0.25h chunks
+ * (N = ceil(total/cap)), roughly evenly, snapped to quarter-hour granularity.
+ * The last chunk absorbs any rounding drift so the chunks still sum close
+ * to the original total.
+ */
+function splitOversizedHours(totalHours: number): number[] {
+  const n = Math.ceil(totalHours / FOUR_HOUR_CAP);
+  const chunks = Array.from({ length: n }, () => snapToQuarterHour(totalHours / n));
+  const drift = Math.round((totalHours - chunks.reduce((s, h) => s + h, 0)) * 4) / 4;
+  if (drift !== 0) {
+    chunks[n - 1] = snapToQuarterHour((chunks[n - 1] ?? 0.25) + drift);
+  }
+  return chunks;
 }
 
 /**
@@ -129,19 +153,66 @@ export async function runSpecialist(
   };
 
   const rawLineItems = llmResult.lineItems as unknown as LLMLineItem[];
-  const lineItems: SpecialistLineItem[] = rawLineItems.map((li, i) => ({
-    id: idOf(i),
-    requirementId: input.requirement.id,
-    menuCardId: input.menuCardId,
-    description: li.description,
-    hours: snapToQuarterHour(li.hours),
-    complexity: li.complexity,
-    aiAssistApplied: li.aiAssistApplied,
-    dependsOn: li.dependsOn
-      .filter((idx: number) => idx >= 0 && idx < llmResult.lineItems.length && idx !== i)
-      .map(idOf),
-    anchorPresetIds: input.archivistMatch?.presetId ? [input.archivistMatch.presetId] : [],
-  }));
+  // Drop 0h "not needed" items (see LLMLineItemSchema comment). Every
+  // survivor is expanded into 1+ <=4h chunks (>1 only when the model
+  // exceeded the cap). `dependsOn` is expressed against ORIGINAL (pre-drop,
+  // pre-split) list positions, so it's remapped: other items depend on the
+  // LAST chunk of whichever original item they referenced (that's when the
+  // work is actually done); a split item's own internal chunks chain
+  // sequentially, with the original dependsOn attached to the first chunk.
+  type Expanded = {
+    originalIndex: number;
+    description: string;
+    hours: number;
+    complexity: 'base' | 'elevated' | 'high';
+    aiAssistApplied: boolean;
+    dependsOnOriginal: number[] | null; // null = internal chain link, not the model's dependsOn
+  };
+  const expanded: Expanded[] = [];
+  const lastChunkIndexByOriginal = new Map<number, number>();
+
+  rawLineItems.forEach((li, originalIndex) => {
+    if (li.hours < 0.25) return; // 0h "not needed" placeholder
+    const chunkHours = li.hours > FOUR_HOUR_CAP ? splitOversizedHours(li.hours) : [snapToQuarterHour(li.hours)];
+    chunkHours.forEach((hours, chunkIndex) => {
+      expanded.push({
+        originalIndex,
+        description: chunkHours.length > 1 ? `${li.description} (part ${chunkIndex + 1}/${chunkHours.length})` : li.description,
+        hours,
+        complexity: li.complexity,
+        aiAssistApplied: li.aiAssistApplied,
+        dependsOnOriginal: chunkIndex === 0 ? li.dependsOn : null,
+      });
+    });
+    lastChunkIndexByOriginal.set(originalIndex, expanded.length - 1);
+  });
+
+  const idByExpandedIndex = expanded.map((_, i) => idOf(i));
+
+  const lineItems: SpecialistLineItem[] = expanded.map((item, i) => {
+    const deps: string[] = [];
+    if (item.dependsOnOriginal === null) {
+      // Non-first chunk of a split item: chain to the immediately preceding chunk.
+      deps.push(idByExpandedIndex[i - 1]!);
+    } else {
+      for (const idx of item.dependsOnOriginal) {
+        if (idx === item.originalIndex) continue;
+        const lastChunk = lastChunkIndexByOriginal.get(idx);
+        if (lastChunk !== undefined) deps.push(idByExpandedIndex[lastChunk]!);
+      }
+    }
+    return {
+      id: idOf(i),
+      requirementId: input.requirement.id,
+      menuCardId: input.menuCardId,
+      description: item.description,
+      hours: item.hours,
+      complexity: item.complexity,
+      aiAssistApplied: item.aiAssistApplied,
+      dependsOn: deps,
+      anchorPresetIds: input.archivistMatch?.presetId ? [input.archivistMatch.presetId] : [],
+    };
+  });
 
   return SpecialistOutputSchema.parse({
     role,

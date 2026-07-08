@@ -111,10 +111,20 @@ describe('WS13-01: Dev specialist — decomposes into <=4h line items', () => {
     }
   });
 
-  it('rejects (throws, no silent fallback) when the model returns hours over the four-hour cap', async () => {
+  it('splits (does not throw or silently drop) a line item whose hours exceed the four-hour cap into <=4h chunks that chain via dependsOn', async () => {
     mockLLMResponse([{ description: 'Too big a chunk', hours: 9 }]);
 
-    await expect(runSpecialist('DEV', sampleInput, ctx)).rejects.toThrow();
+    const result = await runSpecialist('DEV', sampleInput, ctx);
+
+    expect(result.lineItems).toHaveLength(3);
+    for (const li of result.lineItems) {
+      expect(li.hours).toBeLessThanOrEqual(4);
+      expect(li.hours).toBeGreaterThanOrEqual(0.25);
+    }
+    expect(result.lineItems.reduce((s, li) => s + li.hours, 0)).toBeCloseTo(9, 5);
+    expect(result.lineItems[0]?.dependsOn).toEqual([]);
+    expect(result.lineItems[1]?.dependsOn).toEqual([result.lineItems[0]?.id]);
+    expect(result.lineItems[2]?.dependsOn).toEqual([result.lineItems[1]?.id]);
   });
 });
 
@@ -200,6 +210,20 @@ describe('WS13-05: Assemble 4 independent role outputs per requirement', () => {
     ]);
 
     const result = await runSpecialist('DEV', sampleInput, ctx);
+    expect(result.lineItems[1]?.dependsOn).toEqual([result.lineItems[0]?.id]);
+  });
+
+  it('drops 0-hour "not needed" placeholder items instead of throwing, and remaps dependsOn around the gap', async () => {
+    mockLLMResponse([
+      { description: 'Schema', hours: 2 },
+      { description: 'Integration testing (not required, integration count 0)', hours: 0 },
+      { description: 'Happy path (depends on schema)', hours: 3, dependsOn: [0] },
+    ]);
+
+    const result = await runSpecialist('DEV', sampleInput, ctx);
+
+    expect(result.lineItems).toHaveLength(2);
+    expect(result.lineItems.every((li) => li.hours >= 0.25)).toBe(true);
     expect(result.lineItems[1]?.dependsOn).toEqual([result.lineItems[0]?.id]);
   });
 });

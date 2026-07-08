@@ -5,9 +5,9 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-07-08 — `feat/honor-prompts-4h-decomposition` DONE (all 10 phases). Prompt/code drift closed and live-verified against a real OpenRouter run: DEV line items are now real ≤4h decomposed units (not flat 30h), narrative is a genuine 8-sentence story, 45 presets are embedded. Not yet merged to master. See below._
+_Last updated: 2026-07-08 — `feat/honor-prompts-4h-decomposition` DONE (all 10 phases) + a second live-verify pass against a preset-adjacent SOW that found and fixed 2 more real bugs (envelope robustness on cap violations, Archivist match not surfacing on menu cards). 137/137 agents tests pass. Not yet merged to master. See below._
 
-## 2026-07-08 — honor-prompts-4h-decomposition: COMPLETE
+## 2026-07-08 — honor-prompts-4h-decomposition: COMPLETE + second live-verify pass
 
 **Outcome:** every phase (1–10) landed as its own commit on this branch, all
 133 agents tests + 19/19 e2e pass, apps/web typecheck is clean (only the 5
@@ -24,6 +24,61 @@ real OpenRouter API** (not the stub) on `sow-simple` produced:
 - Taxation preserved 0.25h granularity end to end (2h→2.5h QA, not the old
   whole-hour `Math.round`).
 
+**`sow-simple` was the weakest possible test of this** (0 requirements
+matched a preset, complexity stayed at 1, 0 Detective risks) — advisor
+review flagged that the Archivist RAG path (Phase 7, real embedding spend)
+had **zero live evidence it ever produces a match**, and that specialist
+JSON-envelope robustness was untested under a heavier requirement set. A
+second live run on a preset-adjacent SOW (Shopify B2B storefront + Celigo/P21
+ERP sync + Klevu search + 90k-SKU PIM migration — deliberately chosen to hit
+the preset library's actual domain) surfaced two more real, live-discovered
+bugs, both now fixed and covered by unit tests:
+
+1. **`packages/agents/src/specialist.ts` — envelope too strict for
+   well-formed model output.** The live run failed twice: once when
+   gpt-4o-mini emitted a legitimate `hours: 0` "not needed" item (e.g. "no
+   integration testing required") that the schema's `min(0.25)` rejected
+   outright, and once when it emitted a 6h item despite the explicit HARD
+   CAP instruction, which `max(4.0)` also rejected — both killed the whole
+   run via the no-silent-fallback policy (`withRetry` with `temperature: 0`
+   just repeats the same "failure" deterministically). Fixed by relaxing the
+   LLM-facing schema and normalizing in code instead of rejecting: 0h items
+   are dropped, oversized items are deterministically split into ≤4h chunks
+   that chain via `dependsOn` (`splitOversizedHours`). This is a more
+   faithful enforcement of the four-hour rule than throwing — the system's
+   job is to make the invariant hold, not just detect violations of it.
+2. **`packages/agents/src/architect.ts` — real Archivist matches never
+   reached the MenuItem.** Diagnostic script confirmed the retrieval itself
+   was fine all along (8–9 of 10 real requirement embeddings scored 0.6–0.83
+   cosine similarity against the right presets — e.g. "Klevu-powered faceted
+   search" → preset P42 at 0.81, "Sync pricing... via Celigo" → preset P09 at
+   0.77), but `runArchitect`'s card assembly only ever used
+   `archivistMatches` for `sequencing.requires` chains — it never wrote
+   `sourcePresetId`/`matchScore` onto the `MenuItem`, so every card showed
+   `sourcePreset=none` regardless of a real match underneath. Fixed with
+   `bestMatchForCard` (strongest non-`none` match across the card's
+   requirements). Re-ran live after the fix: all 8 menu cards now carry a
+   real `sourcePresetId` + `matchScore` matching the diagnostic scores
+   exactly (P32/0.82, P09/0.77, P02/0.45, P31/0.71, P36/0.78, P35/0.72,
+   P42/0.81, P12/0.61).
+
+Both fixes are covered by new unit tests (`ws13.test.ts`: drops 0h items,
+splits oversized items with correct dependsOn chaining; `ws16.test.ts`:
+surfaces/omits sourcePresetId+matchScore based on match coverage). Full
+suite is now **137/137 passing**.
+
+**Known-remaining calibration gap (not a code bug, not fixed this pass):**
+the `sow-simple` live run's total hours look inflated for the SOW's actual
+scope (~160–190h for a landing page with a hero/features/testimonials/
+contact form — more like a 30–60h job) — the model pads with items like "add
+error handling for hero section" despite the prompt's explicit no-padding
+rule. The gate-warning system correctly caught the symptom (BA at
+52–95% of DEV, PM at 30–44%, both flagged as out of proportionality band on
+every live run so far) but nothing auto-corrects it. This is a
+prompt-adherence/model-capability limitation (gpt-4o-mini not fully honoring
+the envelope's constraints), not something a schema or code fix closes — it
+would need prompt tuning and/or a stronger specialist model.
+
 **What's still open** (deliberately deferred, see advisor consult below):
 - The full SUPERVISOR reject-and-retry-per-stage gate loop. What's shipped
   is the honest subset — deterministic invariant checks that surface
@@ -35,8 +90,10 @@ real OpenRouter API** (not the stub) on `sow-simple` produced:
 - Spike-preset mapping (P01–P06) referenced in the DETECTIVE prompt isn't
   cross-validated against the real preset IDs.
 - Real-model evals (comparing against a golden/expected output) — this
-  session's live run was a smoke test (does it work, is it sane), not a
-  quality regression suite.
+  session's live runs were smoke tests (does it work, is it sane, does the
+  data actually flow end to end), not a quality regression suite.
+- The QA/PM/BA over-proportion calibration gap above — needs prompt tuning,
+  not a code fix.
 
 **Root cause + phase-by-phase work is preserved below** for anyone picking
 this up; the plan as originally written was followed almost exactly.

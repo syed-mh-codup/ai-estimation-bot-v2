@@ -92,6 +92,21 @@ function computeRequiredRequirementIds(archivistMatches: ArchivistMatch[]): Set<
   return required;
 }
 
+/**
+ * A card can span several requirements, each with its own Archivist match —
+ * surface the strongest non-`none` match as the card's anchor preset (same
+ * preset the Specialists already anchored their line items to via
+ * `anchorPresetIds`). Undefined when nothing on the card matched anything.
+ */
+function bestMatchForCard(card: CardDraft, archivistMatches: ArchivistMatch[]): ArchivistMatch | undefined {
+  let best: ArchivistMatch | undefined;
+  for (const reqId of card.requirementIds) {
+    const m = archivistMatches.find((am) => am.requirementId === reqId && am.coverage !== 'none' && am.presetId);
+    if (m && (best === undefined || (m.score ?? 0) > (best.score ?? 0))) best = m;
+  }
+  return best;
+}
+
 /** Line items over the four-hour cap or cards with no line items — should be structurally impossible, checked defensively. */
 function computeConsistencyFlags(cards: CardDraft[]): string[] {
   const flags: string[] = [];
@@ -223,12 +238,15 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
   const menuItems: MenuItem[] = cards.map((card) => {
     const meta = metaByCardId.get(card.id);
     const notSafelyRemovable = card.requirementIds.some((id) => requiredRequirementIds.has(id));
+    const bestMatch = bestMatchForCard(card, archivistMatches);
     return {
       id: card.id,
       taxonomyKey: card.id,
       category: card.category,
       phase: meta?.phase,
       requirementIds: card.requirementIds,
+      sourcePresetId: bestMatch?.presetId,
+      matchScore: bestMatch?.score,
       title: titleFromMenuCardId(card.id),
       enabled: true,
       toggleable: !notSafelyRemovable,
