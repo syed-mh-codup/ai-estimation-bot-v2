@@ -7,27 +7,21 @@ import { computeRollup, computeRoleProjections } from './rollup';
 
 // ─── WS19-02: Tab structure ───────────────────────────────────────────────────
 
-const ROLE_COLUMNS: Array<string | number> = ['Item', 'Taxonomy Key', 'Base Hours', 'Taxed Hours', 'Notes'];
+const ROLE_COLUMNS: Array<string | number> = ['Item', 'Line Item', 'Taxonomy Key', 'Base Hours', 'Taxed Hours', 'Notes'];
 const ROLLUP_COLUMNS: Array<string | number> = ['Role', 'Total Base Hours', 'Total Taxed Hours'];
 
 /**
- * Build a per-role tab from menu items.
+ * Build a per-role tab from menu items: one row per atomic line item — a
+ * role's scope on a card can now hold several <=4h line items (FOUR-HOUR
+ * RULE decomposition), not just one lump number.
  */
 function buildRoleTab(role: RoleKind, menuItems: MenuItem[]): SpreadsheetTab {
   const rows: Array<Array<string | number>> = [ROLE_COLUMNS];
+  const [projection] = computeRoleProjections(menuItems).filter((p) => p.role === role);
 
-  for (const item of menuItems) {
-    if (!item.enabled) continue;
-    const li = item.lineItems.find((l) => l.role === role);
-    if (!li) continue;
-
-    rows.push([
-      item.title,
-      item.taxonomyKey,
-      li.baseHours,
-      li.taxedHours,
-      li.notes ?? '',
-    ]);
+  for (const li of projection?.items ?? []) {
+    if (!li.enabled) continue;
+    rows.push([li.menuItemTitle, li.title, li.taxonomyKey, li.baseHours, li.taxedHours, li.notes ?? '']);
   }
 
   return { title: role, rows };

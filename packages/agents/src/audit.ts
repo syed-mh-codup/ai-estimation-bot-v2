@@ -48,12 +48,19 @@ export function runHiddenWorkAudit(
       taxonomyKey: config.taxonomyKey,
       title: config.title,
       enabled: true,
-      lineItems: [
-        { role: 'DEV', baseHours: HIDDEN_WORK_DEFAULT_HOURS.DEV, taxedHours: HIDDEN_WORK_DEFAULT_HOURS.DEV, edited: false },
-        { role: 'QA', baseHours: HIDDEN_WORK_DEFAULT_HOURS.QA, taxedHours: HIDDEN_WORK_DEFAULT_HOURS.QA, edited: false },
-        { role: 'PM', baseHours: HIDDEN_WORK_DEFAULT_HOURS.PM, taxedHours: HIDDEN_WORK_DEFAULT_HOURS.PM, edited: false },
-        { role: 'BA', baseHours: HIDDEN_WORK_DEFAULT_HOURS.BA, taxedHours: HIDDEN_WORK_DEFAULT_HOURS.BA, edited: false },
-      ],
+      requirementIds: [],
+      toggleable: true,
+      notSafelyRemovable: false,
+      thinSlice: false,
+      lineItems: (['DEV', 'QA', 'PM', 'BA'] as const).map((role) => ({
+        role,
+        baseHours: HIDDEN_WORK_DEFAULT_HOURS[role],
+        taxedHours: HIDDEN_WORK_DEFAULT_HOURS[role],
+        edited: false,
+        aiAssistApplied: false,
+        dependsOn: [],
+        anchorPresetIds: [],
+      })),
     });
   }
 
@@ -90,8 +97,8 @@ export function runValidationAudit(
       if (!covered) {
         unreconciled.push({
           riskFlag: flag,
-          taxonomyKey: finding.taxonomyKey,
-          reason: `Risk flag '${flag}' detected in ${finding.taxonomyKey} but no buffered line item found`,
+          taxonomyKey: finding.taxonomyKey ?? 'unknown',
+          reason: `Risk flag '${flag}' detected in ${finding.taxonomyKey ?? 'unknown'} but no buffered line item found`,
         });
       }
     }

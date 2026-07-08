@@ -94,6 +94,9 @@ export function injectInfraBaseline(
           baseHours: hours,
           taxedHours: hours, // baseline items don't get taxed again
           edited: false,
+          aiAssistApplied: false,
+          dependsOn: [],
+          anchorPresetIds: [],
         }),
       );
 
@@ -102,6 +105,10 @@ export function injectInfraBaseline(
         taxonomyKey: bi.taxonomyKey,
         title: bi.title,
         enabled: true,
+        requirementIds: [],
+        toggleable: true,
+        notSafelyRemovable: false,
+        thinSlice: false,
         lineItems,
       };
     });

@@ -135,7 +135,7 @@ beforeAll(async () => {
   configVersion = await seedConfig(20);
   for (const kind of ['LIBRARIAN', 'DETECTIVE', 'ARCHIVIST', 'ARCHITECT', 'SPECIALIST_DEV', 'SPECIALIST_QA', 'SPECIALIST_PM', 'SPECIALIST_BA'] as const) {
     await db.prompt.upsert({ where: { kind }, update: {}, create: { kind } });
-    await db.promptVersion.updateMany({ where: { kind, active: true }, data: { active: false } });
+    // NOTE: deliberately no bulk `updateMany(active:false)` — see run-estimate.test.ts.
     await db.promptVersion.upsert({
       where: { kind_version: { kind, version: 1 } },
       update: { active: true, body: `Eval ${kind}`, modelString: 'stub/model' },

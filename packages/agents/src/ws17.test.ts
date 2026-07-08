@@ -101,6 +101,33 @@ describe('WS17-02: Per-role WBS projection — four projections sharing item ide
     expect(qaHours).toBe(15);
     expect(devHours).not.toBe(qaHours);
   });
+
+  it('surfaces every line item when a role has multiple <=4h atomic items (FOUR-HOUR RULE decomposition)', () => {
+    const item: MenuItem = {
+      id: 'item-decomposed',
+      taxonomyKey: 'feature.decomposed',
+      title: 'Decomposed Feature',
+      enabled: true,
+      lineItems: [
+        { id: 'DEV-REQ001-01', role: 'DEV', title: 'Schema', baseHours: 3, taxedHours: 3, edited: false },
+        { id: 'DEV-REQ001-02', role: 'DEV', title: 'Happy path', baseHours: 4, taxedHours: 4, edited: false },
+        { id: 'QA-REQ001-01', role: 'QA', title: 'Test plan', baseHours: 2, taxedHours: 2.4, edited: false },
+      ],
+    };
+    const projections = computeRoleProjections([item]);
+
+    const devProj = projections.find((p) => p.role === 'DEV')!;
+    expect(devProj.items).toHaveLength(2);
+    expect(devProj.items.map((i) => i.lineItemId)).toEqual(['DEV-REQ001-01', 'DEV-REQ001-02']);
+    expect(devProj.total.totalBaseHours).toBe(7);
+
+    const qaProj = projections.find((p) => p.role === 'QA')!;
+    expect(qaProj.items).toHaveLength(1);
+
+    const rollup = computeRollup([item]);
+    const devTotal = rollup.perRole.find((r) => r.role === 'DEV');
+    expect(devTotal?.totalBaseHours).toBe(7);
+  });
 });
 
 // ─── WS17-03: Toggle API ─────────────────────────────────────────────────────

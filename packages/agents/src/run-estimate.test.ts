@@ -107,7 +107,12 @@ beforeAll(async () => {
     'SPECIALIST_BA',
   ] as const) {
     await db.prompt.upsert({ where: { kind }, update: {}, create: { kind } });
-    await db.promptVersion.updateMany({ where: { kind, active: true }, data: { active: false } });
+    // NOTE: deliberately no bulk `updateMany(active:false)` here — this file
+    // runs in parallel with other test files against the same local DB and
+    // sharing PromptVersion rows per kind; blanket-deactivating would create
+    // a window where a concurrent runEstimate() finds zero active rows. Just
+    // ensure THIS file's own row exists and is active; harmless if another
+    // file's row for the same kind is simultaneously active too.
     await db.promptVersion.upsert({
       where: { kind_version: { kind, version: 1 } },
       update: { active: true, body: `Test ${kind} prompt`, modelString: 'stub/model' },

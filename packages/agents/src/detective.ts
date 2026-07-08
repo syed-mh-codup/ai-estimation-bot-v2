@@ -153,13 +153,25 @@ export async function runDetective(
     .filter((r) => requirementById.has(r.requirementId))
     .map((r, i) => ({
       id: `RISK-${String(i + 1).padStart(3, '0')}`,
+      requirementId: r.requirementId,
       taxonomyKey: requirementById.get(r.requirementId)?.taxonomyKey ?? null,
-      ...r,
+      platform: r.platform,
+      claim: r.claim,
+      riskFlags: r.riskFlags ?? [],
+      citation: r.citation,
+      spikeRecommended: r.spikeRecommended ?? false,
+      spikePresetId: r.spikePresetId,
     }));
 
   const questions: OpenQuestion[] = (llmResult.questions ?? [])
     .filter((q) => requirementById.has(q.requirementId))
-    .map((q, i) => ({ id: `Q-${String(i + 1).padStart(3, '0')}`, ...q }));
+    .map((q, i) => ({
+      id: `Q-${String(i + 1).padStart(3, '0')}`,
+      requirementId: q.requirementId,
+      question: q.question,
+      citation: q.citation,
+      blocksEstimation: q.blocksEstimation ?? false,
+    }));
 
   return DetectiveOutputSchema.parse({ risks: deduplicateRisks(risks), questions });
 }

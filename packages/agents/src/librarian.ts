@@ -108,7 +108,18 @@ export async function runLibrarian(
 
   const requirements: Requirement[] = parsed.requirements.map((r, i) => ({
     id: `REQ-${String(i + 1).padStart(3, '0')}`,
-    ...r,
+    text: r.text,
+    category: r.category,
+    reqType: r.reqType,
+    platforms: r.platforms ?? [],
+    projectSize: r.projectSize,
+    dataVolume: r.dataVolume,
+    integrationCount: r.integrationCount,
+    candidateMenuCardId: r.candidateMenuCardId,
+    taxonomyKey: r.taxonomyKey,
+    sourceRef: r.sourceRef,
+    ambiguities: r.ambiguities ?? [],
+    blocksEstimation: r.blocksEstimation ?? false,
   }));
 
   return LibrarianOutputSchema.parse({ requirements });
