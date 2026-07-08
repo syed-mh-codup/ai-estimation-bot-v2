@@ -1,14 +1,9 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
-import type {
-  SpecialistOutput,
-  SpecialistInput,
-  RoleLineItem,
-  MenuItemStub,
-  ArchivistMatch,
-  DetectiveFinding,
-} from '@repo/shared';
-import { SpecialistOutputSchema } from '@repo/shared';
+import type { SpecialistOutput, SpecialistInput, SpecialistLineItem } from '@repo/shared';
+import { SpecialistOutputSchema, ComplexityTierSchema, FOUR_HOUR_CAP } from '@repo/shared';
+import { chatJSON } from './llm-json';
+import { withRetry } from './step-error';
 
 export type SpecialistContext = {
   modelProvider: IModelProvider;
@@ -16,127 +11,137 @@ export type SpecialistContext = {
   instructions: Record<'DEV' | 'QA' | 'PM' | 'BA', string>;
 };
 
-const LLMSpecialistSchema = z.object({
-  baseHours: z.number().min(0),
-  rationale: z.string(),
-  assumptions: z.array(z.string()),
+/**
+ * What the LLM emits: an ordered list of atomic (<=4h) line items for this
+ * role + requirement. `dependsOn` references OTHER items in this same list
+ * by their 0-based position (the model can't know final line_item_ids up
+ * front) — resolved to real ids after the response comes back.
+ */
+const LLMLineItemSchema = z.object({
+  description: z.string(),
+  hours: z.number().min(0.25).max(FOUR_HOUR_CAP),
+  complexity: ComplexityTierSchema,
+  aiAssistApplied: z.boolean().default(false),
+  dependsOn: z.array(z.number().int().min(0)).default([]),
 });
 
-/**
- * Compute the multiplier to apply to base hours based on complexity and risk.
- */
-function computeMultiplier(
-  complexityScore: number,
-  risk: 'LOW' | 'MEDIUM' | 'HIGH',
-  perItemMultiplier = 1.0,
-): number {
-  const complexityFactor = 1.0 + (complexityScore - 1) * 0.1; // 1.0 at score=1, 1.4 at score=5
-  const riskFactor = risk === 'HIGH' ? 1.3 : risk === 'MEDIUM' ? 1.15 : 1.0;
-  return perItemMultiplier * complexityFactor * riskFactor;
+const LLMSpecialistSchema = z.object({
+  lineItems: z.array(LLMLineItemSchema).min(1),
+  assumptions: z.array(z.string()).default([]),
+});
+
+function describeCoverage(input: SpecialistInput): string {
+  const m = input.archivistMatch;
+  if (!m || m.coverage === 'none') {
+    return 'Coverage: none — no historical preset analogue. Build this up from first principles, item by item, and note the absence of an anchor in assumptions.';
+  }
+  const anchor = `BE=${m.beHours ?? 0}h, FE=${m.feHours ?? 0}h`;
+  const adj = m.adjustments;
+  return [
+    `Coverage: ${m.coverage} (preset ${m.presetId ?? 'n/a'} v${m.presetVersion ?? '?'}, match score ${m.score?.toFixed(2) ?? 'n/a'}).`,
+    `Anchor at base complexity: ${anchor}. Treat this as an anchor, not a final answer.`,
+    `Adjustment signals — project_size delta: ${adj.projectSizeDelta || 'n/a'}; data_volume: ${adj.dataVolume}; integration_count: ${adj.integrationCount}; ai_assist: ${adj.aiAssist}; risk: ${adj.risk}.`,
+    `Rationale: ${m.rationale}`,
+    m.coverage === 'partial' ? 'Preset covers only part of this requirement — build up the uncovered gap from first principles too.' : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildUserMessage(role: 'DEV' | 'QA' | 'PM' | 'BA', input: SpecialistInput): string {
+  const { requirement, riskFindings, complexityScore } = input;
+  const riskText = riskFindings.length
+    ? riskFindings.map((f) => `- [${f.riskFlags.join(', ') || 'risk'}] ${f.claim} (${f.citation})`).join('\n')
+    : '(no Detective findings for this requirement)';
+
+  return `Estimate ${role} effort for this requirement, decomposed into atomic line items per your METHOD.
+
+Requirement ${requirement.id}: ${requirement.text}
+category=${requirement.category} | req_type=${requirement.reqType} | platforms=${requirement.platforms.join(', ') || 'none'}
+project_size=${requirement.projectSize} | data_volume=${requirement.dataVolume} | integration_count=${requirement.integrationCount}
+Overall complexity score: ${complexityScore}/5
+
+${describeCoverage(input)}
+
+Detective risk findings:
+${riskText}
+
+Respond with JSON only, matching exactly this shape:
+{
+  "lineItems": [
+    {
+      "description": "specific atomic unit of work",
+      "hours": <number, 0.25-4.0, granularity 0.25>,
+      "complexity": "base" | "elevated" | "high",
+      "aiAssistApplied": true | false,
+      "dependsOn": [<0-based indices of other items in THIS list this depends on>]
+    }
+  ],
+  "assumptions": ["..."]
+}
+HARD CAP: no item's "hours" may exceed 4.0. If a unit of work needs more, split it into multiple items.`;
+}
+
+function snapToQuarterHour(hours: number): number {
+  return Math.max(0.25, Math.min(FOUR_HOUR_CAP, Math.round(hours * 4) / 4));
 }
 
 /**
- * Call LLM to estimate hours for a specific role.
- */
-async function estimateRoleHours(
-  role: 'DEV' | 'QA' | 'PM' | 'BA',
-  input: SpecialistInput,
-  ctx: SpecialistContext,
-  anchorHours: number,
-): Promise<z.infer<typeof LLMSpecialistSchema>> {
-  const { menuItem, archivistMatch, detectiveFindings, complexityScore } = input;
-
-  const riskFlags = [...new Set(detectiveFindings.flatMap((f) => f.riskFlags))];
-  const matchSummary = archivistMatch
-    ? `Preset match: BE=${archivistMatch.beHours}h, FE=${archivistMatch.feHours}h, risk=${archivistMatch.risk}, aiAssist=${archivistMatch.aiAssist}`
-    : 'No preset match found';
-
-  const rawResponse = await ctx.modelProvider.chat({
-    model: ctx.modelString,
-    messages: [
-      { role: 'system', content: ctx.instructions[role] },
-      {
-        role: 'user',
-        content: `Estimate hours for role: ${role}
-
-Menu item: ${menuItem.title} [${menuItem.taxonomyKey}]
-Complexity score: ${complexityScore}/5
-${matchSummary}
-Risk flags: ${riskFlags.length > 0 ? riskFlags.join(', ') : 'none'}
-Anchor hours (adjusted): ${anchorHours}h
-
-Provide your estimate as JSON:
-{"baseHours": <number>, "rationale": "<brief reason>", "assumptions": ["<assumption>", ...]}`,
-      },
-    ],
-    temperature: 0,
-  });
-
-  const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-  if (!jsonMatch?.[0]) {
-    // Fallback: return anchor hours
-    return { baseHours: anchorHours, rationale: 'LLM fallback', assumptions: [] };
-  }
-
-  const parsed = LLMSpecialistSchema.safeParse(JSON.parse(jsonMatch[0]));
-  if (!parsed.success) {
-    return { baseHours: anchorHours, rationale: 'Parse fallback', assumptions: [] };
-  }
-  return parsed.data;
-}
-
-/**
- * Compute anchor hours for a role from the archivist match + complexity multiplier.
- */
-function computeAnchorHours(
-  role: 'DEV' | 'QA' | 'PM' | 'BA',
-  match: ArchivistMatch | undefined,
-  complexityScore: number,
-): number {
-  const risk = match?.risk ?? 'LOW';
-  const multiplier = computeMultiplier(complexityScore, risk);
-
-  if (role === 'DEV') {
-    const baseHours = (match?.beHours ?? 20) + (match?.feHours ?? 10);
-    return Math.round(baseHours * multiplier);
-  }
-  if (role === 'QA') {
-    // QA is derived from Dev scope: ~30-40% of Dev hours
-    const devHours = (match?.beHours ?? 20) + (match?.feHours ?? 10);
-    return Math.round(devHours * 0.35 * multiplier);
-  }
-  if (role === 'PM') {
-    // PM: ~15% of Dev hours for coordination
-    const devHours = (match?.beHours ?? 20) + (match?.feHours ?? 10);
-    return Math.round(devHours * 0.15 * multiplier);
-  }
-  // BA: ~20% of Dev hours for analysis/acceptance criteria
-  const devHours = (match?.beHours ?? 20) + (match?.feHours ?? 10);
-  return Math.round(devHours * 0.20 * multiplier);
-}
-
-/**
- * Run a single specialist (DEV, QA, PM, or BA) for a menu item.
+ * Run a single specialist (DEV, QA, PM, or BA): decompose the requirement's
+ * scope for this role into atomic, <=4h line items per the FOUR-HOUR RULE.
  */
 export async function runSpecialist(
   role: 'DEV' | 'QA' | 'PM' | 'BA',
   input: SpecialistInput,
   ctx: SpecialistContext,
 ): Promise<SpecialistOutput> {
-  const anchorHours = computeAnchorHours(role, input.archivistMatch, input.complexityScore);
-  const llmResult = await estimateRoleHours(role, input, ctx, anchorHours);
+  const step = (`SPECIALIST_${role}` as const) as
+    | 'SPECIALIST_DEV'
+    | 'SPECIALIST_QA'
+    | 'SPECIALIST_PM'
+    | 'SPECIALIST_BA';
+
+  const llmResult = await withRetry(step, () =>
+    chatJSON(
+      ctx.modelProvider,
+      {
+        model: ctx.modelString,
+        messages: [
+          { role: 'system', content: ctx.instructions[role] },
+          { role: 'user', content: buildUserMessage(role, input) },
+        ],
+        temperature: 0,
+      },
+      LLMSpecialistSchema,
+      `Specialist(${role})`,
+    ),
+  );
+
+  const idOf = (index: number): string =>
+    `${role}-${input.requirement.id}-${String(index + 1).padStart(2, '0')}`;
+
+  const lineItems: SpecialistLineItem[] = llmResult.lineItems.map((li, i) => ({
+    id: idOf(i),
+    requirementId: input.requirement.id,
+    menuCardId: input.menuCardId,
+    description: li.description,
+    hours: snapToQuarterHour(li.hours),
+    complexity: li.complexity,
+    aiAssistApplied: li.aiAssistApplied,
+    dependsOn: li.dependsOn.filter((idx) => idx >= 0 && idx < llmResult.lineItems.length && idx !== i).map(idOf),
+    anchorPresetIds: input.archivistMatch?.presetId ? [input.archivistMatch.presetId] : [],
+  }));
 
   return SpecialistOutputSchema.parse({
     role,
-    baseHours: llmResult.baseHours,
-    rationale: llmResult.rationale,
+    lineItems,
     assumptions: llmResult.assumptions,
   });
 }
 
 /**
- * Run all 4 specialists (DEV, QA, PM, BA) independently for a menu item.
- * Returns one SpecialistOutput per role.
+ * Run all 4 specialists (DEV, QA, PM, BA) independently for a requirement.
+ * Returns one SpecialistOutput (a set of line items) per role.
  */
 export async function runSpecialistCouncil(
   input: SpecialistInput,
@@ -145,15 +150,5 @@ export async function runSpecialistCouncil(
   const roles: Array<'DEV' | 'QA' | 'PM' | 'BA'> = ['DEV', 'QA', 'PM', 'BA'];
   return Promise.all(roles.map((role) => runSpecialist(role, input, ctx)));
 }
-
-/**
- * Default instruction templates for each specialist role.
- */
-export const DEFAULT_SPECIALIST_INSTRUCTIONS: Record<'DEV' | 'QA' | 'PM' | 'BA', string> = {
-  DEV: 'You are a Senior Developer specialist. Anchor on the preset BE+FE hours, adjust for complexity and Detective risk flags, apply AI-assist discount where flagged.',
-  QA: 'You are a QA specialist. Derive test-design and execution effort from Dev scope and detected risk flags. Stay independent of Dev hours.',
-  PM: 'You are a Project Manager specialist. Estimate coordination, planning, and stakeholder communication effort per menu item.',
-  BA: 'You are a Business Analyst specialist. Estimate requirements analysis, acceptance criteria writing, and stakeholder workshops effort.',
-};
 
 export type { SpecialistOutput };
