@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '@repo/db';
-import { createModelProvider } from '@repo/providers';
+import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
 import { runEstimate, ingestFiles, type IngestFile } from '@repo/agents';
 import { inngest, EVENT_RUN, EVENT_INGEST, type EstimateEventData } from '@/lib/inngest';
@@ -43,9 +43,14 @@ const runEstimateFn = inngest.createFunction(
     const { estimateId } = event.data as EstimateEventData;
 
     await step.run('run-pipeline', async () => {
+      const modelProvider = createModelProvider();
       await runEstimate(estimateId, {
         db: prisma,
-        modelProvider: createModelProvider(),
+        modelProvider,
+        // Archivist RAG activates once presets have embeddings — the run
+        // itself tolerates all-empty matches (coverage:none everywhere) so
+        // this is safe to wire ahead of the embedding backfill completing.
+        embeddingProvider: new EmbeddingProvider(modelProvider),
         onProgress: async ({ stage, pct }) => {
           await prisma.estimate.update({ where: { id: estimateId }, data: { runStage: stage, runPct: pct } });
         },
