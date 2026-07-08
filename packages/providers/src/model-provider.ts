@@ -21,6 +21,14 @@ export type ChatOptions = {
   maxTokens?: number;
   /** OpenRouter plugins, e.g. the PDF `file-parser` (passed through verbatim). */
   plugins?: unknown[];
+  /**
+   * 'json_object' asks the model to guarantee syntactically valid JSON output
+   * (OpenAI-compatible models). Agents that parse a strict envelope should set
+   * this instead of relying on a regex `{...}` extraction — a model that
+   * returns prose or markdown fences around JSON is exactly what silently
+   * triggers the old "fallback to a stub value" bug.
+   */
+  responseFormat?: 'json_object';
 };
 
 export type EmbedOptions = {
@@ -71,6 +79,7 @@ export class OpenRouterModelProvider implements IModelProvider {
       temperature: options.temperature ?? 0,
       max_tokens: options.maxTokens,
       ...(options.plugins ? { plugins: options.plugins } : {}),
+      ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {}),
     });
     const parsed = ChatResponseSchema.parse(response);
     return parsed.choices[0]?.message.content ?? '';

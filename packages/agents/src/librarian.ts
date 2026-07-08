@@ -1,7 +1,15 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
 import type { LibrarianOutput, Requirement } from '@repo/shared';
-import { LibrarianOutputSchema } from '@repo/shared';
+import {
+  LibrarianOutputSchema,
+  CategorySchema,
+  ReqTypeSchema,
+  PlatformSchema,
+  ProjectSizeSchema,
+  DataVolumeLevelSchema,
+} from '@repo/shared';
+import { chatJSON } from './llm-json';
 
 export type LibrarianContext = {
   modelProvider: IModelProvider;
@@ -15,82 +23,92 @@ export type TaxonomyEntry = {
   keywords: string[];
 };
 
-const LLMResponseSchema = z.object({
-  requirements: z.array(
-    z.object({
-      text: z.string(),
-      taxonomyKey: z.string().nullable(),
-      confidence: z.number().min(0).max(1),
-      suggestedLabel: z.string().optional(),
-    }),
-  ),
+/**
+ * What the LLM actually emits: everything the METHOD section of the live
+ * LIBRARIAN prompt asks for, minus `id` — requirement IDs are assigned
+ * deterministically by code (REQ-001, REQ-002, ...) rather than trusted to
+ * LLM numbering, since the SUPERVISOR prompt requires reproducibility.
+ */
+const LLMRequirementSchema = z.object({
+  text: z.string(),
+  category: CategorySchema,
+  reqType: ReqTypeSchema,
+  platforms: z.array(PlatformSchema).default([]),
+  projectSize: ProjectSizeSchema,
+  dataVolume: DataVolumeLevelSchema,
+  integrationCount: z.number().min(0).max(10),
+  candidateMenuCardId: z.string(),
+  taxonomyKey: z.string().nullable(),
+  sourceRef: z.string(),
+  ambiguities: z.array(z.string()).default([]),
+  blocksEstimation: z.boolean().default(false),
 });
 
-/**
- * Build a prompt that asks the LLM to map SOW text to taxonomy keys.
- */
-function buildLibrarianPrompt(
-  sowText: string,
-  taxonomy: TaxonomyEntry[],
-  instructions: string,
-): string {
+const LLMResponseSchema = z.object({
+  requirements: z.array(LLMRequirementSchema),
+});
+
+function buildUserMessage(sowText: string, taxonomy: TaxonomyEntry[]): string {
   const taxList = taxonomy
     .map((t) => `- ${t.key}: ${t.label} [keywords: ${t.keywords.join(', ')}]`)
     .join('\n');
 
-  return `${instructions}
+  return `Decompose this SOW into requirements per the METHOD in your system instructions.
 
-## Taxonomy
+## Taxonomy (for the taxonomyKey field — pick the best-fitting key, or null if nothing fits)
 ${taxList || '(no taxonomy loaded yet)'}
 
 ## SOW
 ${sowText}
 
-Respond with valid JSON only, matching this schema:
-{"requirements": [{"text": "...", "taxonomyKey": "key.from.taxonomy" | null, "confidence": 0.0-1.0}]}
-If no taxonomy key fits, set taxonomyKey to null.`;
+Respond with JSON only, matching exactly this shape:
+{
+  "requirements": [
+    {
+      "text": "...",
+      "category": "<one of the controlled category values>",
+      "reqType": "<one of the controlled req_type values>",
+      "platforms": ["<controlled platform values>"],
+      "projectSize": "SMB" | "Mid-market" | "Enterprise",
+      "dataVolume": "None" | "Low" | "High",
+      "integrationCount": <integer 0-10>,
+      "candidateMenuCardId": "MC-<DOMAIN>-<SLUG>",
+      "taxonomyKey": "key.from.taxonomy" | null,
+      "sourceRef": "SOW section/paraphrase this traces back to",
+      "ambiguities": ["..."],
+      "blocksEstimation": true | false
+    }
+  ]
+}
+One requirement = one buildable capability. Err toward more, smaller requirements.`;
 }
 
 /**
- * Run the Librarian agent: decompose SOW into requirements with taxonomy keys.
+ * Run the Librarian agent: decompose SOW into requirements against the
+ * controlled vocabulary + menu-card grouping the live prompt spec demands.
  */
 export async function runLibrarian(
   sowText: string,
   taxonomy: TaxonomyEntry[],
   ctx: LibrarianContext,
 ): Promise<LibrarianOutput> {
-  const prompt = buildLibrarianPrompt(sowText, taxonomy, ctx.instructions);
+  const parsed = await chatJSON(
+    ctx.modelProvider,
+    {
+      model: ctx.modelString,
+      messages: [
+        { role: 'system', content: ctx.instructions },
+        { role: 'user', content: buildUserMessage(sowText, taxonomy) },
+      ],
+      temperature: 0,
+    },
+    LLMResponseSchema,
+    'Librarian',
+  );
 
-  const rawResponse = await ctx.modelProvider.chat({
-    model: ctx.modelString,
-    messages: [
-      {
-        role: 'system',
-        content: ctx.instructions,
-      },
-      {
-        role: 'user',
-        content: `Decompose this SOW into requirements:\n\n${sowText}\n\nTaxonomy:\n${taxonomy.map((t) => `${t.key}: ${t.label}`).join('\n')}\n\nRespond with JSON only: {"requirements": [{"text": "...", "taxonomyKey": "..." or null, "confidence": 0.0-1.0}]}`,
-      },
-    ],
-    temperature: 0,
-  });
-
-  // Extract JSON from response (LLM may wrap in markdown)
-  const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-  if (!jsonMatch?.[0]) {
-    throw new Error(`Librarian: could not extract JSON from response: ${rawResponse}`);
-  }
-
-  const parsed = LLMResponseSchema.safeParse(JSON.parse(jsonMatch[0]));
-  if (!parsed.success) {
-    throw new Error(`Librarian: invalid response shape: ${parsed.error.message}`);
-  }
-
-  const requirements: Requirement[] = parsed.data.requirements.map((r) => ({
-    text: r.text,
-    taxonomyKey: r.taxonomyKey,
-    confidence: r.confidence,
+  const requirements: Requirement[] = parsed.requirements.map((r, i) => ({
+    id: `REQ-${String(i + 1).padStart(3, '0')}`,
+    ...r,
   }));
 
   return LibrarianOutputSchema.parse({ requirements });

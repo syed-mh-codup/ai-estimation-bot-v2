@@ -201,7 +201,25 @@ describe('WS9-01: RAG retriever over taxonomy + preset corpus', () => {
 
 // ─── WS9-02: Librarian agent ─────────────────────────────────────────────────
 
-describe('WS9-02: Librarian agent SOW → requirements with taxonomyKey', () => {
+function makeLLMRequirement(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    text: 'Build B2B checkout flow with cart management',
+    category: 'B2B',
+    reqType: 'Checkout',
+    platforms: ['Shopify'],
+    projectSize: 'Mid-market',
+    dataVolume: 'Low',
+    integrationCount: 1,
+    candidateMenuCardId: 'MC-B2B-CHECKOUT',
+    taxonomyKey: 'b2b.checkout',
+    sourceRef: 'SOW section 1',
+    ambiguities: [],
+    blocksEstimation: false,
+    ...overrides,
+  };
+}
+
+describe('WS9-02: Librarian agent SOW → requirements with the controlled envelope', () => {
   const mockModelProvider: IModelProvider = {
     chat: vi.fn(),
     embed: vi.fn(),
@@ -218,28 +236,35 @@ describe('WS9-02: Librarian agent SOW → requirements with taxonomyKey', () => 
     { key: 'auth.sso', label: 'SSO / Auth', keywords: ['sso', 'oauth', 'authentication'] },
   ];
 
-  it('maps requirements to valid taxonomy keys', async () => {
+  it('maps requirements to valid taxonomy keys and assigns sequential REQ ids', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
       JSON.stringify({
         requirements: [
-          { text: 'Build B2B checkout flow with cart management', taxonomyKey: 'b2b.checkout', confidence: 0.9 },
-          { text: 'Implement SSO with OAuth2', taxonomyKey: 'auth.sso', confidence: 0.85 },
+          makeLLMRequirement(),
+          makeLLMRequirement({
+            text: 'Implement SSO with OAuth2',
+            category: 'B2B',
+            reqType: 'Authentication',
+            candidateMenuCardId: 'MC-B2B-AUTH',
+            taxonomyKey: 'auth.sso',
+          }),
         ],
       }),
     );
 
     const result = await runLibrarian('Build B2B checkout with SSO', taxonomy, libCtx);
     expect(result.requirements).toHaveLength(2);
+    expect(result.requirements[0]?.id).toBe('REQ-001');
+    expect(result.requirements[1]?.id).toBe('REQ-002');
     expect(result.requirements[0]?.taxonomyKey).toBe('b2b.checkout');
     expect(result.requirements[1]?.taxonomyKey).toBe('auth.sso');
-    expect(result.requirements[0]?.confidence).toBeGreaterThan(0);
   });
 
   it('flags unmapped requirements with null taxonomyKey', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
       JSON.stringify({
         requirements: [
-          { text: 'Build quantum computing module', taxonomyKey: null, confidence: 0.3 },
+          makeLLMRequirement({ text: 'Build quantum computing module', taxonomyKey: null }),
         ],
       }),
     );
@@ -251,24 +276,34 @@ describe('WS9-02: Librarian agent SOW → requirements with taxonomyKey', () => 
 
   it('handles LLM response wrapped in markdown code block', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
-      '```json\n' +
-      JSON.stringify({
-        requirements: [
-          { text: 'Checkout integration', taxonomyKey: 'b2b.checkout', confidence: 0.8 },
-        ],
-      }) +
-      '\n```',
+      '```json\n' + JSON.stringify({ requirements: [makeLLMRequirement()] }) + '\n```',
     );
 
     const result = await runLibrarian('Checkout integration', taxonomy, libCtx);
     expect(result.requirements).toHaveLength(1);
     expect(result.requirements[0]?.taxonomyKey).toBe('b2b.checkout');
   });
+
+  it('throws loudly (no silent fallback) on a malformed response', async () => {
+    vi.mocked(mockModelProvider.chat).mockResolvedValue('not json at all, sorry');
+
+    await expect(runLibrarian('Checkout integration', taxonomy, libCtx)).rejects.toThrow();
+  });
+
+  it('rejects a requirement using a value outside the controlled vocabulary', async () => {
+    vi.mocked(mockModelProvider.chat).mockResolvedValue(
+      JSON.stringify({
+        requirements: [makeLLMRequirement({ category: 'Not A Real Category' })],
+      }),
+    );
+
+    await expect(runLibrarian('Checkout integration', taxonomy, libCtx)).rejects.toThrow();
+  });
 });
 
 // ─── WS9-03: Determinism check ───────────────────────────────────────────────
 
-describe('WS9-03: Determinism — same SOW → identical taxonomy mapping across 3 runs', () => {
+describe('WS9-03: Determinism — same SOW → identical requirement mapping across 3 runs', () => {
   const mockModelProvider: IModelProvider = {
     chat: vi.fn(),
     embed: vi.fn(),
@@ -284,11 +319,7 @@ describe('WS9-03: Determinism — same SOW → identical taxonomy mapping across
     { key: 'b2b.checkout', label: 'B2B Checkout Flow', keywords: ['checkout'] },
   ];
 
-  const fixedResponse = JSON.stringify({
-    requirements: [
-      { text: 'Build B2B checkout', taxonomyKey: 'b2b.checkout', confidence: 0.9 },
-    ],
-  });
+  const fixedResponse = JSON.stringify({ requirements: [makeLLMRequirement()] });
 
   it('produces identical mapping across 3 runs (temperature=0)', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(fixedResponse);
