@@ -5,9 +5,43 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-07-08 — starting `feat/honor-prompts-4h-decomposition`: closing the prompt/code drift (DB prompts are a sophisticated v2/v3 spec with FOUR-HOUR RULE decomposition, controlled vocabulary, menu cards, risk register — agent code is still thin MVP, producing DEV=30h everywhere). See below._
+_Last updated: 2026-07-08 — `feat/honor-prompts-4h-decomposition` DONE (all 10 phases). Prompt/code drift closed and live-verified against a real OpenRouter run: DEV line items are now real ≤4h decomposed units (not flat 30h), narrative is a genuine 8-sentence story, 45 presets are embedded. Not yet merged to master. See below._
 
-## 2026-07-08 (in progress) — honor-prompts-4h-decomposition
+## 2026-07-08 — honor-prompts-4h-decomposition: COMPLETE
+
+**Outcome:** every phase (1–10) landed as its own commit on this branch, all
+133 agents tests + 19/19 e2e pass, apps/web typecheck is clean (only the 5
+pre-existing next-auth TS2742 errors remain), and a **live run against the
+real OpenRouter API** (not the stub) on `sow-simple` produced:
+- DEV line items decomposed into 7–13 real atomic units per menu card, every
+  one ≤4h (max observed 3.5h) — this is the actual fix for "every estimate
+  is flat DEV=30h."
+- A genuine 8-sentence cohesive narrative (not the old `"Implement X."`
+  fallback).
+- 41 specific, non-generic assumptions.
+- The new deterministic gate-warning system correctly flagged a real
+  proportionality issue (PM/BA % out of band) without blocking the run.
+- Taxation preserved 0.25h granularity end to end (2h→2.5h QA, not the old
+  whole-hour `Math.round`).
+
+**What's still open** (deliberately deferred, see advisor consult below):
+- The full SUPERVISOR reject-and-retry-per-stage gate loop. What's shipped
+  is the honest subset — deterministic invariant checks that surface
+  warnings (`agentState.gateWarnings`, server logs), not per-stage rejection
+  with retry. Needs its own retry-plumbing design.
+- Detective's search/MCP grounding is real but currently backed by
+  `StubSearchProvider` in production unless `TAVILY_API_KEY` is set — set it
+  to get real citations instead of model-only claims.
+- Spike-preset mapping (P01–P06) referenced in the DETECTIVE prompt isn't
+  cross-validated against the real preset IDs.
+- Real-model evals (comparing against a golden/expected output) — this
+  session's live run was a smoke test (does it work, is it sane), not a
+  quality regression suite.
+
+**Root cause + phase-by-phase work is preserved below** for anyone picking
+this up; the plan as originally written was followed almost exactly.
+
+## 2026-07-08 (superseded by "COMPLETE" above) — honor-prompts-4h-decomposition
 
 **Root cause** (diagnosed prior session): `specialist.ts` asks for one number per
 role instead of decomposing to ≤4h line items per the real prompts; `librarian.ts`/
