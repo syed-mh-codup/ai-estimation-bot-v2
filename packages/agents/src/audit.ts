@@ -1,4 +1,4 @@
-import type { MenuItem, DetectiveFinding, ValidationAuditOutput } from '@repo/shared';
+import type { MenuItem, RiskFinding, ValidationAuditOutput } from '@repo/shared';
 import { ValidationAuditOutputSchema } from '@repo/shared';
 
 // ─── WS15-01: Hidden-Work Audit ───────────────────────────────────────────────
@@ -32,7 +32,7 @@ function hasLineItemForFlag(menuItems: MenuItem[], flag: string): boolean {
  */
 export function runHiddenWorkAudit(
   menuItems: MenuItem[],
-  findings: DetectiveFinding[],
+  findings: RiskFinding[],
 ): MenuItem[] {
   const allFlags = [...new Set(findings.flatMap((f) => f.riskFlags))];
   const result = [...menuItems];
@@ -71,7 +71,7 @@ export function runHiddenWorkAudit(
  */
 export function runValidationAudit(
   menuItems: MenuItem[],
-  findings: DetectiveFinding[],
+  findings: RiskFinding[],
 ): ValidationAuditOutput {
   const unreconciled: Array<{ riskFlag: string; taxonomyKey: string; reason: string }> = [];
 

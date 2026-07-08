@@ -51,7 +51,7 @@ function describeCoverage(input: SpecialistInput): string {
 function buildUserMessage(role: 'DEV' | 'QA' | 'PM' | 'BA', input: SpecialistInput): string {
   const { requirement, riskFindings, complexityScore } = input;
   const riskText = riskFindings.length
-    ? riskFindings.map((f) => `- [${f.riskFlags.join(', ') || 'risk'}] ${f.claim} (${f.citation})`).join('\n')
+    ? riskFindings.map((f: typeof riskFindings[number]) => `- [${f.riskFlags.join(', ') || 'risk'}] ${f.claim} (${f.citation})`).join('\n')
     : '(no Detective findings for this requirement)';
 
   return `Estimate ${role} effort for this requirement, decomposed into atomic line items per your METHOD.
@@ -120,7 +120,16 @@ export async function runSpecialist(
   const idOf = (index: number): string =>
     `${role}-${input.requirement.id}-${String(index + 1).padStart(2, '0')}`;
 
-  const lineItems: SpecialistLineItem[] = llmResult.lineItems.map((li, i) => ({
+  type LLMLineItem = {
+    description: string;
+    hours: number;
+    complexity: 'base' | 'elevated' | 'high';
+    aiAssistApplied: boolean;
+    dependsOn: number[];
+  };
+
+  const rawLineItems = llmResult.lineItems as unknown as LLMLineItem[];
+  const lineItems: SpecialistLineItem[] = rawLineItems.map((li, i) => ({
     id: idOf(i),
     requirementId: input.requirement.id,
     menuCardId: input.menuCardId,
@@ -128,7 +137,9 @@ export async function runSpecialist(
     hours: snapToQuarterHour(li.hours),
     complexity: li.complexity,
     aiAssistApplied: li.aiAssistApplied,
-    dependsOn: li.dependsOn.filter((idx) => idx >= 0 && idx < llmResult.lineItems.length && idx !== i).map(idOf),
+    dependsOn: li.dependsOn
+      .filter((idx: number) => idx >= 0 && idx < llmResult.lineItems.length && idx !== i)
+      .map(idOf),
     anchorPresetIds: input.archivistMatch?.presetId ? [input.archivistMatch.presetId] : [],
   }));
 

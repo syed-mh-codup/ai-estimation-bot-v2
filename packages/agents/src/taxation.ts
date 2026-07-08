@@ -26,6 +26,11 @@ export type InfraBaseline = z.infer<typeof InfraBaselineSchema>;
 
 // ─── WS14-01: Taxation engine ─────────────────────────────────────────────────
 
+/** Round to the nearest 0.25h — line items are atomic <=4h units at 0.25h granularity (FOUR-HOUR RULE), so whole-hour rounding would visibly distort them. */
+function roundToQuarterHour(hours: number): number {
+  return Math.round(hours * 4) / 4;
+}
+
 /**
  * Apply taxation to a role line item: taxedHours = baseHours * (1 + pct).
  * Pure function.
@@ -42,7 +47,7 @@ export function applyTaxation(
     // DEV: no communication tax (complexity multiplier already applied)
     return {
       ...item,
-      taxedHours: Math.round(item.baseHours * (1 + taxPct)),
+      taxedHours: roundToQuarterHour(item.baseHours * (1 + taxPct)),
     };
   });
 }

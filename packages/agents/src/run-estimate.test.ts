@@ -14,20 +14,58 @@ const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 // the full pipeline WIRING offline — not the quality of real prompts/responses.
 const stubModelProvider: IModelProvider = {
   async chat({ messages }) {
-    const content = messages.map((m) => m.content).join('\n');
-    if (content.includes('Decompose') || content.includes('"requirements"')) {
+    const content = messages.map((m: { content: string }) => m.content).join('\n');
+    if (content.includes('Decompose this SOW')) {
       return JSON.stringify({
         requirements: [
-          { text: 'Build a B2B checkout flow', taxonomyKey: null, confidence: 0.9 },
-          { text: 'Implement SSO login', taxonomyKey: null, confidence: 0.8 },
+          {
+            text: 'Build a B2B checkout flow',
+            category: 'B2B',
+            reqType: 'Checkout',
+            platforms: ['Shopify'],
+            projectSize: 'Mid-market',
+            dataVolume: 'Low',
+            integrationCount: 1,
+            candidateMenuCardId: 'MC-B2B-CHECKOUT',
+            taxonomyKey: null,
+            sourceRef: 'SOW',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
+          {
+            text: 'Implement SSO login',
+            category: 'B2B',
+            reqType: 'Authentication',
+            platforms: ['Shopify'],
+            projectSize: 'Mid-market',
+            dataVolume: 'None',
+            integrationCount: 1,
+            candidateMenuCardId: 'MC-B2B-AUTH',
+            taxonomyKey: null,
+            sourceRef: 'SOW',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
         ],
       });
     }
-    if (content.includes('Estimate hours for role') || content.includes('"baseHours"')) {
-      return JSON.stringify({ baseHours: 10, rationale: 'stub', assumptions: ['Stub assumption'] });
+    if (content.includes('Investigate the risky and unknown parts')) {
+      return JSON.stringify({ risks: [], questions: [] });
     }
-    if (content.includes('narrative')) {
-      return JSON.stringify({ narrative: ['Implement the requested scope.'] });
+    if (content.includes('Estimate') && content.includes('effort for this requirement')) {
+      return JSON.stringify({
+        lineItems: [{ description: 'stub line item', hours: 2.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+        assumptions: ['Stub assumption'],
+      });
+    }
+    if (content.includes('Synthesise the specialists')) {
+      return JSON.stringify({
+        narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
+        cards: [
+          { menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core', thinSlice: true },
+          { menuCardId: 'MC-B2B-AUTH', phase: 'Core', thinSlice: false },
+        ],
+      });
     }
     return '{}';
   },
@@ -60,6 +98,8 @@ beforeAll(async () => {
   // Active prompt per agent kind the pipeline loads.
   for (const kind of [
     'LIBRARIAN',
+    'DETECTIVE',
+    'ARCHIVIST',
     'ARCHITECT',
     'SPECIALIST_DEV',
     'SPECIALIST_QA',

@@ -50,13 +50,15 @@ const DATA_VOLUME_KEYWORDS: Record<string, 'HIGH' | 'LOW'> = {
   'few records': 'LOW',
 };
 
-const DATA_VOLUME_ORDER: Record<DataVolumeLevel, number> = { None: 0, Low: 1, High: 2 };
-const DATA_VOLUME_TO_RULE_KEY: Record<DataVolumeLevel, 'NONE' | 'LOW' | 'HIGH'> = {
-  None: 'NONE',
-  Low: 'LOW',
-  High: 'HIGH',
-};
-const RULE_KEY_ORDER: Record<'NONE' | 'LOW' | 'HIGH', number> = { NONE: 0, LOW: 1, HIGH: 2 };
+function dataVolumeOrder(v: DataVolumeLevel): number {
+  return v === 'High' ? 2 : v === 'Low' ? 1 : 0;
+}
+function dataVolumeToRuleKey(v: DataVolumeLevel): 'NONE' | 'LOW' | 'HIGH' {
+  return v === 'High' ? 'HIGH' : v === 'Low' ? 'LOW' : 'NONE';
+}
+function ruleKeyOrder(v: 'NONE' | 'LOW' | 'HIGH'): number {
+  return v === 'HIGH' ? 2 : v === 'LOW' ? 1 : 0;
+}
 
 /**
  * Detect complexity features from requirements + Detective risk findings.
@@ -87,7 +89,7 @@ export function detectFeatures(
     if (matches) matches.forEach((m) => apiMatches.add(m.toLowerCase()));
   }
   const flaggedCount = riskFindings.filter((f) =>
-    f.riskFlags.some((rf) => rf.includes('api') || rf.includes('rate')),
+    f.riskFlags.some((rf: string) => rf.includes('api') || rf.includes('rate')),
   ).length;
   const textBasedCount = Math.max(apiMatches.size, flaggedCount);
 
@@ -95,10 +97,10 @@ export function detectFeatures(
 
   // Structured signal: the highest data_volume any requirement was tagged with.
   const structuredVolume = requirements.reduce<DataVolumeLevel>(
-    (max, r) => (DATA_VOLUME_ORDER[r.dataVolume] > DATA_VOLUME_ORDER[max] ? r.dataVolume : max),
+    (max, r) => (dataVolumeOrder(r.dataVolume) > dataVolumeOrder(max) ? r.dataVolume : max),
     'None',
   );
-  let structuredVolumeKey = DATA_VOLUME_TO_RULE_KEY[structuredVolume];
+  const structuredVolumeKey = dataVolumeToRuleKey(structuredVolume);
 
   // Text-based fallback.
   let textVolumeKey: 'NONE' | 'LOW' | 'HIGH' = 'NONE';
@@ -109,7 +111,7 @@ export function detectFeatures(
     }
   }
 
-  const dataVolume = RULE_KEY_ORDER[textVolumeKey] > RULE_KEY_ORDER[structuredVolumeKey]
+  const dataVolume = ruleKeyOrder(textVolumeKey) > ruleKeyOrder(structuredVolumeKey)
     ? textVolumeKey
     : structuredVolumeKey;
 

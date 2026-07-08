@@ -34,7 +34,7 @@ function makeMenuItem(id: string, lineItems: RoleLineItem[]): MenuItem {
 describe('WS14-01: Taxation — taxedHours = base * (1 + pct) per role from config', () => {
   it('PM taxed at pmCommunicationTaxPct', () => {
     const items = applyTaxation([makeLineItem('PM', 10)], config);
-    expect(items[0]!.taxedHours).toBe(Math.round(10 * 1.15));
+    expect(items[0]!.taxedHours).toBe(11.5);
   });
 
   it('BA taxed at baCommunicationTaxPct', () => {
@@ -62,8 +62,8 @@ describe('WS14-01: Taxation — taxedHours = base * (1 + pct) per role from conf
     const taxed = applyTaxation(lineItems, config);
     expect(taxed.find((r) => r.role === 'DEV')!.taxedHours).toBe(50);
     expect(taxed.find((r) => r.role === 'QA')!.taxedHours).toBe(24);
-    expect(taxed.find((r) => r.role === 'PM')!.taxedHours).toBe(12);
-    expect(taxed.find((r) => r.role === 'BA')!.taxedHours).toBe(13);
+    expect(taxed.find((r) => r.role === 'PM')!.taxedHours).toBe(11.5);
+    expect(taxed.find((r) => r.role === 'BA')!.taxedHours).toBe(13.25);
   });
 });
 
