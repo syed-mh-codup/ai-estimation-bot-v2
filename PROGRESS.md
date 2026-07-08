@@ -5,7 +5,54 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-06-15 — OpenRouter CREDITS ARE LIVE. Background run w/ reload-safe progress UI + multimodal document ingestion (PDF/DOCX/images→SOW) both shipped & live-verified._
+_Last updated: 2026-07-08 — starting `feat/honor-prompts-4h-decomposition`: closing the prompt/code drift (DB prompts are a sophisticated v2/v3 spec with FOUR-HOUR RULE decomposition, controlled vocabulary, menu cards, risk register — agent code is still thin MVP, producing DEV=30h everywhere). See below._
+
+## 2026-07-08 (in progress) — honor-prompts-4h-decomposition
+
+**Root cause** (diagnosed prior session): `specialist.ts` asks for one number per
+role instead of decomposing to ≤4h line items per the real prompts; `librarian.ts`/
+`architect.ts` discard the richer envelope; `complexity.ts` is regex keyword
+matching; DETECTIVE/ARCHIVIST/SUPERVISOR prompts are dead code (never wired).
+Pulled the LIVE active prompts from Neon (not the seed defaults) — they specify a
+full JSON envelope: controlled vocabulary (category/req_type/platform/phase/
+project_size/data_volume/ai_assist/risk), requirement_id/menu_card_id/
+line_item_id/risk_id/question_id conventions, a Supervisor-gated 4-stage pipeline
+(Librarian → Detective+Archivist parallel → 4 Specialists parallel → Architect),
+and 5 GLOBAL INVARIANTS (four-hour rule, taxonomy validity, traceability, role
+independence, no padding).
+
+**Scope decision** (per advisor consult): don't implement every clause — close the
+drift on the phases that fix the actual symptoms (shallow/flat estimates), keep
+schema changes minimal in DB/UI (JSON blobs + relaxed constraints, not a full
+relational redesign), defer Detective/Supervisor gate-loop to last since they're
+lowest value / highest effort (need search+MCP providers, retry-loop plumbing).
+DB has only 4 test estimates — schema migrations are safe.
+
+**Phase plan** (tracked as Tasks #1–#10, committing after each):
+1. Rewrite `@repo/shared` Zod schemas to match the real envelope (mandatory —
+   can't honor a prompt without a schema that parses what it asks the LLM to emit).
+2. Prisma migration: RoleLineItem gets multiple rows per role (drop the
+   `@@unique([menuItemId,role])` constraint) + `title`/`meta Json?`; MenuItem gets
+   `category`/`phase`/`meta Json?`.
+3. Librarian: real structured requirements (category/req_type/platforms/
+   project_size/data_volume/integration_count/candidate_menu_card_id/ambiguities).
+4. Specialists: LLM decomposition into ≤4h atomic line items per role — **this is
+   the actual fix for DEV=30h-everywhere**.
+5. Architect: one real 8–15 sentence narrative + menu-card assembly from
+   Librarian's candidate cards, replacing the "Implement X." fallback.
+6. complexity.ts: derive score from the richer per-requirement signals instead of
+   regex keyword sniffing.
+7. Archivist: per-requirement coverage full/partial/none + wire
+   `embeddingProvider` into the production Inngest run + embed the 45 presets.
+8. Detective + Supervisor gates — deferred to last, lowest value/effort ratio.
+9. Fix `rollup.ts`/`taxation.ts`/web UI for multiple line items per role (currently
+   `.find()`-assumes exactly one row per role — must become filter/sum).
+10. Live-verify against a real OpenRouter run on the smallest sample SOW (not just
+    the stub-LLM tests) — loud parse-failure errors during verification, since the
+    old silent JSON-parse-fallback is exactly what hid this drift for so long.
+
+Resume point: see `git log --oneline` on this branch for phases completed so far;
+each phase is its own commit. Task list (TaskList) has live phase status.
 
 ## 2026-06-15 (latest) — Inngest durable jobs (serverless-ready)
 
