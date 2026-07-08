@@ -1,15 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  generateNarrative,
+  assembleCardsFromSpecialists,
   collateAssumptions,
-  assembleMenuCard,
   getAffectedChildren,
   runArchitect,
   type ArchitectContext,
   type ArchitectDeps,
 } from './architect';
 import type { IModelProvider } from '@repo/providers';
-import type { MenuItem, SpecialistOutput, Requirement, RoleLineItem, ArchivistMatch } from '@repo/shared';
+import type { MenuItem, SpecialistOutput, Requirement, SpecialistLineItem } from '@repo/shared';
 
 const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
 
@@ -19,147 +18,204 @@ const ctx: ArchitectContext = {
   instructions: 'You are the Architect agent.',
 };
 
-function makeMenuItem(id: string, taxonomyKey: string, enabled = true): MenuItem {
-  const lineItems: RoleLineItem[] = [
-    { role: 'DEV', baseHours: 20, taxedHours: 20, edited: false },
-  ];
-  return { id, taxonomyKey, title: id, enabled, lineItems };
+function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
+  return {
+    id: 'REQ-001',
+    text: 'Build B2B checkout',
+    category: 'B2B',
+    reqType: 'Checkout',
+    platforms: ['Shopify'],
+    projectSize: 'Mid-market',
+    dataVolume: 'Low',
+    integrationCount: 1,
+    candidateMenuCardId: 'MC-B2B-CHECKOUT',
+    taxonomyKey: 'b2b.checkout',
+    sourceRef: 'SOW section 1',
+    ambiguities: [],
+    blocksEstimation: false,
+    ...overrides,
+  };
 }
 
-function makeSpecialistOutput(role: 'DEV' | 'QA' | 'PM' | 'BA', assumptions: string[]): SpecialistOutput {
-  return { role, baseHours: 20, rationale: 'Test', assumptions };
+function makeLineItem(overrides: Partial<SpecialistLineItem> = {}): SpecialistLineItem {
+  return {
+    id: 'DEV-REQ-001-01',
+    requirementId: 'REQ-001',
+    menuCardId: 'MC-B2B-CHECKOUT',
+    description: 'Checkout happy path',
+    hours: 3,
+    complexity: 'base',
+    aiAssistApplied: false,
+    dependsOn: [],
+    anchorPresetIds: [],
+    ...overrides,
+  };
 }
 
-const requirements: Requirement[] = [
-  { text: 'Build B2B checkout', taxonomyKey: 'b2b.checkout', confidence: 0.9 },
-];
+function makeSpecialistOutput(
+  role: 'DEV' | 'QA' | 'PM' | 'BA',
+  lineItems: SpecialistLineItem[],
+  assumptions: string[] = [],
+): SpecialistOutput {
+  return { role, lineItems, assumptions };
+}
 
-// ─── WS16-01: Narrative array generation ─────────────────────────────────────
+// ─── Menu-card assembly from specialist line items ───────────────────────────
 
-describe('WS16-01: Narrative array — one sentence per enabled menu item', () => {
-  it('narrative length matches enabled menu item count', async () => {
-    const items = [
-      makeMenuItem('item-1', 'b2b.checkout', true),
-      makeMenuItem('item-2', 'auth.sso', true),
-      makeMenuItem('item-3', 'infra.setup', false), // disabled
+describe('assembleCardsFromSpecialists — groups line items by candidate_menu_card_id', () => {
+  it('groups line items from multiple roles/requirements into their menu cards', () => {
+    const requirements = [
+      makeRequirement(),
+      makeRequirement({ id: 'REQ-002', text: 'SSO login', candidateMenuCardId: 'MC-B2B-AUTH', category: 'B2B' }),
     ];
-    const enabled = items.filter((m) => m.enabled);
+    const outputs = [
+      makeSpecialistOutput('DEV', [
+        makeLineItem({ id: 'DEV-REQ-001-01', hours: 3 }),
+        makeLineItem({ id: 'DEV-REQ-001-02', hours: 2 }),
+      ]),
+      makeSpecialistOutput('QA', [makeLineItem({ id: 'QA-REQ-001-01', hours: 1.5 })]),
+      makeSpecialistOutput('DEV', [
+        makeLineItem({ id: 'DEV-REQ-002-01', requirementId: 'REQ-002', menuCardId: 'MC-B2B-AUTH', hours: 4 }),
+      ]),
+    ];
 
-    vi.mocked(mockModel.chat).mockResolvedValue(
-      JSON.stringify({ narrative: ['Implement B2B checkout flow.', 'Implement SSO authentication.'] }),
-    );
+    const cards = assembleCardsFromSpecialists(requirements, outputs);
 
-    const narrative = await generateNarrative(enabled, requirements, ctx);
-    expect(narrative.length).toBe(enabled.length);
+    expect(cards).toHaveLength(2);
+    const checkoutCard = cards.find((c) => c.id === 'MC-B2B-CHECKOUT');
+    expect(checkoutCard?.lineItems).toHaveLength(3);
+    expect(checkoutCard?.requirementIds).toEqual(['REQ-001']);
+    const authCard = cards.find((c) => c.id === 'MC-B2B-AUTH');
+    expect(authCard?.lineItems).toHaveLength(1);
   });
 
-  it('narrative sentences reference real item titles/taxonomy', async () => {
-    const items = [makeMenuItem('B2B Checkout Flow', 'b2b.checkout', true)];
-
-    vi.mocked(mockModel.chat).mockResolvedValue(
-      JSON.stringify({ narrative: ['We will implement the B2B Checkout Flow using a multi-step checkout pattern.'] }),
-    );
-
-    const narrative = await generateNarrative(items, requirements, ctx);
-    expect(narrative[0]).toContain('B2B Checkout Flow');
-  });
-
-  it('returns empty array for no enabled items', async () => {
-    const narrative = await generateNarrative([], requirements, ctx);
-    expect(narrative).toHaveLength(0);
-  });
-
-  it('falls back gracefully when LLM returns bad JSON', async () => {
-    vi.mocked(mockModel.chat).mockResolvedValue('not json at all');
-
-    const items = [makeMenuItem('Item A', 'feature.a', true)];
-    const narrative = await generateNarrative(items, requirements, ctx);
-    expect(narrative.length).toBe(1);
-    expect(narrative[0]).toContain('Item A');
+  it('produces no cards when there are no line items', () => {
+    expect(assembleCardsFromSpecialists([], [])).toHaveLength(0);
   });
 });
 
-// ─── WS16-02: Deterministic Assumption Set ───────────────────────────────────
+// ─── Deterministic Assumption Set ─────────────────────────────────────────────
 
-describe('WS16-02: Deterministic Assumption Set — dedupe + stable ordering', () => {
+describe('collateAssumptions — dedupe + stable ordering', () => {
   it('duplicate assumptions are merged into one', () => {
     const outputs: SpecialistOutput[] = [
-      makeSpecialistOutput('DEV', ['Standard timeline assumed', 'No custom auth']),
-      makeSpecialistOutput('QA', ['Standard timeline assumed', 'Automated testing environment']),
-      makeSpecialistOutput('PM', ['No custom auth', 'Weekly sync meetings']),
+      makeSpecialistOutput('DEV', [makeLineItem()], ['Standard timeline assumed', 'No custom auth']),
+      makeSpecialistOutput('QA', [makeLineItem()], ['Standard timeline assumed', 'Automated testing environment']),
+      makeSpecialistOutput('PM', [makeLineItem()], ['No custom auth', 'Weekly sync meetings']),
     ];
 
     const assumptions = collateAssumptions(outputs);
 
-    // Should have 4 unique assumptions
     expect(assumptions.length).toBe(4);
-    // No duplicates
     const unique = new Set(assumptions.map((a) => a.toLowerCase().trim()));
     expect(unique.size).toBe(assumptions.length);
   });
 
   it('produces same ordering for identical inputs (stable)', () => {
     const outputs: SpecialistOutput[] = [
-      makeSpecialistOutput('DEV', ['B assumption', 'A assumption']),
-      makeSpecialistOutput('QA', ['C assumption']),
+      makeSpecialistOutput('DEV', [makeLineItem()], ['B assumption', 'A assumption']),
+      makeSpecialistOutput('QA', [makeLineItem()], ['C assumption']),
     ];
 
-    const run1 = collateAssumptions(outputs);
-    const run2 = collateAssumptions(outputs);
-
-    expect(run1).toEqual(run2);
+    expect(collateAssumptions(outputs)).toEqual(collateAssumptions(outputs));
   });
 
   it('returns empty array when no assumptions', () => {
     const assumptions = collateAssumptions([
-      makeSpecialistOutput('DEV', []),
-      makeSpecialistOutput('QA', []),
+      makeSpecialistOutput('DEV', [makeLineItem()], []),
+      makeSpecialistOutput('QA', [makeLineItem()], []),
     ]);
     expect(assumptions).toHaveLength(0);
   });
 });
 
-// ─── WS16-03: Menu Card assembly with parent/child mapping ────────────────────
+// ─── getAffectedChildren (unchanged UI helper) ────────────────────────────────
 
-describe('WS16-03: Menu Card assembly — parent/child linking', () => {
-  it('child items link to parents via parentItemId', () => {
+describe('getAffectedChildren', () => {
+  function makeMenuItem(id: string, parentItemId?: string): MenuItem {
+    return { id, taxonomyKey: id, title: id, enabled: true, parentItemId, lineItems: [] };
+  }
+
+  it('returns children of a given parent', () => {
     const items = [
-      makeMenuItem('parent-1', 'b2b'),
-      makeMenuItem('child-1', 'b2b.checkout'),
-      makeMenuItem('child-2', 'b2b.cart'),
-    ];
-
-    const assembled = assembleMenuCard(items, []);
-
-    const checkout = assembled.find((m) => m.taxonomyKey === 'b2b.checkout');
-    const cart = assembled.find((m) => m.taxonomyKey === 'b2b.cart');
-
-    expect(checkout?.parentItemId).toBe('parent-1');
-    expect(cart?.parentItemId).toBe('parent-1');
-  });
-
-  it('getAffectedChildren returns children of a disabled parent', () => {
-    const items = [
-      makeMenuItem('parent-1', 'b2b'),
-      { ...makeMenuItem('child-1', 'b2b.checkout'), parentItemId: 'parent-1' },
-      { ...makeMenuItem('child-2', 'b2b.cart'), parentItemId: 'parent-1' },
-      makeMenuItem('unrelated', 'auth.sso'),
+      makeMenuItem('parent-1'),
+      makeMenuItem('child-1', 'parent-1'),
+      makeMenuItem('child-2', 'parent-1'),
+      makeMenuItem('unrelated'),
     ];
 
     const children = getAffectedChildren(items, 'parent-1');
     expect(children).toHaveLength(2);
     expect(children.every((c) => c.parentItemId === 'parent-1')).toBe(true);
   });
+});
 
-  it('items without parent prefix have no parentItemId', () => {
-    const items = [
-      makeMenuItem('item-a', 'auth.sso'),
-      makeMenuItem('item-b', 'payments.gateway'),
+// ─── Full Architect pipeline ──────────────────────────────────────────────────
+
+describe('runArchitect — narrative + card assembly', () => {
+  const requirements = [makeRequirement()];
+  const specialistOutputs = [
+    makeSpecialistOutput('DEV', [makeLineItem({ hours: 3 }), makeLineItem({ id: 'DEV-REQ-001-02', hours: 2 })]),
+    makeSpecialistOutput('QA', [makeLineItem({ id: 'QA-REQ-001-01', hours: 1.5 })]),
+  ];
+
+  function mockArchitectResponse(narrative: string[], cards: Array<{ menuCardId: string; phase: string; thinSlice?: boolean }>) {
+    vi.mocked(mockModel.chat).mockResolvedValueOnce(JSON.stringify({ narrative, cards }));
+  }
+
+  it('produces a single cohesive narrative and one menu card per candidate_menu_card_id', async () => {
+    mockArchitectResponse(
+      Array.from({ length: 8 }, (_, i) => `Sentence ${i + 1} about the B2B checkout build.`),
+      [{ menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core', thinSlice: true }],
+    );
+
+    const deps: ArchitectDeps = { ctx, requirements, archivistMatches: [], specialistOutputs };
+    const result = await runArchitect(deps);
+
+    expect(result.narrative).toHaveLength(8);
+    expect(result.menuItems).toHaveLength(1);
+    expect(result.menuItems[0]?.id).toBe('MC-B2B-CHECKOUT');
+    expect(result.menuItems[0]?.title).toBe('B2B Checkout');
+    expect(result.menuItems[0]?.phase).toBe('Core');
+    expect(result.menuItems[0]?.thinSlice).toBe(true);
+    expect(result.menuItems[0]?.lineItems).toHaveLength(3);
+    expect(result.consistencyFlags).toHaveLength(0);
+  });
+
+  it('marks a card notSafelyRemovable when another requirement requires one of its requirements', async () => {
+    mockArchitectResponse(['Sentence.'], [{ menuCardId: 'MC-B2B-CHECKOUT', phase: 'Foundation' }]);
+
+    const archivistMatches = [
+      {
+        requirementId: 'REQ-002',
+        taxonomyKey: null,
+        coverage: 'none' as const,
+        adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
+        rationale: 'n/a',
+        sequencing: { requires: ['REQ-001'], blocks: [], canParallel: true },
+      },
     ];
 
-    const assembled = assembleMenuCard(items, []);
-    for (const item of assembled) {
-      expect(item.parentItemId).toBeUndefined();
-    }
+    const result = await runArchitect({ ctx, requirements, archivistMatches, specialistOutputs });
+    expect(result.menuItems[0]?.notSafelyRemovable).toBe(true);
+    expect(result.menuItems[0]?.toggleable).toBe(false);
+  });
+
+  it('flags (does not silently clamp) a line item found over the four-hour cap', async () => {
+    mockArchitectResponse(['Sentence.'], [{ menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core' }]);
+
+    const badOutputs = [makeSpecialistOutput('DEV', [{ ...makeLineItem(), hours: 4 }])];
+    // Bypass the Specialist schema (which would normally reject >4h) to prove
+    // the Architect independently checks the invariant on whatever it's given.
+    (badOutputs[0]!.lineItems[0] as { hours: number }).hours = 9;
+
+    const result = await runArchitect({ ctx, requirements, archivistMatches: [], specialistOutputs: badOutputs });
+    expect(result.consistencyFlags.length).toBeGreaterThan(0);
+  });
+
+  it('produces no menu cards (and skips the LLM call) when there are no line items', async () => {
+    const result = await runArchitect({ ctx, requirements, archivistMatches: [], specialistOutputs: [] });
+    expect(result.menuItems).toHaveLength(0);
+    expect(result.narrative).toHaveLength(0);
   });
 });
