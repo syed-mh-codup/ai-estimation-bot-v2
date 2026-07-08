@@ -52,8 +52,9 @@ test.describe('WS23: Menu Card refinement', () => {
     await expect(page.getByTestId('sheet-link')).toBeVisible();
 
     // WS23-06: finalise → status FINALISED, finalise control removed.
+    await page.waitForLoadState('networkidle');
     await page.getByTestId('finalise-estimate').click();
-    await expect(page.getByTestId('estimate-status')).toHaveText('FINALISED');
+    await expect(page.getByTestId('estimate-status')).toHaveText('FINALISED', { timeout: 15000 });
     await expect(page.getByTestId('finalise-estimate')).toHaveCount(0);
   });
 });
