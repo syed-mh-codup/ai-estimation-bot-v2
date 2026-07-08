@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ComplexityOutput, Requirement, DetectiveFinding } from '@repo/shared';
+import type { ComplexityOutput, Requirement, RiskFinding, DataVolumeLevel } from '@repo/shared';
 import { ComplexityOutputSchema } from '@repo/shared';
 
 // ─── ComplexityRules shape (stored as JSON in EstimationConfig) ───────────────
@@ -32,6 +32,9 @@ export type DetectedFeatures = {
 
 // ─── WS12-02: Detector ────────────────────────────────────────────────────────
 
+// Text-based fallback/reinforcement — the Librarian's structured per-requirement
+// integrationCount/dataVolume are now the primary signal (see detectFeatures
+// below); these keywords still catch cases the Librarian under-called.
 const API_INTEGRATION_PATTERNS = [
   /\bapi\b/i, /\bintegrat/i, /\bwebhook/i, /\bsdk\b/i,
   /\bthird.party/i, /\bexternal service/i, /\bpayment gateway/i,
@@ -47,36 +50,68 @@ const DATA_VOLUME_KEYWORDS: Record<string, 'HIGH' | 'LOW'> = {
   'few records': 'LOW',
 };
 
+const DATA_VOLUME_ORDER: Record<DataVolumeLevel, number> = { None: 0, Low: 1, High: 2 };
+const DATA_VOLUME_TO_RULE_KEY: Record<DataVolumeLevel, 'NONE' | 'LOW' | 'HIGH'> = {
+  None: 'NONE',
+  Low: 'LOW',
+  High: 'HIGH',
+};
+const RULE_KEY_ORDER: Record<'NONE' | 'LOW' | 'HIGH', number> = { NONE: 0, LOW: 1, HIGH: 2 };
+
 /**
- * Detect complexity features from requirements and detective findings.
+ * Detect complexity features from requirements + Detective risk findings.
+ *
+ * Primary signal is now the Librarian's own per-requirement judgment
+ * (integrationCount, dataVolume) instead of regex-sniffing the requirement's
+ * short text blurb — that regex is what kept scoring every SOW as
+ * complexity=1 regardless of actual scope. Text-based keyword matching is
+ * kept as a reinforcing fallback (max of the two signals wins), so a
+ * requirement the Librarian under-called can still be caught.
  */
 export function detectFeatures(
   requirements: Requirement[],
-  findings: DetectiveFinding[],
+  riskFindings: RiskFinding[],
 ): DetectedFeatures {
   const allText = [
     ...requirements.map((r) => r.text),
-    ...findings.map((f) => f.claim),
+    ...riskFindings.map((f) => f.claim),
   ].join(' ').toLowerCase();
 
-  // Count API/integration mentions
+  // Structured signal: sum of the Librarian's per-requirement integration_count.
+  const structuredIntegrationCount = requirements.reduce((sum, r) => sum + r.integrationCount, 0);
+
+  // Text-based fallback (legacy regex behaviour, kept as reinforcement).
   const apiMatches = new Set<string>();
   for (const pattern of API_INTEGRATION_PATTERNS) {
     const matches = allText.match(new RegExp(pattern.source, 'gi'));
     if (matches) matches.forEach((m) => apiMatches.add(m.toLowerCase()));
   }
-  const apiIntegrationCount = findings.length > 0
-    ? Math.max(apiMatches.size, findings.filter((f) => f.riskFlags.some((rf) => rf.includes('api') || rf.includes('rate'))).length)
-    : apiMatches.size;
+  const flaggedCount = riskFindings.filter((f) =>
+    f.riskFlags.some((rf) => rf.includes('api') || rf.includes('rate')),
+  ).length;
+  const textBasedCount = Math.max(apiMatches.size, flaggedCount);
 
-  // Check data volume
-  let dataVolume: 'NONE' | 'LOW' | 'HIGH' = 'NONE';
+  const apiIntegrationCount = Math.max(structuredIntegrationCount, textBasedCount);
+
+  // Structured signal: the highest data_volume any requirement was tagged with.
+  const structuredVolume = requirements.reduce<DataVolumeLevel>(
+    (max, r) => (DATA_VOLUME_ORDER[r.dataVolume] > DATA_VOLUME_ORDER[max] ? r.dataVolume : max),
+    'None',
+  );
+  let structuredVolumeKey = DATA_VOLUME_TO_RULE_KEY[structuredVolume];
+
+  // Text-based fallback.
+  let textVolumeKey: 'NONE' | 'LOW' | 'HIGH' = 'NONE';
   for (const [kw, vol] of Object.entries(DATA_VOLUME_KEYWORDS)) {
     if (allText.includes(kw)) {
-      dataVolume = vol;
-      if (vol === 'HIGH') break; // HIGH takes priority
+      textVolumeKey = vol;
+      if (vol === 'HIGH') break;
     }
   }
+
+  const dataVolume = RULE_KEY_ORDER[textVolumeKey] > RULE_KEY_ORDER[structuredVolumeKey]
+    ? textVolumeKey
+    : structuredVolumeKey;
 
   const taxonomyKeys = [
     ...new Set(requirements.map((r) => r.taxonomyKey).filter((k): k is string => k !== null)),
@@ -150,13 +185,13 @@ export function computeComplexityScore(
  */
 export function runComplexityScorecard(
   requirements: Requirement[],
-  findings: DetectiveFinding[],
+  riskFindings: RiskFinding[],
   complexityRules: unknown,
 ): ComplexityOutput {
-  const features = detectFeatures(requirements, findings);
+  const features = detectFeatures(requirements, riskFindings);
   const allText = [
     ...requirements.map((r) => r.text),
-    ...findings.map((f) => f.claim),
+    ...riskFindings.map((f) => f.claim),
   ].join(' ');
   return computeComplexityScore(features, complexityRules, allText);
 }
