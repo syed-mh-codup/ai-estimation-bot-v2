@@ -76,6 +76,7 @@ const stubModelProvider: IModelProvider = {
 
 let userId = '';
 let estimateId = '';
+let configVersion = 0;
 
 beforeAll(async () => {
   await db.$connect();
@@ -120,6 +121,8 @@ beforeAll(async () => {
     });
   }
 
+  configVersion = cfg.version;
+
   const user = await db.user.create({
     data: { email: `runest-${Date.now()}@example.com`, hash: 'hash', role: 'ESTIMATOR' },
   });
@@ -150,6 +153,41 @@ afterAll(async () => {
   await db.estimate.delete({ where: { id: estimateId } });
   await db.user.delete({ where: { id: userId } });
   await db.$disconnect();
+});
+
+describe('runEstimate refuses a trivially-empty SOW rather than fabricating one', () => {
+  it('throws before calling the Librarian when sowText is empty (e.g. ingestion silently failed)', async () => {
+    const est = await db.estimate.create({
+      data: {
+        title: 'Empty SOW Test',
+        sowText: '',
+        sowHash: '',
+        status: 'DRAFT',
+        taxonomyVersionsPinned: {},
+        configVersion,
+        promptVersionsPinned: {},
+        modelConfig: {},
+        narrative: [],
+        assumptions: [],
+        agentState: {},
+        ownerId: userId,
+      },
+    });
+
+    let librarianCalled = false;
+    const spyingProvider: IModelProvider = {
+      ...stubModelProvider,
+      async chat(opts: Parameters<IModelProvider['chat']>[0]) {
+        librarianCalled = true;
+        return stubModelProvider.chat(opts);
+      },
+    };
+
+    await expect(runEstimate(est.id, { db, modelProvider: spyingProvider })).rejects.toThrow(/too short|empty/i);
+    expect(librarianCalled).toBe(false);
+
+    await db.estimate.delete({ where: { id: est.id } });
+  });
 });
 
 describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {

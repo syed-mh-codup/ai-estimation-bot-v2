@@ -12,7 +12,7 @@ import type { ContentPart, IModelProvider } from '@repo/providers';
 // file-parser's parsed PDF text, while Anthropic models read parsed PDFs but
 // don't accept image input. So images and PDFs use different models.
 const DEFAULT_VISION_MODEL = 'openai/gpt-4o-mini'; // images (vision)
-const DEFAULT_PDF_MODEL = 'anthropic/claude-3.5-haiku'; // PDFs via file-parser
+const DEFAULT_PDF_MODEL = 'anthropic/claude-haiku-4.5'; // PDFs via file-parser
 
 const IMAGE_PROMPT =
   'Transcribe ALL content from this image into clean text/markdown. Include any text inside ' +

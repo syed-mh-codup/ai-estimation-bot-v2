@@ -8,6 +8,9 @@ import {
   PlatformSchema,
   ProjectSizeSchema,
   DataVolumeLevelSchema,
+  CATEGORY_EXAMPLES,
+  REQ_TYPE_EXAMPLES,
+  PLATFORM_EXAMPLES,
 } from '@repo/shared';
 import { chatJSON } from './llm-json';
 
@@ -66,9 +69,9 @@ Respond with JSON only, matching exactly this shape:
   "requirements": [
     {
       "text": "...",
-      "category": "<one of the controlled category values>",
-      "reqType": "<one of the controlled req_type values>",
-      "platforms": ["<controlled platform values>"],
+      "category": "<specific, Title Case category genuinely fitting THIS requirement's domain>",
+      "reqType": "<specific, Title Case type of work genuinely fitting THIS requirement>",
+      "platforms": ["<real platforms/technologies/frameworks THIS requirement actually touches>"],
       "projectSize": "SMB" | "Mid-market" | "Enterprise",
       "dataVolume": "None" | "Low" | "High",
       "integrationCount": <integer 0-10>,
@@ -80,6 +83,20 @@ Respond with JSON only, matching exactly this shape:
     }
   ]
 }
+
+category/reqType/platforms are OPEN fields, not a fixed list — this system estimates a wide
+variety of software work, not just one vertical. Examples from past ecommerce/B2B engagements
+(use these ONLY when the requirement is genuinely that kind of work — never force-fit them):
+  category examples: ${CATEGORY_EXAMPLES.join(' | ')}
+  reqType examples:  ${REQ_TYPE_EXAMPLES.join(' | ')}
+  platform examples: ${PLATFORM_EXAMPLES.join(' | ')}
+For a requirement outside that vertical, invent equally specific, real, Title Case labels for
+its actual domain (e.g. an AI training platform might use category "Conversational AI",
+reqType "Simulation Design", platform "LLM Provider" — invent what genuinely fits). Never use
+vague placeholders like "Other" or "General" — be as specific as the ecommerce examples are.
+Stay internally consistent: reuse the same label across requirements that are genuinely the
+same kind of work.
+
 One requirement = one buildable capability. Err toward more, smaller requirements.`;
 }
 

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
-import { StubSheetsProvider } from '@repo/providers';
+import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
@@ -106,9 +106,9 @@ async function exportSheetsAction(formData: FormData) {
     })),
   }));
 
-  // Sheets provider is a BLOCKED-CREDENTIAL stub: returns a synthetic URL until
-  // GOOGLE_SERVICE_ACCOUNT_JSON is configured.
-  const result = await exportToSheets(id, estimate.title, items, new StubSheetsProvider());
+  // Falls back to a synthetic-URL stub when GOOGLE_SERVICE_ACCOUNT_JSON /
+  // GOOGLE_DRIVE_FOLDER_ID aren't configured for this environment.
+  const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
   await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
   revalidatePath(`/estimates/${id}`);
 }

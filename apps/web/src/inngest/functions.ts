@@ -104,14 +104,35 @@ const ingestFn = inngest.createFunction(
         bytes: new Uint8Array(r.bytes),
       }));
 
-      const { text } = await ingestFiles(files, {
+      const { text, files: parsedFiles } = await ingestFiles(files, {
         modelProvider: createModelProvider(),
         onProgress: async ({ stage, pct }) => {
           await prisma.estimate.update({ where: { id: estimateId }, data: { ingestStage: stage, ingestPct: pct } });
         },
       });
 
+      const failed = parsedFiles.filter((f) => f.error);
       const combined = [est.sowText, text].filter((s) => s.trim().length > 0).join('\n\n');
+
+      // Every file failed to parse (or none produced usable text) and there was
+      // no pre-existing SOW text to fall back on — this is not a valid ingest,
+      // even though ingestFile() never throws per-file. Fail loudly instead of
+      // silently marking DONE on an empty SOW (see estimate-quality-prompt-code-drift
+      // memory: a blank SOW previously caused the Librarian to fabricate one).
+      if (combined.trim().length === 0) {
+        const detail = failed.length
+          ? failed.map((f) => `${f.filename}: ${f.error}`).join('; ')
+          : 'no files produced any text';
+        throw new Error(`Ingestion produced no usable SOW text — ${detail}`);
+      }
+
+      // Partial failure: some files parsed, at least one didn't. Not fatal —
+      // there's real content to estimate from — but surface it rather than
+      // silently dropping the failed file(s) from the SOW.
+      const ingestError = failed.length
+        ? `${failed.length} of ${parsedFiles.length} file(s) failed to parse: ${failed.map((f) => `${f.filename} (${f.error})`).join('; ')}`.slice(0, 500)
+        : null;
+
       await prisma.estimate.update({
         where: { id: estimateId },
         data: {
@@ -120,10 +141,11 @@ const ingestFn = inngest.createFunction(
           ingestStatus: 'DONE',
           ingestStage: 'Done',
           ingestPct: 100,
+          ingestError,
         },
       });
       await prisma.uploadedFile.deleteMany({ where: { estimateId } });
-      return { chars: combined.length };
+      return { chars: combined.length, failedFiles: failed.length };
     });
 
     return result;

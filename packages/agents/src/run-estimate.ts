@@ -68,6 +68,18 @@ export async function runEstimate(
   await report('Loading prompts & config', 2);
   const est = await db.estimate.findUniqueOrThrow({ where: { id: estimateId } });
 
+  // Refuse a trivially-empty SOW rather than let the Librarian fabricate one
+  // from nothing. This can happen if document ingestion silently produced no
+  // text (e.g. a broken PDF parser) — see estimate-quality-prompt-code-drift
+  // memory. A real SOW is always at least a few sentences; this threshold is
+  // deliberately far below that, just enough to catch "genuinely nothing here."
+  const MIN_SOW_CHARS = 40;
+  if (est.sowText.trim().length < MIN_SOW_CHARS) {
+    throw new Error(
+      `SOW text is empty or too short to estimate (${est.sowText.trim().length} chars, need >=${MIN_SOW_CHARS}) — refusing to run. Check ingestStatus/ingestError; document ingestion may have failed silently.`,
+    );
+  }
+
   // ── Active prompts (one per agent kind) ─────────────────────────────────────
   const [libP, detP, archP, devP, qaP, pmP, baP, architectP] = await Promise.all([
     loadActivePrompt(db, 'LIBRARIAN'),

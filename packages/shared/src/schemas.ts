@@ -42,21 +42,32 @@ export type PresetPhase = z.infer<typeof PresetPhaseSchema>;
 export const LevelSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 export type Level = z.infer<typeof LevelSchema>;
 
-// ─── Controlled vocabulary (from the live SUPERVISOR/agent prompts — every
-// agent's system prompt dictates these exact string values; the LLM envelope
-// must round-trip through them or we've recreated the prompt/code drift). ────
+// ─── Classification vocabulary ─────────────────────────────────────────────
+// category/req_type/platform are open, LLM-assigned labels (same pattern as
+// candidate_menu_card_id) — NOT a closed enum. This system estimates a
+// variety of software work, not just the ecommerce/B2B vertical the preset
+// library and these example lists originated from. A closed enum forced
+// every requirement into the nearest ecommerce label regardless of fit; see
+// PROGRESS.md's "generalize classification vocabulary" entry. The example
+// lists below exist purely as calibration reference for prompt-writing (the
+// live agent prompts show the model a few worked examples per field), not as
+// a validation source of truth — do not reintroduce z.enum() here.
 
-export const CategorySchema = z.enum([
+/** Example categories seen in past (ecommerce/B2B) engagements — not exhaustive. */
+export const CATEGORY_EXAMPLES = [
   'Shopify / Ecommerce',
   'B2B',
   'CMS & Content',
   'Integration / Celigo',
   'PIM & Search',
   'Dev Environment',
-]);
+] as const;
+
+export const CategorySchema = z.string().trim().min(1);
 export type Category = z.infer<typeof CategorySchema>;
 
-export const ReqTypeSchema = z.enum([
+/** Example req_types seen in past (ecommerce/B2B) engagements — not exhaustive. */
+export const REQ_TYPE_EXAMPLES = [
   'Authentication',
   'Checkout',
   'Commerce Logic',
@@ -84,19 +95,15 @@ export const ReqTypeSchema = z.enum([
   'Shipping',
   'Tax',
   'UI Component',
-]);
+] as const;
+
+export const ReqTypeSchema = z.string().trim().min(1);
 export type ReqType = z.infer<typeof ReqTypeSchema>;
 
-export const PlatformSchema = z.enum([
-  'Shopify',
-  'Celigo',
-  'Contentful',
-  'Klevu',
-  'P21',
-  'Act-On',
-  'Vercel',
-  'PIM',
-]);
+/** Example platforms seen in past (ecommerce/B2B) engagements — not exhaustive. */
+export const PLATFORM_EXAMPLES = ['Shopify', 'Celigo', 'Contentful', 'Klevu', 'P21', 'Act-On', 'Vercel', 'PIM'] as const;
+
+export const PlatformSchema = z.string().trim().min(1);
 export type Platform = z.infer<typeof PlatformSchema>;
 
 /** Menu-card phase (Title Case — distinct from PresetPhaseSchema's DB casing). */

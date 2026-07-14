@@ -290,10 +290,29 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
     await expect(runLibrarian('Checkout integration', taxonomy, libCtx)).rejects.toThrow();
   });
 
-  it('rejects a requirement using a value outside the controlled vocabulary', async () => {
+  it('accepts a category/reqType/platform outside the ecommerce example vocabulary (open classification, not a closed enum)', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
       JSON.stringify({
-        requirements: [makeLLMRequirement({ category: 'Not A Real Category' })],
+        requirements: [
+          makeLLMRequirement({
+            category: 'Conversational AI',
+            reqType: 'Simulation Design',
+            platforms: ['LLM Provider'],
+          }),
+        ],
+      }),
+    );
+
+    const result = await runLibrarian('Checkout integration', taxonomy, libCtx);
+    expect(result.requirements[0]?.category).toBe('Conversational AI');
+    expect(result.requirements[0]?.reqType).toBe('Simulation Design');
+    expect(result.requirements[0]?.platforms).toEqual(['LLM Provider']);
+  });
+
+  it('rejects a requirement with a blank category (still requires a real, non-empty label)', async () => {
+    vi.mocked(mockModelProvider.chat).mockResolvedValue(
+      JSON.stringify({
+        requirements: [makeLLMRequirement({ category: '' })],
       }),
     );
 

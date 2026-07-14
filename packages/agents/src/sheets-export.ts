@@ -1,6 +1,3 @@
-// BLOCKED-CREDENTIAL: Full integration test requires GOOGLE_SERVICE_ACCOUNT_JSON.
-// All tests use StubSheetsProvider.
-
 import type { ISheetsProvider, SpreadsheetTab } from '@repo/providers';
 import type { MenuItem, RoleKind } from '@repo/shared';
 import { computeRollup, computeRoleProjections } from './rollup';
@@ -65,7 +62,6 @@ export type SheetsExportResult = {
 /**
  * Export an estimate to Google Sheets.
  * Creates a new spreadsheet or updates the existing one (idempotent by estimateId).
- * BLOCKED-CREDENTIAL: Uses StubSheetsProvider when Google SA not configured.
  */
 export async function exportToSheets(
   estimateId: string,
@@ -80,7 +76,7 @@ export async function exportToSheets(
 
   const result = existingId
     ? await sheetsProvider.updateSpreadsheet(existingId, tabs)
-    : await sheetsProvider.createSpreadsheet(`${estimateTitle} — Estimate`, tabs);
+    : await sheetsProvider.createSpreadsheet(`${estimateTitle} — Estimate`, tabs, estimateId);
 
   return {
     spreadsheetId: result.spreadsheetId,

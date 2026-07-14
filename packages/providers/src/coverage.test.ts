@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   StubSheetsProvider,
+  LiveSheetsProvider,
   createSheetsProvider,
 } from './sheets-provider';
 import {
@@ -16,7 +17,7 @@ import { LiveMcpProvider } from './mcp-provider';
 describe('WS25-02: sheets provider', () => {
   it('stub create/update/getId behave', async () => {
     const p = new StubSheetsProvider();
-    const created = await p.createSpreadsheet('Title', [{ title: 'Tab', rows: [['a', 1]] }]);
+    const created = await p.createSpreadsheet('Title', [{ title: 'Tab', rows: [['a', 1]] }], 'est-cov-01');
     expect(created.url).toContain('docs.google.com/spreadsheets');
     const updated = await p.updateSpreadsheet(created.spreadsheetId, []);
     expect(updated.spreadsheetId).toBe(created.spreadsheetId);
@@ -25,7 +26,23 @@ describe('WS25-02: sheets provider', () => {
 
   it('factory returns the stub when no credentials', () => {
     delete process.env['GOOGLE_SERVICE_ACCOUNT_JSON'];
+    delete process.env['GOOGLE_DRIVE_FOLDER_ID'];
     expect(createSheetsProvider()).toBeInstanceOf(StubSheetsProvider);
+  });
+
+  it('factory returns the stub when only one of the two required env vars is set', () => {
+    process.env['GOOGLE_SERVICE_ACCOUNT_JSON'] = '{"client_email":"x","private_key":"y"}';
+    delete process.env['GOOGLE_DRIVE_FOLDER_ID'];
+    expect(createSheetsProvider()).toBeInstanceOf(StubSheetsProvider);
+    delete process.env['GOOGLE_SERVICE_ACCOUNT_JSON'];
+  });
+
+  it('factory returns LiveSheetsProvider when both credentials are set', () => {
+    process.env['GOOGLE_SERVICE_ACCOUNT_JSON'] = '{"client_email":"x@example.com","private_key":"fake-key"}';
+    process.env['GOOGLE_DRIVE_FOLDER_ID'] = 'folder-123';
+    expect(createSheetsProvider()).toBeInstanceOf(LiveSheetsProvider);
+    delete process.env['GOOGLE_SERVICE_ACCOUNT_JSON'];
+    delete process.env['GOOGLE_DRIVE_FOLDER_ID'];
   });
 });
 
