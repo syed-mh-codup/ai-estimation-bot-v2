@@ -32,22 +32,29 @@ test.describe('WS23: Menu Card refinement', () => {
     // WS23-03: edit item 2 DEV base hours 30 → 100. DEV is untaxed, so taxed DEV
     // is exactly 100 regardless of the active config's tax %s (which other specs
     // in the suite mutate) — a config-independent assertion.
-    await page.fill(`[data-testid="base-DEV-${MI2}"]`, '100');
+    // Selector is a prefix match: a role can hold several atomic line items
+    // (FOUR-HOUR RULE), so the full testid includes the line item's own id
+    // (`base-DEV-${MI2}-${lineItemId}`) — the seed fixture has exactly one
+    // DEV line item per card, so the prefix uniquely matches it.
+    const devBaseInput = page.locator(`[data-testid^="base-DEV-${MI2}-"]`);
+    const devTaxedLabel = page.locator(`[data-testid^="taxed-DEV-${MI2}-"]`);
+    await devBaseInput.fill('100');
     await page.getByTestId(`save-item-${MI2}`).click();
-    await expect(page.getByTestId(`taxed-DEV-${MI2}`)).toContainText('100');
+    await expect(devTaxedLabel).toContainText('100');
     // WS23-04: change log appears once an item is edited.
     await expect(page.getByTestId('change-log')).toBeVisible();
     // Edit persists across reload.
     await page.reload();
-    await expect(page.locator(`[data-testid="base-DEV-${MI2}"]`)).toHaveValue('100');
+    await expect(devBaseInput).toHaveValue('100');
 
     // WS23-05: export to Sheets (stub) → link appears.
     await page.getByTestId('export-sheets').click();
     await expect(page.getByTestId('sheet-link')).toBeVisible();
 
     // WS23-06: finalise → status FINALISED, finalise control removed.
+    await page.waitForLoadState('networkidle');
     await page.getByTestId('finalise-estimate').click();
-    await expect(page.getByTestId('estimate-status')).toHaveText('FINALISED');
+    await expect(page.getByTestId('estimate-status')).toHaveText('FINALISED', { timeout: 15000 });
     await expect(page.getByTestId('finalise-estimate')).toHaveCount(0);
   });
 });

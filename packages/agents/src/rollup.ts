@@ -48,8 +48,13 @@ export function computeRollup(menuItems: MenuItem[]): RollupResult {
 
 export type RoleProjection = {
   role: RoleKind;
+  /** One row per atomic line item — a menu card's role bucket can hold several <=4h items now. */
   items: Array<{
     menuItemId: string;
+    /** The line item's own id (e.g. DEV-REQ003-04), if it carries one. */
+    lineItemId?: string;
+    menuItemTitle: string;
+    /** The line item's own short description; falls back to the menu item's title for legacy/injected rows without one. */
     title: string;
     taxonomyKey: string;
     baseHours: number;
@@ -61,25 +66,29 @@ export type RoleProjection = {
 };
 
 /**
- * Generate per-role projections: same menu items, role-specific line items.
- * Four projections (DEV/QA/PM/BA), sharing item identity but distinct hours.
+ * Generate per-role projections: one row per atomic line item (not per menu
+ * item) — a menu card's role bucket can hold several <=4h line items since
+ * the FOUR-HOUR RULE decomposition. Four projections (DEV/QA/PM/BA).
  */
 export function computeRoleProjections(menuItems: MenuItem[]): RoleProjection[] {
   const roles: RoleKind[] = ['DEV', 'QA', 'PM', 'BA'];
 
   return roles.map((role) => {
-    const items = menuItems.map((m) => {
-      const li = m.lineItems.find((l) => l.role === role);
-      return {
-        menuItemId: m.id,
-        title: m.title,
-        taxonomyKey: m.taxonomyKey,
-        baseHours: li?.baseHours ?? 0,
-        taxedHours: li?.taxedHours ?? 0,
-        enabled: m.enabled,
-        notes: li?.notes,
-      };
-    });
+    const items = menuItems.flatMap((m) =>
+      m.lineItems
+        .filter((li) => li.role === role)
+        .map((li) => ({
+          menuItemId: m.id,
+          lineItemId: li.id,
+          menuItemTitle: m.title,
+          title: li.title ?? m.title,
+          taxonomyKey: m.taxonomyKey,
+          baseHours: li.baseHours,
+          taxedHours: li.taxedHours,
+          enabled: m.enabled,
+          notes: li.notes,
+        })),
+    );
 
     const enabledItems = items.filter((i) => i.enabled);
     const totalBase = enabledItems.reduce((s, i) => s + i.baseHours, 0);

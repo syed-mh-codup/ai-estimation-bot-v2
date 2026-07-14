@@ -5,7 +5,7 @@ import {
   acknowledgeUnreconciled,
   type AcknowledgementRecord,
 } from './audit';
-import type { MenuItem, DetectiveFinding, RoleLineItem } from '@repo/shared';
+import type { MenuItem, RiskFinding, RoleLineItem } from '@repo/shared';
 
 function makeMenuItem(id: string, taxonomyKey: string): MenuItem {
   const lineItems: RoleLineItem[] = [
@@ -14,18 +14,24 @@ function makeMenuItem(id: string, taxonomyKey: string): MenuItem {
   return { id, taxonomyKey, title: id, enabled: true, lineItems };
 }
 
-const rateRiskFinding: DetectiveFinding = {
+const rateRiskFinding: RiskFinding = {
+  id: 'RISK-001',
+  requirementId: 'REQ-001',
   taxonomyKey: 'payments.api',
   claim: 'Stripe API has rate limits',
-  source: 'docs.stripe.com',
+  citation: 'docs.stripe.com',
   riskFlags: ['rate-limits'],
+  spikeRecommended: false,
 };
 
-const retryRiskFinding: DetectiveFinding = {
+const retryRiskFinding: RiskFinding = {
+  id: 'RISK-002',
+  requirementId: 'REQ-001',
   taxonomyKey: 'payments.api',
   claim: 'Webhook retries needed',
-  source: 'docs.stripe.com',
+  citation: 'docs.stripe.com',
   riskFlags: ['retries'],
+  spikeRecommended: false,
 };
 
 // ─── WS15-01: Hidden-Work Audit ───────────────────────────────────────────────
@@ -70,8 +76,8 @@ describe('WS15-01: Hidden-Work Audit', () => {
 
   it('handles multiple risk flags adding multiple hidden items', () => {
     const menuItems: MenuItem[] = [];
-    const findings = [
-      { taxonomyKey: 'api', claim: 'rate limit', source: 's', riskFlags: ['rate-limits', 'retries'] },
+    const findings: RiskFinding[] = [
+      { id: 'RISK-003', requirementId: 'REQ-001', taxonomyKey: 'api', claim: 'rate limit', citation: 's', riskFlags: ['rate-limits', 'retries'], spikeRecommended: false },
     ];
 
     const result = runHiddenWorkAudit(menuItems, findings);

@@ -42,6 +42,9 @@ export async function persistAgentState(
 
 export type ItemTweak = {
   menuItemId: string;
+  /** Target one specific atomic line item (preferred — a role can hold several <=4h items now). */
+  lineItemId?: string;
+  /** Bulk-edit every line item of a role when lineItemId isn't given (sets them all to the same hours). */
   role?: 'DEV' | 'QA' | 'PM' | 'BA';
   newBaseHours?: number;
   newNotes?: string;
@@ -52,6 +55,11 @@ export type TweakResult = {
   rollup: ReturnType<typeof computeRollup>;
   projections: ReturnType<typeof computeRoleProjections>;
 };
+
+/** Round to 0.25h — line items are atomic <=4h units at 0.25h granularity (FOUR-HOUR RULE). */
+function roundToQuarterHour(hours: number): number {
+  return Math.round(hours * 4) / 4;
+}
 
 /**
  * Apply a tweak to one menu item's hours/notes.
@@ -67,7 +75,9 @@ export function applyItemTweak(
     if (m.id !== tweak.menuItemId) return m; // unchanged
 
     const lineItems = m.lineItems.map((li) => {
-      if (tweak.role && li.role !== tweak.role) return li; // only edit specified role
+      if (tweak.lineItemId ? li.id !== tweak.lineItemId : tweak.role && li.role !== tweak.role) {
+        return li; // not the targeted line item
+      }
 
       const newBase = tweak.newBaseHours !== undefined ? tweak.newBaseHours : li.baseHours;
       const taxPct =
@@ -78,7 +88,7 @@ export function applyItemTweak(
       return {
         ...li,
         baseHours: newBase,
-        taxedHours: Math.round(newBase * (1 + taxPct)),
+        taxedHours: roundToQuarterHour(newBase * (1 + taxPct)),
         notes: tweak.newNotes ?? li.notes,
         edited: true,
       };
@@ -132,7 +142,11 @@ export function computeMenuItemDiffs(
     }
 
     for (const afterLi of afterItem.lineItems) {
-      const beforeLi = beforeItem.lineItems.find((l) => l.role === afterLi.role);
+      // Match by line item id when both sides have one (a role can hold
+      // several line items now); fall back to role for legacy/injected rows.
+      const beforeLi = afterLi.id
+        ? beforeItem.lineItems.find((l) => l.id === afterLi.id)
+        : beforeItem.lineItems.find((l) => l.role === afterLi.role && !l.id);
       if (!beforeLi) continue;
 
       if (beforeLi.baseHours !== afterLi.baseHours) {

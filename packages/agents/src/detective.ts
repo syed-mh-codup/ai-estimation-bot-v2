@@ -1,9 +1,8 @@
 import { z } from 'zod';
-import type { IModelProvider } from '@repo/providers';
-import type { ISearchProvider } from '@repo/providers';
-import type { IMcpProvider } from '@repo/providers';
-import type { DetectiveOutput, DetectiveFinding, Requirement } from '@repo/shared';
-import { DetectiveOutputSchema } from '@repo/shared';
+import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
+import type { DetectiveOutput, RiskFinding, OpenQuestion, Requirement } from '@repo/shared';
+import { DetectiveOutputSchema, PlatformSchema } from '@repo/shared';
+import { chatJSON } from './llm-json';
 
 export type DetectiveContext = {
   modelProvider: IModelProvider;
@@ -13,120 +12,166 @@ export type DetectiveContext = {
   mcpProvider: IMcpProvider;
 };
 
-const LLMFindingsSchema = z.object({
-  findings: z.array(
-    z.object({
-      taxonomyKey: z.string(),
-      claim: z.string(),
-      source: z.string(),
-      riskFlags: z.array(z.string()),
-    }),
-  ),
+const LLMRiskSchema = z.object({
+  requirementId: z.string(),
+  platform: PlatformSchema.optional(),
+  claim: z.string(),
+  riskFlags: z.array(z.string()).default([]),
+  citation: z.string(),
+  spikeRecommended: z.boolean().default(false),
+  spikePresetId: z.string().optional(),
+});
+
+const LLMQuestionSchema = z.object({
+  requirementId: z.string(),
+  question: z.string(),
+  citation: z.string().optional(),
+  blocksEstimation: z.boolean().default(false),
+});
+
+const LLMDetectiveSchema = z.object({
+  risks: z.array(LLMRiskSchema).default([]),
+  questions: z.array(LLMQuestionSchema).default([]),
 });
 
 /**
- * Deduplicate findings: merge findings with identical claim text, keeping all sources.
+ * Merge findings whose (requirementId, claim) are identical, keeping all citations.
  */
-export function deduplicateFindings(findings: DetectiveFinding[]): DetectiveFinding[] {
-  const seen = new Map<string, DetectiveFinding>();
-  for (const f of findings) {
-    const key = `${f.taxonomyKey}::${f.claim.toLowerCase().trim()}`;
+export function deduplicateRisks(risks: RiskFinding[]): RiskFinding[] {
+  const seen = new Map<string, RiskFinding>();
+  for (const r of risks) {
+    const key = `${r.requirementId}::${r.claim.toLowerCase().trim()}`;
     const existing = seen.get(key);
     if (existing) {
-      // Merge sources
-      if (!existing.source.includes(f.source)) {
-        seen.set(key, { ...existing, source: `${existing.source}; ${f.source}` });
+      if (!existing.citation.includes(r.citation)) {
+        seen.set(key, { ...existing, citation: `${existing.citation}; ${r.citation}` });
       }
     } else {
-      seen.set(key, { ...f });
+      seen.set(key, { ...r });
     }
   }
   return Array.from(seen.values());
 }
 
-/**
- * Build search queries from requirements.
- */
-function buildSearchQueries(requirements: Requirement[]): string[] {
-  return requirements
-    .filter((r) => r.taxonomyKey !== null)
-    .map((r) => `${r.text} technical complexity risks`);
+async function gatherSearchContext(
+  requirements: Requirement[],
+  searchProvider: ISearchProvider,
+): Promise<string> {
+  const priority = [...requirements].sort((a, b) => {
+    const score = (r: Requirement) => (r.blocksEstimation ? 2 : 0) + (r.integrationCount >= 3 ? 1 : 0);
+    return score(b) - score(a);
+  });
+
+  const sections: string[] = [];
+  for (const req of priority) {
+    const query = `${req.text} ${req.platforms.join(' ')} technical risks integration`;
+    const results = await searchProvider.search(query, 3);
+    const snippet = results.map((r: { title: string; url: string; snippet: string }) => `[${r.title}](${r.url}): ${r.snippet}`).join('\n');
+    sections.push(`Query for ${req.id}: ${query}\n${snippet || '(no search results)'}`);
+  }
+  return sections.join('\n\n');
 }
 
-/**
- * Run the Detective agent: gather findings per requirement using search + MCP tools.
- */
-export async function runDetective(
-  requirements: Requirement[],
-  ctx: DetectiveContext,
-): Promise<DetectiveOutput> {
-  // Gather search results for each requirement
-  const searchResults: Array<{ query: string; results: string }> = [];
-  for (const req of requirements) {
-    const query = `${req.text} technical risks middleware integration`;
-    const results = await ctx.searchProvider.search(query, 3);
-    const snippet = results
-      .map((r) => `[${r.title}](${r.url}): ${r.snippet}`)
-      .join('\n');
-    searchResults.push({ query, results: snippet || '(no results)' });
-  }
-
-  // Gather MCP tool data
-  const mcpTools = await ctx.mcpProvider.listAllTools();
-  const mcpSummary = mcpTools.length > 0
-    ? mcpTools.map((t) => `${t.connectorId}/${t.name}: ${t.description}`).join('\n')
-    : '(no MCP tools available)';
-
+function buildUserMessage(requirements: Requirement[], searchContext: string, mcpSummary: string): string {
   const requirementsText = requirements
-    .map((r) => `- ${r.text} [taxonomy: ${r.taxonomyKey ?? 'unknown'}]`)
+    .map((r) => `- ${r.id}: ${r.text} [platforms: ${r.platforms.join(', ') || 'none'}, blocks_estimation: ${r.blocksEstimation}, integration_count: ${r.integrationCount}]`)
     .join('\n');
 
-  const searchContext = searchResults
-    .map((s) => `Query: ${s.query}\n${s.results}`)
-    .join('\n\n');
-
-  const rawResponse = await ctx.modelProvider.chat({
-    model: ctx.modelString,
-    messages: [
-      {
-        role: 'system',
-        content: ctx.instructions,
-      },
-      {
-        role: 'user',
-        content: `Analyse these requirements and identify technical findings with risk flags.
+  return `Investigate the risky and unknown parts of these requirements per your METHOD and FOCUS AREAS.
+Take requirements with blocks_estimation=true or high integration_count first.
 
 Requirements:
 ${requirementsText}
 
 Search results:
-${searchContext}
+${searchContext || '(no search results available)'}
 
 MCP tools available:
 ${mcpSummary}
 
-For each requirement, identify:
-1. Technical claims (complexity, integration points, middleware needed)
-2. Risk flags (e.g., "rate-limits", "retries", "data-migration", "legacy-system", "api-quota")
-3. Source attribution
+Respond with JSON only, matching exactly this shape:
+{
+  "risks": [
+    {
+      "requirementId": "REQ-###",
+      "platform": "<controlled platform value>" | omit,
+      "claim": "specific technical claim driving risk",
+      "riskFlags": ["rate-limits", "retries", "data-migration", "legacy-system", "api-quota", ...],
+      "citation": "SOW location or external source — never assert without one",
+      "spikeRecommended": true | false,
+      "spikePresetId": "P01".."P06" | omit
+    }
+  ],
+  "questions": [
+    {
+      "requirementId": "REQ-###",
+      "question": "closed, specific, decision-relevant question a client can answer",
+      "citation": "..." (optional),
+      "blocksEstimation": true | false
+    }
+  ]
+}
+If you cannot cite a platform limitation, frame it as a question instead of an asserted risk.`;
+}
 
-Respond with JSON only:
-{"findings": [{"taxonomyKey": "...", "claim": "...", "source": "...", "riskFlags": ["..."]}]}`,
-      },
-    ],
-    temperature: 0,
-  });
-
-  const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-  if (!jsonMatch?.[0]) {
-    throw new Error(`Detective: could not extract JSON from response: ${rawResponse}`);
+/**
+ * Run the Detective agent: investigate blocking ambiguities + high-risk
+ * integrations, producing a risk register + open questions with citations.
+ */
+export async function runDetective(
+  requirements: Requirement[],
+  ctx: DetectiveContext,
+): Promise<DetectiveOutput> {
+  if (requirements.length === 0) {
+    return DetectiveOutputSchema.parse({ risks: [], questions: [] });
   }
 
-  const parsed = LLMFindingsSchema.safeParse(JSON.parse(jsonMatch[0]));
-  if (!parsed.success) {
-    throw new Error(`Detective: invalid response shape: ${parsed.error.message}`);
-  }
+  const searchContext = await gatherSearchContext(requirements, ctx.searchProvider);
 
-  const findings = deduplicateFindings(parsed.data.findings);
-  return DetectiveOutputSchema.parse({ findings });
+  const mcpTools = await ctx.mcpProvider.listAllTools();
+  const mcpSummary = mcpTools.length > 0
+    ? mcpTools.map((t: { connectorId: string; name: string; description: string }) => `${t.connectorId}/${t.name}: ${t.description}`).join('\n')
+    : '(no MCP tools available)';
+
+  const llmResult = await chatJSON(
+    ctx.modelProvider,
+    {
+      model: ctx.modelString,
+      messages: [
+        { role: 'system', content: ctx.instructions },
+        { role: 'user', content: buildUserMessage(requirements, searchContext, mcpSummary) },
+      ],
+      temperature: 0,
+    },
+    LLMDetectiveSchema,
+    'Detective',
+  );
+
+  const requirementById = new Map(requirements.map((r) => [r.id, r]));
+
+  const risks: RiskFinding[] = (llmResult.risks ?? [])
+    .filter((r) => requirementById.has(r.requirementId))
+    .map((r, i) => ({
+      id: `RISK-${String(i + 1).padStart(3, '0')}`,
+      requirementId: r.requirementId,
+      taxonomyKey: requirementById.get(r.requirementId)?.taxonomyKey ?? null,
+      platform: r.platform,
+      claim: r.claim,
+      riskFlags: r.riskFlags ?? [],
+      citation: r.citation,
+      spikeRecommended: r.spikeRecommended ?? false,
+      spikePresetId: r.spikePresetId,
+    }));
+
+  const questions: OpenQuestion[] = (llmResult.questions ?? [])
+    .filter((q) => requirementById.has(q.requirementId))
+    .map((q, i) => ({
+      id: `Q-${String(i + 1).padStart(3, '0')}`,
+      requirementId: q.requirementId,
+      question: q.question,
+      citation: q.citation,
+      blocksEstimation: q.blocksEstimation ?? false,
+    }));
+
+  return DetectiveOutputSchema.parse({ risks: deduplicateRisks(risks), questions });
 }

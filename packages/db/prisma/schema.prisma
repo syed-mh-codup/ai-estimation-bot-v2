@@ -280,11 +280,19 @@ model MenuItem {
   estimateId     String
   estimate       Estimate     @relation(fields: [estimateId], references: [id])
   taxonomyKey    String
+  /// Controlled-vocabulary category (see @repo/shared CategorySchema); optional
+  /// for legacy/injected items (baseline, hidden-work) predating the envelope.
+  category       String?
+  /// Controlled-vocabulary phase: Foundation | Core | Enhancement.
+  phase          String?
   sourcePresetId String?
   matchScore     Float?
   title          String
   enabled        Boolean      @default(true)
   parentItemId   String?
+  /// Extra envelope structure that doesn't warrant its own column yet:
+  /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
+  meta           Json?
   lineItems      RoleLineItem[]
 }
 
@@ -293,10 +301,17 @@ model RoleLineItem {
   menuItemId String
   menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
   role       RoleKind
+  /// Short description of this atomic (<=4h) unit of work. Many rows per
+  /// (menuItemId, role) now — the FOUR-HOUR RULE decomposes each role's
+  /// scope into multiple line items instead of one lump number.
+  title      String?
   baseHours  Float
   taxedHours Float
   notes      String?
   edited     Boolean  @default(false)
+  /// Extra envelope structure: id (DEV-REQ003-04), requirementId, complexity
+  /// tier, aiAssistApplied, dependsOn, anchorPresetIds.
+  meta       Json?
 
-  @@unique([menuItemId, role])
+  @@index([menuItemId, role])
 }

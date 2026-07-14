@@ -65,9 +65,10 @@ export async function promoteMenuItemsToPresets(
       await db.preset.create({ data: { id: presetId } });
     }
 
-    const devLi = item.lineItems.find((l) => l.role === 'DEV');
-    const qaLi = item.lineItems.find((l) => l.role === 'QA');
-    const beHours = devLi?.taxedHours ?? devLi?.baseHours ?? 0;
+    // A role's DEV scope can now span several <=4h line items (FOUR-HOUR RULE
+    // decomposition), so sum them rather than reading a single lump item.
+    const devLineItems = item.lineItems.filter((l) => l.role === 'DEV');
+    const beHours = devLineItems.reduce((s, l) => s + l.taxedHours, 0);
     const feHours = Math.round(beHours * 0.4); // approximate FE split
 
     await db.presetVersion.create({

@@ -15,7 +15,24 @@ import {
   ArchitectOutputSchema,
   ValidationAuditOutputSchema,
   SearchResultSchema,
+  RequirementSchema,
 } from './schemas.js';
+
+const sampleRequirement = {
+  id: 'REQ-001',
+  text: 'B2B contextual pricing tiers',
+  category: 'B2B' as const,
+  reqType: 'Pricing' as const,
+  platforms: ['Shopify' as const],
+  projectSize: 'Mid-market' as const,
+  dataVolume: 'Low' as const,
+  integrationCount: 1,
+  candidateMenuCardId: 'MC-B2B-PRICING',
+  taxonomyKey: 'b2b.checkout',
+  sourceRef: 'SOW section 2.1',
+  ambiguities: [],
+  blocksEstimation: false,
+};
 
 describe('shared schemas — round-trip parse', () => {
   it('SupervisorInput', () => {
@@ -32,11 +49,14 @@ describe('shared schemas — round-trip parse', () => {
     expect(v.status).toBe('DRAFT');
   });
 
+  it('Requirement', () => {
+    const r = RequirementSchema.parse(sampleRequirement);
+    expect(r.candidateMenuCardId).toBe('MC-B2B-PRICING');
+  });
+
   it('LibrarianInput/Output', () => {
     LibrarianInputSchema.parse({ sowText: 'test' });
-    const o = LibrarianOutputSchema.parse({
-      requirements: [{ text: 'checkout', taxonomyKey: 'b2b.checkout', confidence: 0.9 }],
-    });
+    const o = LibrarianOutputSchema.parse({ requirements: [sampleRequirement] });
     expect(o.requirements).toHaveLength(1);
   });
 
@@ -47,16 +67,27 @@ describe('shared schemas — round-trip parse', () => {
       searchTool: 'tavily',
     });
     const o = DetectiveOutputSchema.parse({
-      findings: [
+      risks: [
         {
+          id: 'RISK-001',
+          requirementId: 'REQ-001',
           taxonomyKey: 'b2b.checkout',
-          claim: 'rate limit: 100/min',
-          source: 'https://example.com',
+          claim: 'P21 rate limit: 100/min',
           riskFlags: ['rate-limit'],
+          citation: 'SOW section 2.1',
+        },
+      ],
+      questions: [
+        {
+          id: 'Q-001',
+          requirementId: 'REQ-001',
+          question: 'Is P21 exposing a pricing endpoint?',
+          blocksEstimation: true,
         },
       ],
     });
-    expect(o.findings[0]?.riskFlags).toContain('rate-limit');
+    expect(o.risks[0]?.riskFlags).toContain('rate-limit');
+    expect(o.questions[0]?.blocksEstimation).toBe(true);
   });
 
   it('ArchivistInput/Output', () => {
@@ -64,37 +95,73 @@ describe('shared schemas — round-trip parse', () => {
     const o = ArchivistOutputSchema.parse({
       matches: [
         {
+          requirementId: 'REQ-001',
           taxonomyKey: 'b2b.checkout',
+          coverage: 'full',
           presetId: 'P01',
           presetVersion: 1,
           score: 0.85,
           beHours: 40,
           feHours: 20,
-          risk: 'MEDIUM',
-          aiAssist: 'LOW',
+          adjustments: {
+            projectSizeDelta: 'fits Mid-market',
+            dataVolume: 'Low',
+            integrationCount: 1,
+            aiAssist: 'Medium',
+            risk: 'Medium',
+          },
+          rationale: 'matches B2B contextual pricing via @inContext',
         },
       ],
     });
     expect(o.matches[0]?.score).toBe(0.85);
+    expect(o.matches[0]?.sequencing.canParallel).toBe(true);
   });
 
   it('SpecialistInput/Output', () => {
     SpecialistInputSchema.parse({
-      menuItem: { id: 'm1', taxonomyKey: 'b2b.checkout', title: 'B2B Checkout' },
-      detectiveFindings: [],
+      requirement: sampleRequirement,
+      menuCardId: 'MC-B2B-PRICING',
+      riskFindings: [],
       complexityScore: 3,
     });
     const o = SpecialistOutputSchema.parse({
       role: 'DEV',
-      baseHours: 80,
-      rationale: 'Anchored on preset P01',
+      lineItems: [
+        {
+          id: 'DEV-REQ001-01',
+          requirementId: 'REQ-001',
+          menuCardId: 'MC-B2B-PRICING',
+          description: 'Schema changes for volume tiers',
+          hours: 3.5,
+          complexity: 'elevated',
+        },
+      ],
       assumptions: ['Shopify Plus tier'],
     });
     expect(o.role).toBe('DEV');
+    expect(o.lineItems[0]?.hours).toBeLessThanOrEqual(4);
+  });
+
+  it('SpecialistLineItem rejects hours over the four-hour cap', () => {
+    const o = SpecialistOutputSchema.safeParse({
+      role: 'DEV',
+      lineItems: [
+        {
+          id: 'DEV-REQ001-01',
+          requirementId: 'REQ-001',
+          menuCardId: 'MC-B2B-PRICING',
+          description: 'Too big',
+          hours: 6,
+          complexity: 'base',
+        },
+      ],
+    });
+    expect(o.success).toBe(false);
   });
 
   it('ComplexityInput/Output', () => {
-    ComplexityInputSchema.parse({ requirements: [], detectiveFindings: [] });
+    ComplexityInputSchema.parse({ requirements: [sampleRequirement], riskFindings: [] });
     const o = ComplexityOutputSchema.parse({
       score: 3,
       perItemMultipliers: { 'b2b.checkout': 1.2 },
@@ -104,24 +171,26 @@ describe('shared schemas — round-trip parse', () => {
 
   it('ArchitectOutput', () => {
     const o = ArchitectOutputSchema.parse({
-      narrative: ['We will implement B2B checkout using Shopify Functions'],
+      narrative: ['We will implement B2B checkout using Shopify Functions.'],
       assumptions: ['Shopify Plus tier'],
       menuItems: [
         {
-          id: 'm1',
+          id: 'MC-B2B-PRICING',
           taxonomyKey: 'b2b.checkout',
-          title: 'B2B Checkout',
+          title: 'B2B Pricing',
           enabled: true,
           lineItems: [
-            { role: 'DEV', baseHours: 80, taxedHours: 88, edited: false },
-            { role: 'QA', baseHours: 20, taxedHours: 24, edited: false },
-            { role: 'PM', baseHours: 8, taxedHours: 9, edited: false },
-            { role: 'BA', baseHours: 6, taxedHours: 7, edited: false },
+            { role: 'DEV', baseHours: 3.5, taxedHours: 3.5, edited: false },
+            { role: 'DEV', baseHours: 2, taxedHours: 2, edited: false },
+            { role: 'QA', baseHours: 2, taxedHours: 2.4, edited: false },
+            { role: 'PM', baseHours: 1, taxedHours: 1.1, edited: false },
+            { role: 'BA', baseHours: 1, taxedHours: 1.2, edited: false },
           ],
         },
       ],
     });
     expect(o.menuItems).toHaveLength(1);
+    expect(o.menuItems[0]?.lineItems).toHaveLength(5);
   });
 
   it('ValidationAuditOutput', () => {

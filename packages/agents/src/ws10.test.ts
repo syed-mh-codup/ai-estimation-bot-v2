@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runDetective, deduplicateFindings, type DetectiveContext } from './detective';
+import { runDetective, deduplicateRisks, type DetectiveContext } from './detective';
 import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
-import type { Requirement } from '@repo/shared';
+import type { Requirement, RiskFinding } from '@repo/shared';
 
 // ─── Stubs ───────────────────────────────────────────────────────────────────
 
@@ -21,9 +21,28 @@ const ctx: DetectiveContext = {
   mcpProvider: mockMcp,
 };
 
+function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
+  return {
+    id: 'REQ-001',
+    text: 'Integrate third-party payment API',
+    category: 'B2B',
+    reqType: 'Payments',
+    platforms: ['Shopify'],
+    projectSize: 'Mid-market',
+    dataVolume: 'Low',
+    integrationCount: 1,
+    candidateMenuCardId: 'MC-B2B-PAYMENTS',
+    taxonomyKey: 'payments.api',
+    sourceRef: 'SOW',
+    ambiguities: [],
+    blocksEstimation: false,
+    ...overrides,
+  };
+}
+
 const sampleRequirements: Requirement[] = [
-  { text: 'Integrate third-party payment API', taxonomyKey: 'payments.api', confidence: 0.9 },
-  { text: 'Build user authentication', taxonomyKey: 'auth.sso', confidence: 0.85 },
+  makeRequirement(),
+  makeRequirement({ id: 'REQ-002', text: 'Build user authentication', category: 'B2B', reqType: 'Authentication', taxonomyKey: 'auth.sso' }),
 ];
 
 // ─── WS10-01: Detective wiring with SearchProvider + McpProvider ──────────────
@@ -38,9 +57,10 @@ describe('WS10-01: Detective agent wiring with SearchProvider + McpProvider', ()
     ]);
     vi.mocked(mockModel.chat).mockResolvedValue(
       JSON.stringify({
-        findings: [
-          { taxonomyKey: 'payments.api', claim: 'API has rate limits', source: 'stripe.com', riskFlags: ['rate-limits'] },
+        risks: [
+          { requirementId: 'REQ-001', claim: 'API has rate limits', citation: 'stripe.com', riskFlags: ['rate-limits'] },
         ],
+        questions: [],
       }),
     );
 
@@ -48,92 +68,119 @@ describe('WS10-01: Detective agent wiring with SearchProvider + McpProvider', ()
 
     expect(mockSearch.search).toHaveBeenCalled();
     expect(mockMcp.listAllTools).toHaveBeenCalled();
-    expect(result.findings.length).toBeGreaterThan(0);
+    expect(result.risks.length).toBeGreaterThan(0);
   });
 });
 
-// ─── WS10-02: Findings extraction with risk flags ────────────────────────────
+// ─── WS10-02: Risk extraction with flags + questions ─────────────────────────
 
-describe('WS10-02: Findings extraction — claim + source + risk flags', () => {
-  it('produces findings with explicit risk flags for API requirement', async () => {
+describe('WS10-02: Risk register — claim + citation + risk flags, plus open questions', () => {
+  it('produces risks with explicit risk flags for an API requirement', async () => {
     vi.mocked(mockSearch.search).mockResolvedValue([
       { title: 'Payment API docs', url: 'https://api.example.com', snippet: 'Webhook retries on failure' },
     ]);
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
     vi.mocked(mockModel.chat).mockResolvedValue(
       JSON.stringify({
-        findings: [
+        risks: [
           {
-            taxonomyKey: 'payments.api',
+            requirementId: 'REQ-001',
             claim: 'Payment API requires webhook retry logic for failed events',
-            source: 'https://api.example.com',
+            citation: 'https://api.example.com',
             riskFlags: ['retries', 'rate-limits', 'webhook-reliability'],
           },
+        ],
+        questions: [
+          { requirementId: 'REQ-001', question: 'Does the payment provider expose a sandbox for webhook testing?', blocksEstimation: false },
         ],
       }),
     );
 
-    const result = await runDetective(
-      [{ text: 'Integrate payment API with webhook', taxonomyKey: 'payments.api', confidence: 0.9 }],
-      ctx,
+    const result = await runDetective([makeRequirement({ text: 'Integrate payment API with webhook' })], ctx);
+
+    expect(result.risks).toHaveLength(1);
+    const risk = result.risks[0]!;
+    expect(risk.requirementId).toBe('REQ-001');
+    expect(risk.taxonomyKey).toBe('payments.api');
+    expect(risk.claim).toContain('webhook');
+    expect(risk.citation).toBeTruthy();
+    expect(risk.riskFlags).toContain('retries');
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0]?.id).toBe('Q-001');
+  });
+
+  it('drops a risk/question referencing an unknown requirementId (no fabricated traceability)', async () => {
+    vi.mocked(mockSearch.search).mockResolvedValue([]);
+    vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
+    vi.mocked(mockModel.chat).mockResolvedValue(
+      JSON.stringify({
+        risks: [{ requirementId: 'REQ-999', claim: 'ghost risk', citation: 'nowhere' }],
+        questions: [],
+      }),
     );
 
-    expect(result.findings).toHaveLength(1);
-    const finding = result.findings[0]!;
-    expect(finding.taxonomyKey).toBe('payments.api');
-    expect(finding.claim).toContain('webhook');
-    expect(finding.source).toBeTruthy();
-    expect(finding.riskFlags).toContain('retries');
-    expect(finding.riskFlags.length).toBeGreaterThan(0);
+    const result = await runDetective(sampleRequirements, ctx);
+    expect(result.risks).toHaveLength(0);
   });
 });
 
 // ─── WS10-03: Source attribution + dedup ─────────────────────────────────────
 
-describe('WS10-03: Source attribution + deduplicate findings', () => {
-  it('merges duplicate findings by claim, retaining all sources', () => {
-    const findings = [
-      { taxonomyKey: 'payments.api', claim: 'API has rate limits', source: 'stripe.com', riskFlags: ['rate-limits'] },
-      { taxonomyKey: 'payments.api', claim: 'API has rate limits', source: 'braintree.com', riskFlags: ['rate-limits'] },
-      { taxonomyKey: 'auth.sso', claim: 'OAuth2 token refresh needed', source: 'auth0.com', riskFlags: ['auth-complexity'] },
+describe('WS10-03: Citation attribution + deduplicate risks', () => {
+  function makeRisk(overrides: Partial<RiskFinding> = {}): RiskFinding {
+    return {
+      id: 'RISK-001',
+      requirementId: 'REQ-001',
+      taxonomyKey: 'payments.api',
+      claim: 'API has rate limits',
+      riskFlags: ['rate-limits'],
+      citation: 'stripe.com',
+      spikeRecommended: false,
+      ...overrides,
+    };
+  }
+
+  it('merges duplicate risks by (requirementId, claim), retaining all citations', () => {
+    const risks = [
+      makeRisk({ citation: 'stripe.com' }),
+      makeRisk({ citation: 'braintree.com' }),
+      makeRisk({ id: 'RISK-002', requirementId: 'REQ-002', taxonomyKey: 'auth.sso', claim: 'OAuth2 token refresh needed', citation: 'auth0.com', riskFlags: ['auth-complexity'] }),
     ];
 
-    const deduped = deduplicateFindings(findings);
+    const deduped = deduplicateRisks(risks);
 
     expect(deduped).toHaveLength(2);
-    const paymentFinding = deduped.find((f) => f.taxonomyKey === 'payments.api');
-    expect(paymentFinding).toBeDefined();
-    // Both sources should be retained
-    expect(paymentFinding!.source).toContain('stripe.com');
-    expect(paymentFinding!.source).toContain('braintree.com');
+    const paymentRisk = deduped.find((r) => r.requirementId === 'REQ-001');
+    expect(paymentRisk).toBeDefined();
+    expect(paymentRisk!.citation).toContain('stripe.com');
+    expect(paymentRisk!.citation).toContain('braintree.com');
   });
 
-  it('keeps distinct findings with different claims separate', () => {
-    const findings = [
-      { taxonomyKey: 'payments.api', claim: 'Rate limiting applies', source: 'docs.stripe.com', riskFlags: ['rate-limits'] },
-      { taxonomyKey: 'payments.api', claim: 'Webhook retries needed', source: 'docs.stripe.com', riskFlags: ['retries'] },
+  it('keeps distinct risks with different claims separate', () => {
+    const risks = [
+      makeRisk({ claim: 'Rate limiting applies' }),
+      makeRisk({ id: 'RISK-002', claim: 'Webhook retries needed', riskFlags: ['retries'] }),
     ];
 
-    const deduped = deduplicateFindings(findings);
-    expect(deduped).toHaveLength(2);
+    expect(deduplicateRisks(risks)).toHaveLength(2);
   });
 
-  it('runDetective returns deduplicated findings when LLM produces duplicates', async () => {
+  it('runDetective returns deduplicated risks when the LLM produces duplicates', async () => {
     vi.mocked(mockSearch.search).mockResolvedValue([]);
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
     vi.mocked(mockModel.chat).mockResolvedValue(
       JSON.stringify({
-        findings: [
-          { taxonomyKey: 'payments.api', claim: 'rate limit concern', source: 'source-a.com', riskFlags: ['rate-limits'] },
-          { taxonomyKey: 'payments.api', claim: 'rate limit concern', source: 'source-b.com', riskFlags: ['rate-limits'] },
+        risks: [
+          { requirementId: 'REQ-001', claim: 'rate limit concern', citation: 'source-a.com', riskFlags: ['rate-limits'] },
+          { requirementId: 'REQ-001', claim: 'rate limit concern', citation: 'source-b.com', riskFlags: ['rate-limits'] },
         ],
+        questions: [],
       }),
     );
 
     const result = await runDetective(sampleRequirements, ctx);
-    // Duplicates should be merged
-    const paymentFindings = result.findings.filter((f) => f.taxonomyKey === 'payments.api');
-    const uniqueClaims = new Set(paymentFindings.map((f) => f.claim.toLowerCase().trim()));
-    expect(uniqueClaims.size).toBe(paymentFindings.length);
+    const paymentRisks = result.risks.filter((r) => r.requirementId === 'REQ-001');
+    const uniqueClaims = new Set(paymentRisks.map((r) => r.claim.toLowerCase().trim()));
+    expect(uniqueClaims.size).toBe(paymentRisks.length);
   });
 });

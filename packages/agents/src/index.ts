@@ -6,6 +6,7 @@ export * from './cache';
 export * from './step-error';
 export * from './supervisor';
 export * from './run-estimate';
+export * from './supervisor-gates';
 export * from './ingest';
 export * from './rag-retriever';
 export * from './librarian';

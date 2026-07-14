@@ -14,20 +14,58 @@ const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 // the full pipeline WIRING offline — not the quality of real prompts/responses.
 const stubModelProvider: IModelProvider = {
   async chat({ messages }) {
-    const content = messages.map((m) => m.content).join('\n');
-    if (content.includes('Decompose') || content.includes('"requirements"')) {
+    const content = messages.map((m: { content: string }) => m.content).join('\n');
+    if (content.includes('Decompose this SOW')) {
       return JSON.stringify({
         requirements: [
-          { text: 'Build a B2B checkout flow', taxonomyKey: null, confidence: 0.9 },
-          { text: 'Implement SSO login', taxonomyKey: null, confidence: 0.8 },
+          {
+            text: 'Build a B2B checkout flow',
+            category: 'B2B',
+            reqType: 'Checkout',
+            platforms: ['Shopify'],
+            projectSize: 'Mid-market',
+            dataVolume: 'Low',
+            integrationCount: 1,
+            candidateMenuCardId: 'MC-B2B-CHECKOUT',
+            taxonomyKey: null,
+            sourceRef: 'SOW',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
+          {
+            text: 'Implement SSO login',
+            category: 'B2B',
+            reqType: 'Authentication',
+            platforms: ['Shopify'],
+            projectSize: 'Mid-market',
+            dataVolume: 'None',
+            integrationCount: 1,
+            candidateMenuCardId: 'MC-B2B-AUTH',
+            taxonomyKey: null,
+            sourceRef: 'SOW',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
         ],
       });
     }
-    if (content.includes('Estimate hours for role') || content.includes('"baseHours"')) {
-      return JSON.stringify({ baseHours: 10, rationale: 'stub', assumptions: ['Stub assumption'] });
+    if (content.includes('Investigate the risky and unknown parts')) {
+      return JSON.stringify({ risks: [], questions: [] });
     }
-    if (content.includes('narrative')) {
-      return JSON.stringify({ narrative: ['Implement the requested scope.'] });
+    if (content.includes('Estimate') && content.includes('effort for this requirement')) {
+      return JSON.stringify({
+        lineItems: [{ description: 'stub line item', hours: 2.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+        assumptions: ['Stub assumption'],
+      });
+    }
+    if (content.includes('Synthesise the specialists')) {
+      return JSON.stringify({
+        narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
+        cards: [
+          { menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core', thinSlice: true },
+          { menuCardId: 'MC-B2B-AUTH', phase: 'Core', thinSlice: false },
+        ],
+      });
     }
     return '{}';
   },
@@ -38,6 +76,7 @@ const stubModelProvider: IModelProvider = {
 
 let userId = '';
 let estimateId = '';
+let configVersion = 0;
 
 beforeAll(async () => {
   await db.$connect();
@@ -60,6 +99,8 @@ beforeAll(async () => {
   // Active prompt per agent kind the pipeline loads.
   for (const kind of [
     'LIBRARIAN',
+    'DETECTIVE',
+    'ARCHIVIST',
     'ARCHITECT',
     'SPECIALIST_DEV',
     'SPECIALIST_QA',
@@ -67,13 +108,20 @@ beforeAll(async () => {
     'SPECIALIST_BA',
   ] as const) {
     await db.prompt.upsert({ where: { kind }, update: {}, create: { kind } });
-    await db.promptVersion.updateMany({ where: { kind, active: true }, data: { active: false } });
+    // NOTE: deliberately no bulk `updateMany(active:false)` here — this file
+    // runs in parallel with other test files against the same local DB and
+    // sharing PromptVersion rows per kind; blanket-deactivating would create
+    // a window where a concurrent runEstimate() finds zero active rows. Just
+    // ensure THIS file's own row exists and is active; harmless if another
+    // file's row for the same kind is simultaneously active too.
     await db.promptVersion.upsert({
       where: { kind_version: { kind, version: 1 } },
       update: { active: true, body: `Test ${kind} prompt`, modelString: 'stub/model' },
       create: { kind, version: 1, active: true, body: `Test ${kind} prompt`, modelString: 'stub/model' },
     });
   }
+
+  configVersion = cfg.version;
 
   const user = await db.user.create({
     data: { email: `runest-${Date.now()}@example.com`, hash: 'hash', role: 'ESTIMATOR' },
@@ -105,6 +153,41 @@ afterAll(async () => {
   await db.estimate.delete({ where: { id: estimateId } });
   await db.user.delete({ where: { id: userId } });
   await db.$disconnect();
+});
+
+describe('runEstimate refuses a trivially-empty SOW rather than fabricating one', () => {
+  it('throws before calling the Librarian when sowText is empty (e.g. ingestion silently failed)', async () => {
+    const est = await db.estimate.create({
+      data: {
+        title: 'Empty SOW Test',
+        sowText: '',
+        sowHash: '',
+        status: 'DRAFT',
+        taxonomyVersionsPinned: {},
+        configVersion,
+        promptVersionsPinned: {},
+        modelConfig: {},
+        narrative: [],
+        assumptions: [],
+        agentState: {},
+        ownerId: userId,
+      },
+    });
+
+    let librarianCalled = false;
+    const spyingProvider: IModelProvider = {
+      ...stubModelProvider,
+      async chat(opts: Parameters<IModelProvider['chat']>[0]) {
+        librarianCalled = true;
+        return stubModelProvider.chat(opts);
+      },
+    };
+
+    await expect(runEstimate(est.id, { db, modelProvider: spyingProvider })).rejects.toThrow(/too short|empty/i);
+    expect(librarianCalled).toBe(false);
+
+    await db.estimate.delete({ where: { id: est.id } });
+  });
 });
 
 describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {

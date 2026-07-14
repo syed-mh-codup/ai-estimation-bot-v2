@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
-import { StubSheetsProvider } from '@repo/providers';
+import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
@@ -41,6 +41,11 @@ async function toggleItem(formData: FormData) {
   revalidatePath(`/estimates/${estimateId}`);
 }
 
+/** Snap to 0.25h — line items are atomic <=4h units at 0.25h granularity (FOUR-HOUR RULE). */
+function snapToQuarterHour(hours: number): number {
+  return Math.max(0, Math.round(hours * 4) / 4);
+}
+
 async function saveItemHours(formData: FormData) {
   'use server';
   await requireSession();
@@ -49,13 +54,16 @@ async function saveItemHours(formData: FormData) {
   if (typeof estimateId !== 'string' || typeof menuItemId !== 'string') return;
 
   const pct = await taxPercents();
-  for (const role of ROLES) {
-    const raw = formData.get(`base-${role}`);
+  // A role can hold several atomic line items now (FOUR-HOUR RULE decomposition),
+  // so each is targeted by its own id rather than bulk-updating by role.
+  const lineItems = await prisma.roleLineItem.findMany({ where: { menuItemId } });
+  for (const li of lineItems) {
+    const raw = formData.get(`base-${li.id}`);
     if (raw == null) continue;
-    const baseHours = Math.max(0, Math.round(Number(raw)) || 0);
-    const taxedHours = Math.round(baseHours * (1 + pct[role] / 100));
-    await prisma.roleLineItem.updateMany({
-      where: { menuItemId, role },
+    const baseHours = snapToQuarterHour(Number(raw) || 0);
+    const taxedHours = snapToQuarterHour(baseHours * (1 + pct[li.role as Role] / 100));
+    await prisma.roleLineItem.update({
+      where: { id: li.id },
       data: { baseHours, taxedHours, edited: true },
     });
   }
@@ -81,18 +89,26 @@ async function exportSheetsAction(formData: FormData) {
     sourcePresetId: m.sourcePresetId ?? undefined,
     matchScore: m.matchScore ?? undefined,
     parentItemId: m.parentItemId ?? undefined,
+    requirementIds: [],
+    toggleable: true,
+    notSafelyRemovable: false,
+    thinSlice: false,
     lineItems: m.lineItems.map((li) => ({
       role: li.role,
+      title: li.title ?? undefined,
       baseHours: li.baseHours,
       taxedHours: li.taxedHours,
       notes: li.notes ?? undefined,
       edited: li.edited,
+      aiAssistApplied: false,
+      dependsOn: [],
+      anchorPresetIds: [],
     })),
   }));
 
-  // Sheets provider is a BLOCKED-CREDENTIAL stub: returns a synthetic URL until
-  // GOOGLE_SERVICE_ACCOUNT_JSON is configured.
-  const result = await exportToSheets(id, estimate.title, items, new StubSheetsProvider());
+  // Falls back to a synthetic-URL stub when GOOGLE_SERVICE_ACCOUNT_JSON /
+  // GOOGLE_DRIVE_FOLDER_ID aren't configured for this environment.
+  const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
   await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
   revalidatePath(`/estimates/${id}`);
 }
@@ -123,9 +139,6 @@ export default async function EstimateDetailPage({
     },
   });
   if (!estimate) notFound();
-
-  const hours = (itemId: string, role: Role) =>
-    estimate.menuItems.find((m) => m.id === itemId)?.lineItems.find((l) => l.role === role);
 
   // Roll-up (enabled items only).
   const roleTotals: Record<Role, number> = { DEV: 0, QA: 0, PM: 0, BA: 0 };
@@ -294,29 +307,41 @@ export default async function EstimateDetailPage({
                     </form>
                   </div>
 
-                  <form action={saveItemHours} className="mt-3 flex flex-wrap items-end gap-3">
+                  <form action={saveItemHours} className="mt-3 space-y-2">
                     <input type="hidden" name="estimateId" value={estimate.id} />
                     <input type="hidden" name="menuItemId" value={item.id} />
                     {ROLES.map((r) => {
-                      const li = hours(item.id, r);
+                      const roleLineItems = item.lineItems.filter((li) => li.role === r);
+                      if (roleLineItems.length === 0) return null;
+                      const roleSubtotal = roleLineItems.reduce((s, li) => s + li.taxedHours, 0);
                       return (
-                        <label key={r} className="text-xs text-gray-600">
-                          <span className="mr-1">
-                            {r}
-                            {li?.edited ? ' *' : ''}
-                          </span>
-                          <input
-                            name={`base-${r}`}
-                            type="number"
-                            defaultValue={li?.baseHours ?? 0}
-                            disabled={isFinalised}
-                            data-testid={`base-${r}-${item.id}`}
-                            className="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40"
-                          />
-                          <span className="ml-1 text-gray-400" data-testid={`taxed-${r}-${item.id}`}>
-                            → {li?.taxedHours ?? 0}h
-                          </span>
-                        </label>
+                        <div key={r} className="text-xs text-gray-600">
+                          <span className="font-medium text-gray-700">{r}</span>
+                          <span className="ml-2 text-gray-400">{roleSubtotal}h</span>
+                          <div className="mt-1 space-y-1">
+                            {roleLineItems.map((li) => (
+                              <div key={li.id} className="ml-2 flex flex-wrap items-center gap-2">
+                                <span className="min-w-0 flex-1 truncate text-gray-500" title={li.title ?? undefined}>
+                                  {li.title ?? '—'}
+                                  {li.edited ? ' *' : ''}
+                                </span>
+                                <input
+                                  name={`base-${li.id}`}
+                                  type="number"
+                                  step="0.25"
+                                  min="0"
+                                  defaultValue={li.baseHours}
+                                  disabled={isFinalised}
+                                  data-testid={`base-${r}-${item.id}-${li.id}`}
+                                  className="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40"
+                                />
+                                <span className="text-gray-400" data-testid={`taxed-${r}-${item.id}-${li.id}`}>
+                                  → {li.taxedHours}h
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       );
                     })}
                     <button

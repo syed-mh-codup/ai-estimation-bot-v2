@@ -1,5 +1,7 @@
-// BLOCKED-CREDENTIAL: Integration test with real Google Sheets API requires
-// GOOGLE_SERVICE_ACCOUNT_JSON. All tests use StubSheetsProvider.
+// These tests exercise the tab-building + create/update branching logic
+// against StubSheetsProvider (fast, offline, no API cost). LiveSheetsProvider
+// (packages/providers/src/sheets-provider.ts) is verified separately against
+// the real Google Sheets/Drive API.
 
 import { describe, it, expect, vi } from 'vitest';
 import { buildExportTabs, exportToSheets } from './sheets-export';
@@ -20,15 +22,26 @@ const sampleItems = [makeMenuItem('checkout'), makeMenuItem('auth'), makeMenuIte
 
 // ─── WS19-01: SheetsProvider creates a spreadsheet (stub) ────────────────────
 
-describe('WS19-01: SheetsProvider — create spreadsheet (BLOCKED-CREDENTIAL stub)', () => {
+describe('WS19-01: SheetsProvider — create spreadsheet (stub)', () => {
   it('StubSheetsProvider returns a spreadsheet URL', async () => {
     const provider = new StubSheetsProvider();
-    const result = await provider.createSpreadsheet('Test Estimate', [
-      { title: 'DEV', rows: [['Item', 'Hours'], ['Feature A', 40]] },
-    ]);
+    const result = await provider.createSpreadsheet(
+      'Test Estimate',
+      [{ title: 'DEV', rows: [['Item', 'Hours'], ['Feature A', 40]] }],
+      'est-stub-01',
+    );
 
     expect(result.spreadsheetId).toBeTruthy();
     expect(result.url).toContain('docs.google.com/spreadsheets');
+  });
+
+  it('tracks the created spreadsheet by estimateId for idempotent lookup', async () => {
+    const provider = new StubSheetsProvider();
+    expect(await provider.getSpreadsheetId('est-stub-02')).toBeNull();
+
+    const result = await provider.createSpreadsheet('Test Estimate', [], 'est-stub-02');
+
+    expect(await provider.getSpreadsheetId('est-stub-02')).toBe(result.spreadsheetId);
   });
 });
 

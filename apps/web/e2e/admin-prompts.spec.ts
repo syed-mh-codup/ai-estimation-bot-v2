@@ -44,3 +44,41 @@ test.describe('WS24-05: prompts admin — edit creates a new active version', ()
     await expect(page.locator('#body')).toHaveValue(newBody);
   });
 });
+
+test.describe('View a prompt version\'s details and activate an older one', () => {
+  test('admin views v1 details and reactivates it, making it the active version again', async ({ page }) => {
+    await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
+
+    await page.goto('/admin/prompts/LIBRARIAN');
+    await expect(page.getByTestId('admin-prompt-editor')).toBeVisible();
+
+    const versionBadge = page.getByTestId('prompt-active-version');
+    const activeBefore = Number(((await versionBadge.textContent()) ?? 'v0').replace(/[^0-9]/g, ''));
+
+    // Open the detail view for v1 (guaranteed to exist and, once activeBefore > 1, inactive).
+    await page.getByTestId('prompt-version-link-1').click();
+    await expect(page).toHaveURL(/\/admin\/prompts\/LIBRARIAN\/1$/);
+    await expect(page.getByTestId('admin-prompt-version-detail')).toBeVisible();
+    await expect(page.getByTestId('version-body')).not.toHaveValue('');
+    await expect(page.getByTestId('version-model')).not.toBeEmpty();
+
+    if (activeBefore === 1) {
+      // v1 is already active — nothing to activate, detail view has no button.
+      await expect(page.getByTestId('activate-version')).toHaveCount(0);
+      return;
+    }
+
+    await expect(page.getByTestId('version-status')).toHaveText('inactive');
+    await page.getByTestId('activate-version').click();
+
+    // Activating redirects back to the editor with v1 now active.
+    await expect(page).toHaveURL(/\/admin\/prompts\/LIBRARIAN$/);
+    await expect(versionBadge).toHaveText('v1');
+    await expect(page.getByTestId('prompt-version-1')).toContainText('active');
+    await expect(page.getByTestId(`prompt-version-${activeBefore}`)).toContainText('inactive');
+
+    // Durable across reload.
+    await page.reload();
+    await expect(versionBadge).toHaveText('v1');
+  });
+});

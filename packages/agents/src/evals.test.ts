@@ -22,17 +22,54 @@ const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
 const stub: IModelProvider = {
   async chat({ messages }) {
-    const c = messages.map((m) => m.content).join('\n');
-    if (c.includes('Decompose') || c.includes('"requirements"'))
+    const c = messages.map((m: { content: string }) => m.content).join('\n');
+    if (c.includes('Decompose this SOW'))
       return JSON.stringify({
         requirements: [
-          { text: 'Build the core flow', taxonomyKey: null, confidence: 0.9 },
-          { text: 'Add an integration', taxonomyKey: null, confidence: 0.8 },
+          {
+            text: 'Build the core flow',
+            category: 'B2B',
+            reqType: 'Commerce Logic',
+            platforms: ['Shopify'],
+            projectSize: 'Mid-market',
+            dataVolume: 'Low',
+            integrationCount: 1,
+            candidateMenuCardId: 'MC-CORE-FLOW',
+            taxonomyKey: null,
+            sourceRef: 'SOW',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
+          {
+            text: 'Add an integration',
+            category: 'Integration / Celigo',
+            reqType: 'Integration',
+            platforms: ['Celigo'],
+            projectSize: 'Mid-market',
+            dataVolume: 'Low',
+            integrationCount: 2,
+            candidateMenuCardId: 'MC-INTEGRATION',
+            taxonomyKey: null,
+            sourceRef: 'SOW',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
         ],
       });
-    if (c.includes('Estimate hours for role') || c.includes('"baseHours"'))
-      return JSON.stringify({ baseHours: 12, rationale: 'x', assumptions: [] });
-    if (c.includes('narrative')) return JSON.stringify({ narrative: ['Approach.'] });
+    if (c.includes('Investigate the risky and unknown parts')) return JSON.stringify({ risks: [], questions: [] });
+    if (c.includes('Estimate') && c.includes('effort for this requirement'))
+      return JSON.stringify({
+        lineItems: [{ description: 'stub item', hours: 3, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+        assumptions: [],
+      });
+    if (c.includes('Synthesise the specialists'))
+      return JSON.stringify({
+        narrative: Array.from({ length: 8 }, (_, i) => `Sentence ${i + 1}.`),
+        cards: [
+          { menuCardId: 'MC-CORE-FLOW', phase: 'Core', thinSlice: true },
+          { menuCardId: 'MC-INTEGRATION', phase: 'Core', thinSlice: false },
+        ],
+      });
     return '{}';
   },
   async embed() {
@@ -96,9 +133,9 @@ beforeAll(async () => {
   const u = await db.user.create({ data: { email: `eval-${Date.now()}@example.com`, hash: 'h', role: 'ESTIMATOR' } });
   ownerId = u.id;
   configVersion = await seedConfig(20);
-  for (const kind of ['LIBRARIAN', 'ARCHITECT', 'SPECIALIST_DEV', 'SPECIALIST_QA', 'SPECIALIST_PM', 'SPECIALIST_BA'] as const) {
+  for (const kind of ['LIBRARIAN', 'DETECTIVE', 'ARCHIVIST', 'ARCHITECT', 'SPECIALIST_DEV', 'SPECIALIST_QA', 'SPECIALIST_PM', 'SPECIALIST_BA'] as const) {
     await db.prompt.upsert({ where: { kind }, update: {}, create: { kind } });
-    await db.promptVersion.updateMany({ where: { kind, active: true }, data: { active: false } });
+    // NOTE: deliberately no bulk `updateMany(active:false)` — see run-estimate.test.ts.
     await db.promptVersion.upsert({
       where: { kind_version: { kind, version: 1 } },
       update: { active: true, body: `Eval ${kind}`, modelString: 'stub/model' },

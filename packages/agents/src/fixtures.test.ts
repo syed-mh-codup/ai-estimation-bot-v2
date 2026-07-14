@@ -7,13 +7,35 @@ import { runComplexityScorecard, DEFAULT_COMPLEXITY_RULES } from './complexity';
  * WS26-01: the sample SOW fixtures land in their expected deterministic
  * complexity bands. This exercises the complexity engine (LLM-free) on realistic
  * SOWs — no credits needed — and pins each fixture's expected range.
+ *
+ * Stands in for the Librarian (which would normally assign integrationCount/
+ * dataVolume per requirement): derives them heuristically per sentence so this
+ * test still exercises the complexity engine's structured-signal path, not
+ * just its text-keyword fallback.
  */
+const INTEGRATION_KEYWORD = /\bapi\b|\bintegrat|\bwebhook|\bsdk\b|\bthird.party/gi;
+const HIGH_VOLUME_KEYWORD = /millions of records|large dataset|big data|bulk import|data migration/i;
+
 function sowToRequirements(sowText: string): Requirement[] {
   return sowText
     .split(/(?<=\.)\s+/)
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((text) => ({ text, taxonomyKey: null, confidence: 1 }));
+    .map((text, i) => ({
+      id: `REQ-${String(i + 1).padStart(3, '0')}`,
+      text,
+      category: 'Dev Environment' as const,
+      reqType: 'Infrastructure' as const,
+      platforms: [],
+      projectSize: 'Mid-market' as const,
+      dataVolume: HIGH_VOLUME_KEYWORD.test(text) ? ('High' as const) : ('None' as const),
+      integrationCount: (text.match(INTEGRATION_KEYWORD) ?? []).length,
+      candidateMenuCardId: 'MC-TEST-FIXTURE',
+      taxonomyKey: null,
+      sourceRef: 'fixture',
+      ambiguities: [],
+      blocksEstimation: false,
+    }));
 }
 
 describe('WS26-01: sample SOW fixtures hit expected complexity bands', () => {

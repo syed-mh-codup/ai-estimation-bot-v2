@@ -149,7 +149,15 @@ export default async function PromptEditorPage({
                 className="border-b border-gray-100"
                 data-testid={`prompt-version-${v.version}`}
               >
-                <td className="py-3 text-gray-900">v{v.version}</td>
+                <td className="py-3 text-gray-900">
+                  <Link
+                    href={`/admin/prompts/${kind}/${v.version}`}
+                    className="hover:underline"
+                    data-testid={`prompt-version-link-${v.version}`}
+                  >
+                    v{v.version}
+                  </Link>
+                </td>
                 <td className="py-3 text-gray-600">{v.modelString}</td>
                 <td className="py-3">
                   {v.active ? (

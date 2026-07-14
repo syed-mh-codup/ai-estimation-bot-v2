@@ -8,3 +8,6 @@ apps/web/.env.local
 .DS_Store
 coverage/
 packages/db/src/generated/
+
+# Local Claude Code config
+.claude/
