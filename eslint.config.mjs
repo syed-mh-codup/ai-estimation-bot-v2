@@ -18,11 +18,16 @@ export default [
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
+      // TypeScript already resolves identifiers (incl. DOM/Node lib globals like
+      // React, process, Request). core's no-undef doesn't understand them and
+      // reports false positives — typescript-eslint recommends disabling it.
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
   {
-    ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**'],
+    // src/generated is Prisma's emitted client — machine-written, not ours to lint.
+    ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', '**/src/generated/**'],
   },
 ];

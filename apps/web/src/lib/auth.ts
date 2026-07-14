@@ -1,4 +1,4 @@
-import NextAuth from 'next-auth';
+import NextAuth, { type NextAuthResult } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { prisma } from '@repo/db';
 import { verifyPassword } from './password';
@@ -19,7 +19,11 @@ declare module 'next-auth' {
   }
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+// The exports are annotated via NextAuthResult rather than inferred: under
+// pnpm's symlinked node_modules TS can't name the inferred type without an
+// absolute path into next-auth's internals ("not portable"), which fails the
+// production build. Annotating pins the public type. See auth.js#9493.
+const nextAuth = NextAuth({
   ...authConfig,
   providers: [
     Credentials({
@@ -71,3 +75,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+export const handlers: NextAuthResult['handlers'] = nextAuth.handlers;
+export const auth: NextAuthResult['auth'] = nextAuth.auth;
+export const signIn: NextAuthResult['signIn'] = nextAuth.signIn;
+export const signOut: NextAuthResult['signOut'] = nextAuth.signOut;

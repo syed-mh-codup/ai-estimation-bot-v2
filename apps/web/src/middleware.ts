@@ -1,7 +1,9 @@
-import NextAuth from 'next-auth';
+import NextAuth, { type NextAuthResult } from 'next-auth';
 import { authConfig } from '@/lib/auth.config';
 
-export const { auth: middleware } = NextAuth(authConfig);
+// Annotated, not inferred — see the note in lib/auth.ts (pnpm + next-auth v5
+// produce a non-portable inferred type that breaks the production build).
+export const middleware: NextAuthResult['auth'] = NextAuth(authConfig).auth;
 export default middleware;
 
 export const config = {

@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "pnpm --filter @repo/db exec prisma generate && next build",
     "dev": "next dev",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
