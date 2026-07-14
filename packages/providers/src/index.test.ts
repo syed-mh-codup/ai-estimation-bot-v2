@@ -65,7 +65,7 @@ describe('WS3-01: OpenRouterModelProvider', () => {
       messages: [{ role: 'user', content: 'test' }],
     });
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
     expect(body.model).toBe('openrouter/google/gemini-pro');
   });
 
@@ -171,7 +171,7 @@ describe('WS3-04: Provider fallback on error', () => {
 
     expect(result).toBe('fallback response');
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    const fallbackBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const fallbackBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string);
     expect(fallbackBody.model).toBe('openrouter/anthropic/claude-haiku');
   });
 });

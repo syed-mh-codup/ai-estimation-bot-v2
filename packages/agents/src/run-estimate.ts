@@ -1,5 +1,10 @@
 import type { PrismaClient, AgentKind } from '@repo/db';
-import type { IModelProvider, IEmbeddingProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
+import type {
+  IModelProvider,
+  IEmbeddingProvider,
+  ISearchProvider,
+  IMcpProvider,
+} from '@repo/providers';
 import { StubSearchProvider, StubMcpProvider } from '@repo/providers';
 import type { ArchivistMatch, MenuItem, RiskFinding, SpecialistOutput } from '@repo/shared';
 import { hashSOW, normaliseSOW } from './sow-utils';
@@ -16,6 +21,22 @@ import { checkSupervisorGates } from './supervisor-gates';
 /** A single progress tick: a human-readable stage label + 0–100 percentage. */
 export type RunProgress = { stage: string; pct: number };
 
+/**
+ * Checkpoints one pipeline stage. The default runner just invokes `fn`, so the
+ * pipeline behaves identically offline and under test.
+ *
+ * On serverless the web layer passes Inngest's `step.run`, which turns each
+ * stage into its own durable, independently-retried HTTP invocation with a
+ * fresh execution-time budget. That matters because Vercel caps a single
+ * invocation (300s on Hobby): the specialist council alone is 4 LLM calls per
+ * requirement, which would blow that ceiling as one step.
+ *
+ * Consequence of durability: a checkpointed value is memoised by Inngest as
+ * JSON, so `fn` must resolve to something JSON-round-trippable (no Date, Map,
+ * or class instances — the agent outputs are all zod-parsed plain objects).
+ */
+export type StepRunner = <T>(id: string, fn: () => Promise<T>) => Promise<T>;
+
 export type RunEstimateDeps = {
   db: PrismaClient;
   modelProvider: IModelProvider;
@@ -31,6 +52,11 @@ export type RunEstimateDeps = {
    * Awaited so a slow DB write can't let two ticks interleave out of order.
    */
   onProgress?: (p: RunProgress) => void | Promise<void>;
+  /**
+   * Optional durable-execution seam (see StepRunner). Defaults to running each
+   * stage inline, which is what tests and the local dev server do.
+   */
+  step?: StepRunner;
 };
 
 export type RunEstimateResult = {
@@ -64,6 +90,10 @@ export async function runEstimate(
   const report = async (stage: string, pct: number): Promise<void> => {
     if (deps.onProgress) await deps.onProgress({ stage, pct });
   };
+  // Inline unless the caller supplies a durable runner (Inngest's step.run).
+  // Everything *outside* a step re-executes on each replay, so only cheap,
+  // idempotent work (DB reads, deterministic scoring) is left unwrapped.
+  const step: StepRunner = deps.step ?? ((_id, fn) => fn());
 
   await report('Loading prompts & config', 2);
   const est = await db.estimate.findUniqueOrThrow({ where: { id: estimateId } });
@@ -103,29 +133,35 @@ export async function runEstimate(
 
   // ── 1. Librarian: SOW → requirements ────────────────────────────────────────
   await report('Analysing scope (Librarian)', 8);
-  const lib = await runLibrarian(est.sowText, taxonomy, {
-    modelProvider,
-    modelString: libP.modelString,
-    instructions: libP.body,
-  });
+  const lib = await step('librarian', () =>
+    runLibrarian(est.sowText, taxonomy, {
+      modelProvider,
+      modelString: libP.modelString,
+      instructions: libP.body,
+    }),
+  );
 
   // ── 2. Detective + Archivist (parallel): risk register + preset matches ─────
   await report('Investigating risk & matching presets (Detective + Archivist)', 20);
   const [detectiveOut, archivistOut] = await Promise.all([
-    runDetective(lib.requirements, {
-      modelProvider,
-      modelString: detP.modelString,
-      instructions: detP.body,
-      searchProvider,
-      mcpProvider,
-    }),
+    step('detective', () =>
+      runDetective(lib.requirements, {
+        modelProvider,
+        modelString: detP.modelString,
+        instructions: detP.body,
+        searchProvider,
+        mcpProvider,
+      }),
+    ),
     deps.embeddingProvider
-      ? runArchivist(lib.requirements, {
-          db,
-          embeddingProvider: deps.embeddingProvider,
-          modelProvider,
-          modelString: archP.modelString,
-        })
+      ? step('archivist', () =>
+          runArchivist(lib.requirements, {
+            db,
+            embeddingProvider: deps.embeddingProvider!,
+            modelProvider,
+            modelString: archP.modelString,
+          }),
+        )
       : Promise.resolve({ matches: [] as ArchivistMatch[] }),
   ]);
   const matches = archivistOut.matches;
@@ -160,28 +196,36 @@ export async function runEstimate(
     );
     const req = lib.requirements[i]!;
 
-    const outputs = await runSpecialistCouncil(
-      {
-        requirement: req,
-        menuCardId: req.candidateMenuCardId,
-        archivistMatch: matchByRequirementId.get(req.id),
-        riskFindings: risksByRequirementId.get(req.id) ?? [],
-        complexityScore: complexity.score,
-      },
-      specialistCtx,
+    // Checkpointed per requirement, not per loop: the council is 4 LLM calls
+    // each, so one step for the whole loop would scale with requirement count
+    // and eventually exceed the invocation ceiling. Keyed by requirement id
+    // (not index) so the memoised steps stay stable.
+    const outputs = await step(`specialists:${req.id}`, () =>
+      runSpecialistCouncil(
+        {
+          requirement: req,
+          menuCardId: req.candidateMenuCardId,
+          archivistMatch: matchByRequirementId.get(req.id),
+          riskFindings: risksByRequirementId.get(req.id) ?? [],
+          complexityScore: complexity.score,
+        },
+        specialistCtx,
+      ),
     );
     allSpecialistOutputs.push(...outputs);
   }
 
   // ── 5. Architect: assemble menu cards + write the narrative ─────────────────
   await report('Writing narrative (Architect)', 87);
-  const arch = await runArchitect({
-    ctx: { modelProvider, modelString: architectP.modelString, instructions: architectP.body },
-    requirements: lib.requirements,
-    archivistMatches: matches,
-    specialistOutputs: allSpecialistOutputs,
-    openQuestions: detectiveOut.questions.map((q: { question: string }) => q.question),
-  });
+  const arch = await step('architect', () =>
+    runArchitect({
+      ctx: { modelProvider, modelString: architectP.modelString, instructions: architectP.body },
+      requirements: lib.requirements,
+      archivistMatches: matches,
+      specialistOutputs: allSpecialistOutputs,
+      openQuestions: detectiveOut.questions.map((q: { question: string }) => q.question),
+    }),
+  );
 
   // ── 6. Taxation (stored %s → fractions, matching the config-admin UI) ───────
   const taxed = applyTaxationToMenuItems(arch.menuItems, {
@@ -212,77 +256,81 @@ export async function runEstimate(
   // Many sequential writes (per menu item + line items). Over a remote DB (Neon)
   // network latency pushes this past Prisma's default 5s interactive-transaction
   // timeout, so raise it generously.
-  await db.$transaction(
-    async (tx) => {
-    const existing = await tx.menuItem.findMany({
-      where: { estimateId },
-      select: { id: true },
-    });
-    const ids = existing.map((m) => m.id);
-    if (ids.length) {
-      await tx.roleLineItem.deleteMany({ where: { menuItemId: { in: ids } } });
-      await tx.menuItem.deleteMany({ where: { id: { in: ids } } });
-    }
-    for (const item of taxed) {
-      await tx.menuItem.create({
-        data: {
-          estimateId,
-          taxonomyKey: item.taxonomyKey,
-          category: item.category ?? null,
-          phase: item.phase ?? null,
-          title: item.title,
-          enabled: item.enabled,
-          sourcePresetId: item.sourcePresetId ?? null,
-          matchScore: item.matchScore ?? null,
-          meta: {
-            requirementIds: item.requirementIds,
-            toggleable: item.toggleable,
-            notSafelyRemovable: item.notSafelyRemovable,
-            thinSlice: item.thinSlice,
-          },
-          lineItems: {
-            create: item.lineItems.map((li) => ({
-              role: li.role,
-              title: li.title ?? null,
-              baseHours: li.baseHours,
-              taxedHours: li.taxedHours,
-              notes: li.notes ?? null,
-              edited: li.edited,
+  await step('persist-menu-card', async () => {
+    await db.$transaction(
+      async (tx) => {
+        const existing = await tx.menuItem.findMany({
+          where: { estimateId },
+          select: { id: true },
+        });
+        const ids = existing.map((m) => m.id);
+        if (ids.length) {
+          await tx.roleLineItem.deleteMany({ where: { menuItemId: { in: ids } } });
+          await tx.menuItem.deleteMany({ where: { id: { in: ids } } });
+        }
+        for (const item of taxed) {
+          await tx.menuItem.create({
+            data: {
+              estimateId,
+              taxonomyKey: item.taxonomyKey,
+              category: item.category ?? null,
+              phase: item.phase ?? null,
+              title: item.title,
+              enabled: item.enabled,
+              sourcePresetId: item.sourcePresetId ?? null,
+              matchScore: item.matchScore ?? null,
               meta: {
-                id: li.id ?? null,
-                requirementId: li.requirementId ?? null,
-                complexity: li.complexity ?? null,
-                aiAssistApplied: li.aiAssistApplied,
-                dependsOn: li.dependsOn,
-                anchorPresetIds: li.anchorPresetIds,
+                requirementIds: item.requirementIds,
+                toggleable: item.toggleable,
+                notSafelyRemovable: item.notSafelyRemovable,
+                thinSlice: item.thinSlice,
               },
-            })),
+              lineItems: {
+                create: item.lineItems.map((li) => ({
+                  role: li.role,
+                  title: li.title ?? null,
+                  baseHours: li.baseHours,
+                  taxedHours: li.taxedHours,
+                  notes: li.notes ?? null,
+                  edited: li.edited,
+                  meta: {
+                    id: li.id ?? null,
+                    requirementId: li.requirementId ?? null,
+                    complexity: li.complexity ?? null,
+                    aiAssistApplied: li.aiAssistApplied,
+                    dependsOn: li.dependsOn,
+                    anchorPresetIds: li.anchorPresetIds,
+                  },
+                })),
+              },
+            },
+          });
+        }
+        await tx.estimate.update({
+          where: { id: estimateId },
+          data: {
+            sowHash: hashSOW(normaliseSOW(est.sowText)),
+            status: 'REVIEW',
+            complexityScore: complexity.score,
+            narrative: arch.narrative,
+            assumptions: arch.assumptions,
+            agentState: {
+              librarianOutput: lib,
+              detectiveRiskCount: riskFindings.length,
+              detectiveQuestionCount: detectiveOut.questions.length,
+              archivistMatchCount: matches.length,
+              complexity,
+              gateWarnings,
+              ranAt: new Date().toISOString(),
+            },
           },
-        },
-      });
-    }
-    await tx.estimate.update({
-      where: { id: estimateId },
-      data: {
-        sowHash: hashSOW(normaliseSOW(est.sowText)),
-        status: 'REVIEW',
-        complexityScore: complexity.score,
-        narrative: arch.narrative,
-        assumptions: arch.assumptions,
-        agentState: {
-          librarianOutput: lib,
-          detectiveRiskCount: riskFindings.length,
-          detectiveQuestionCount: detectiveOut.questions.length,
-          archivistMatchCount: matches.length,
-          complexity,
-          gateWarnings,
-          ranAt: new Date().toISOString(),
-        },
+        });
       },
-    });
-    },
-    { maxWait: 15_000, timeout: 60_000 },
-  );
+      { maxWait: 15_000, timeout: 60_000 },
+    );
+    // step results are memoised as JSON; nothing here needs to survive.
+    return null;
+  });
 
   return {
     estimateId,

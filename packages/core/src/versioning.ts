@@ -1,4 +1,4 @@
-import type { PrismaClient, ChangeMotivation } from '@repo/db';
+import type { PrismaClient, ChangeMotivation, Prisma } from '@repo/db';
 
 export type VersionedEntityKind = 'preset' | 'taxonomy' | 'prompt' | 'config';
 
@@ -187,6 +187,11 @@ export async function createConfigVersion(
     db.estimationConfig.create({
       data: {
         ...payload,
+        // Json columns: Prisma types these as InputJsonValue, which a plain
+        // Record<string, unknown> is not assignable to (unknown could be a
+        // non-serialisable value). The payload is JSON by construction.
+        complexityRules: payload.complexityRules as Prisma.InputJsonValue,
+        infraBaseline: payload.infraBaseline as Prisma.InputJsonValue,
         version: nextVersion,
         active: true,
         changeReason: meta.reason,
@@ -233,9 +238,15 @@ export async function pinVersions(
   await db.estimate.update({
     where: { id: estimateId },
     data: {
-      taxonomyVersionsPinned: versions.taxonomyVersion as unknown as Record<string, unknown>,
+      // Both are Json columns; a bare number and a Record<string, number> are
+      // each valid JSON. (Unchanged behaviour — these were previously cast
+      // through `unknown` to a Record, which no longer typechecks.)
+      taxonomyVersionsPinned: versions.taxonomyVersion satisfies number as Prisma.InputJsonValue,
       configVersion: versions.configVersion,
-      promptVersionsPinned: versions.promptVersions as unknown as Record<string, unknown>,
+      promptVersionsPinned: versions.promptVersions satisfies Record<
+        string,
+        number
+      > as Prisma.InputJsonValue,
     },
   });
   return versions;

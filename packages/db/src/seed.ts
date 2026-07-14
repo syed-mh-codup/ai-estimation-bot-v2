@@ -75,19 +75,31 @@ const SAMPLE_SOWS = [
 
 // (SEED_PROMPTS imported at the top from ./seed-prompts.js)
 
+/**
+ * SEED_USERS have publicly-known passwords, so they must never reach a hosted
+ * environment. In production this seed installs only the data an instance needs
+ * (config, prompts) and skips the dev users + demo estimates; the real admin is
+ * created from env by `db:seed:admin`. ALLOW_DEV_USERS=1 overrides (e.g. a
+ * throwaway staging box you want the demo fixtures on).
+ */
+const SEED_DEV_DATA =
+  process.env['NODE_ENV'] !== 'production' || process.env['ALLOW_DEV_USERS'] === '1';
+
 async function main() {
   const prisma = new PrismaClient();
   try {
     // 1. Users -------------------------------------------------------------
     const users: Record<string, { id: string }> = {};
-    for (const [key, u] of Object.entries(SEED_USERS)) {
-      const hash = await bcrypt.hash(u.password, SALT_ROUNDS);
-      const user = await prisma.user.upsert({
-        where: { email: u.email },
-        update: { hash, role: u.role },
-        create: { email: u.email, hash, role: u.role, name: u.email },
-      });
-      users[key] = user;
+    if (SEED_DEV_DATA) {
+      for (const [key, u] of Object.entries(SEED_USERS)) {
+        const hash = await bcrypt.hash(u.password, SALT_ROUNDS);
+        const user = await prisma.user.upsert({
+          where: { email: u.email },
+          update: { hash, role: u.role },
+          create: { email: u.email, hash, role: u.role, name: u.email },
+        });
+        users[key] = user;
+      }
     }
 
     // 2. Active EstimationConfig (v1) — Estimate.configVersion needs this ---
@@ -105,7 +117,15 @@ async function main() {
           { minCount: 4, maxCount: 6, score: 4 },
           { minCount: 7, maxCount: 999, score: 5 },
         ],
-        legacyKeywords: ['legacy', 'mainframe', 'cobol', 'migration', 'rewrite', 'monolith', 'end-of-life'],
+        legacyKeywords: [
+          'legacy',
+          'mainframe',
+          'cobol',
+          'migration',
+          'rewrite',
+          'monolith',
+          'end-of-life',
+        ],
         legacyScoreBonus: 1.5,
         dataVolumeMultipliers: { NONE: 1.0, LOW: 1.1, HIGH: 1.5 },
         aiKeywords: ['machine learning', 'ai assist', 'neural', 'prediction model', 'llm', 'nlp'],
@@ -127,24 +147,28 @@ async function main() {
     });
 
     // 3. Sample estimates --------------------------------------------------
-    for (const s of SAMPLE_SOWS) {
-      await prisma.estimate.upsert({
-        where: { id: s.id },
-        update: {},
-        create: {
-          id: s.id,
-          title: s.title,
-          sowText: s.sowText,
-          sowHash: sha256(s.sowText),
-          status: 'DRAFT',
-          configVersion: config.version,
-          taxonomyVersionsPinned: {},
-          promptVersionsPinned: {},
-          modelConfig: {},
-          agentState: {},
-          ownerId: users['estimator']!.id,
-        },
-      });
+    // Demo estimates are owned by the seeded estimator, so they only exist
+    // wherever the dev users do.
+    if (SEED_DEV_DATA) {
+      for (const s of SAMPLE_SOWS) {
+        await prisma.estimate.upsert({
+          where: { id: s.id },
+          update: {},
+          create: {
+            id: s.id,
+            title: s.title,
+            sowText: s.sowText,
+            sowHash: sha256(s.sowText),
+            status: 'DRAFT',
+            configVersion: config.version,
+            taxonomyVersionsPinned: {},
+            promptVersionsPinned: {},
+            modelConfig: {},
+            agentState: {},
+            ownerId: users['estimator']!.id,
+          },
+        });
+      }
     }
 
     // 4. Active prompt per seeded agent kind -------------------------------
@@ -173,10 +197,17 @@ async function main() {
       });
     }
 
-    // eslint-disable-next-line no-console
+    const devCount = SEED_DEV_DATA ? Object.keys(SEED_USERS).length : 0;
     console.log(
-      `Seed complete: ${Object.keys(SEED_USERS).length} users, config v${config.version}, ${SAMPLE_SOWS.length} estimates, ${SEED_PROMPTS.length} prompts.`,
+      `Seed complete: ${devCount} users, config v${config.version}, ` +
+        `${SEED_DEV_DATA ? SAMPLE_SOWS.length : 0} estimates, ${SEED_PROMPTS.length} prompts.`,
     );
+    if (!SEED_DEV_DATA) {
+      console.log(
+        'Production mode: skipped dev users + demo estimates.\n' +
+          'Create the admin with:  ADMIN_EMAIL=… ADMIN_PASSWORD=… pnpm db:seed:admin',
+      );
+    }
   } finally {
     await prisma.$disconnect();
   }

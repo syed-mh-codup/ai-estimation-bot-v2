@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
-import { runEstimate } from './run-estimate';
+import { runEstimate, type StepRunner } from './run-estimate';
 import { DEFAULT_COMPLEXITY_RULES } from './complexity';
 
 const DB_URL =
@@ -187,6 +187,50 @@ describe('runEstimate refuses a trivially-empty SOW rather than fabricating one'
     expect(librarianCalled).toBe(false);
 
     await db.estimate.delete({ where: { id: est.id } });
+  });
+});
+
+describe('durable step runner (Inngest) does not change the result', () => {
+  it('survives every stage being JSON round-tripped, as Inngest memoises it', async () => {
+    // Inngest persists each step.run() result as JSON and replays it on the
+    // next invocation, so a stage returning anything non-JSON-serialisable
+    // (Date, Map, undefined-valued key, class instance) would silently mutate
+    // between stages in production while passing an inline test. Simulate that
+    // exactly: serialise every checkpoint the way the real runner does.
+    const seen: string[] = [];
+    const jsonStep: StepRunner = async (id, fn) => {
+      seen.push(id);
+      return JSON.parse(JSON.stringify(await fn()));
+    };
+
+    const result = await runEstimate(estimateId, {
+      db,
+      modelProvider: stubModelProvider,
+      step: jsonStep,
+    });
+
+    expect(result.status).toBe('REVIEW');
+    expect(result.menuItemCount).toBe(2);
+
+    // The expensive stages are each their own checkpoint — in particular one
+    // per requirement, which is what keeps a step inside Vercel's ceiling.
+    expect(seen).toContain('librarian');
+    expect(seen).toContain('detective');
+    expect(seen).toContain('architect');
+    expect(seen).toContain('persist-menu-card');
+    expect(seen.filter((id) => id.startsWith('specialists:'))).toHaveLength(2); // one per requirement
+
+    // And the persisted card is identical to the inline path's.
+    const items = await db.menuItem.findMany({
+      where: { estimateId },
+      include: { lineItems: true },
+    });
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(item.lineItems.map((li) => li.role).sort()).toEqual(['BA', 'DEV', 'PM', 'QA']);
+      const qa = item.lineItems.find((li) => li.role === 'QA')!;
+      expect(qa.taxedHours).toBeGreaterThan(qa.baseHours);
+    }
   });
 });
 

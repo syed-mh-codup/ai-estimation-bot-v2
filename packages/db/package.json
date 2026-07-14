@@ -7,12 +7,13 @@
   "scripts": {
     "postinstall": "prisma generate",
     "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b",
     "lint": "eslint src",
     "test": "vitest run",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx src/seed.ts",
+    "db:seed:admin": "tsx src/seed-admin.ts",
     "db:seed:presets": "tsx src/seed-presets.ts",
     "db:seed:taxonomy": "tsx src/seed-taxonomy.ts"
   },

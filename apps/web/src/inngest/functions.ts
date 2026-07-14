@@ -42,19 +42,26 @@ const runEstimateFn = inngest.createFunction(
   async ({ event, step }) => {
     const { estimateId } = event.data as EstimateEventData;
 
-    await step.run('run-pipeline', async () => {
-      const modelProvider = createModelProvider();
-      await runEstimate(estimateId, {
-        db: prisma,
-        modelProvider,
-        // Archivist RAG activates once presets have embeddings — the run
-        // itself tolerates all-empty matches (coverage:none everywhere) so
-        // this is safe to wire ahead of the embedding backfill completing.
-        embeddingProvider: new EmbeddingProvider(modelProvider),
-        onProgress: async ({ stage, pct }) => {
-          await prisma.estimate.update({ where: { id: estimateId }, data: { runStage: stage, runPct: pct } });
-        },
-      });
+    // The pipeline checkpoints itself stage-by-stage through this runner, so
+    // each agent (and each requirement's specialist council) is a separate
+    // invocation with its own execution-time budget and its own retry. Running
+    // the whole pipeline as one step would have to fit inside a single Vercel
+    // invocation (300s on Hobby), which a multi-requirement run does not.
+    const modelProvider = createModelProvider();
+    await runEstimate(estimateId, {
+      db: prisma,
+      modelProvider,
+      step: (id, fn) => step.run(id, fn) as ReturnType<typeof fn>,
+      // Archivist RAG activates once presets have embeddings — the run
+      // itself tolerates all-empty matches (coverage:none everywhere) so
+      // this is safe to wire ahead of the embedding backfill completing.
+      embeddingProvider: new EmbeddingProvider(modelProvider),
+      onProgress: async ({ stage, pct }) => {
+        await prisma.estimate.update({
+          where: { id: estimateId },
+          data: { runStage: stage, runPct: pct },
+        });
+      },
     });
 
     await prisma.estimate.update({
@@ -107,7 +114,10 @@ const ingestFn = inngest.createFunction(
       const { text, files: parsedFiles } = await ingestFiles(files, {
         modelProvider: createModelProvider(),
         onProgress: async ({ stage, pct }) => {
-          await prisma.estimate.update({ where: { id: estimateId }, data: { ingestStage: stage, ingestPct: pct } });
+          await prisma.estimate.update({
+            where: { id: estimateId },
+            data: { ingestStage: stage, ingestPct: pct },
+          });
         },
       });
 
@@ -130,7 +140,10 @@ const ingestFn = inngest.createFunction(
       // there's real content to estimate from — but surface it rather than
       // silently dropping the failed file(s) from the SOW.
       const ingestError = failed.length
-        ? `${failed.length} of ${parsedFiles.length} file(s) failed to parse: ${failed.map((f) => `${f.filename} (${f.error})`).join('; ')}`.slice(0, 500)
+        ? `${failed.length} of ${parsedFiles.length} file(s) failed to parse: ${failed.map((f) => `${f.filename} (${f.error})`).join('; ')}`.slice(
+            0,
+            500,
+          )
         : null;
 
       await prisma.estimate.update({
