@@ -11,6 +11,12 @@ export const OPTIONAL_SERVER_ENV = [
   'GOOGLE_SERVICE_ACCOUNT_JSON', // Sheets export
   'GOOGLE_DRIVE_FOLDER_ID', // Sheets export
   'ENCRYPTION_KEY', // MCP connector secret storage
+  'SMTP_HOST', // completion emails (defaults to smtp.resend.com)
+  'SMTP_PORT', // completion emails (defaults to 465)
+  'SMTP_USER', // completion emails (Resend: "resend")
+  'SMTP_PASSWORD', // completion emails (Resend API key)
+  'EMAIL_FROM', // completion emails (verified sender)
+  'APP_URL', // absolute origin for links inside emails
 ] as const;
 
 export type EnvCheck = {

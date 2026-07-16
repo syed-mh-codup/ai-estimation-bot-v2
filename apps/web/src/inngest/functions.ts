@@ -4,8 +4,31 @@ import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
 import { runEstimate, ingestFiles, type IngestFile } from '@repo/agents';
 import { inngest, EVENT_RUN, EVENT_INGEST, type EstimateEventData } from '@/lib/inngest';
+import { sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/**
+ * Best-effort owner notification. Runs as its own durable step *after* the
+ * estimate is already marked DONE, and must never throw — a mail failure must
+ * not flip the estimate to FAILED via onFailure. All errors are swallowed.
+ */
+async function notifyOwner(
+  estimateId: string,
+  send: (n: { to: string; name?: string | null; title: string; estimateId: string }) => Promise<{ sent: boolean }>,
+): Promise<{ sent: boolean }> {
+  try {
+    const est = await prisma.estimate.findUnique({
+      where: { id: estimateId },
+      select: { title: true, owner: { select: { email: true, name: true } } },
+    });
+    if (!est?.owner?.email) return { sent: false };
+    return await send({ to: est.owner.email, name: est.owner.name, title: est.title, estimateId });
+  } catch (err) {
+    console.error(`[email] notifyOwner failed for estimate ${estimateId}:`, err);
+    return { sent: false };
+  }
+}
 
 /** Best-effort extraction of the original event's estimateId in an onFailure handler. */
 function failedEstimateId(failureEvent: unknown): string | undefined {
@@ -68,6 +91,11 @@ const runEstimateFn = inngest.createFunction(
       where: { id: estimateId },
       data: { runStatus: 'DONE', runStage: 'Done', runPct: 100, runFinishedAt: new Date() },
     });
+
+    // Notify the owner their estimate is ready (best-effort; own step so a
+    // transient mail failure retries without re-running the whole pipeline).
+    await step.run('notify-run-complete', () => notifyOwner(estimateId, sendRunCompleteEmail));
+
     return { estimateId };
   },
 );
@@ -160,6 +188,10 @@ const ingestFn = inngest.createFunction(
       await prisma.uploadedFile.deleteMany({ where: { estimateId } });
       return { chars: combined.length, failedFiles: failed.length };
     });
+
+    // Ingestion succeeded (this line is unreachable on the empty-SOW throw
+    // above) — tell the owner the SOW is ready to estimate. Best-effort.
+    await step.run('notify-ingest-complete', () => notifyOwner(estimateId, sendIngestCompleteEmail));
 
     return result;
   },

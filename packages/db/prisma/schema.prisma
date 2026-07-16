@@ -237,6 +237,7 @@ model Estimate {
   agentState             Json
   ownerId                String
   owner                  User           @relation(fields: [ownerId], references: [id])
+  sections               EstimateSection[]
   menuItems              MenuItem[]
   uploadedFiles          UploadedFile[]
   sheetUrl               String?
@@ -257,6 +258,22 @@ model Estimate {
   ingestError  String?
 
   @@index([sowHash])
+}
+
+// User-editable grouping of menu items on an estimate. Purely presentational
+// (the AI run never populates these — items start Ungrouped, i.e. sectionId
+// null). Deleting a section detaches its items (SetNull) rather than losing
+// them; deleting the estimate cascades.
+model EstimateSection {
+  id         String     @id @default(cuid())
+  estimateId String
+  estimate   Estimate   @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  title      String
+  order      Int        @default(0)
+  menuItems  MenuItem[]
+  createdAt  DateTime   @default(now())
+
+  @@index([estimateId])
 }
 
 // Transient storage for uploaded client material so the background ingestion
@@ -290,16 +307,23 @@ model MenuItem {
   title          String
   enabled        Boolean      @default(true)
   parentItemId   String?
+  /// User-assigned section grouping (null = Ungrouped). Presentational only.
+  sectionId      String?
+  section        EstimateSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  /// Manual ordering within a section (drag-and-drop). Ascending.
+  order          Int          @default(0)
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
   lineItems      RoleLineItem[]
+
+  @@index([sectionId])
 }
 
 model RoleLineItem {
   id         String   @id @default(cuid())
   menuItemId String
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   role       RoleKind
   /// Short description of this atomic (<=4h) unit of work. Many rows per
   /// (menuItemId, role) now — the FOUR-HOUR RULE decomposes each role's
