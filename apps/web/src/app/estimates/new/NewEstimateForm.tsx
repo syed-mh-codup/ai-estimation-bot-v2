@@ -2,10 +2,26 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ShieldCheck } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FieldLabel, Input, Textarea } from '@/components/ui/input';
 
 type Phase = 'idle' | 'submitting' | 'ingesting' | 'error';
 
 const ACCEPT = '.pdf,.docx,.txt,.md,.markdown,.csv,.png,.jpg,.jpeg,.webp,application/pdf,image/*';
+
+/**
+ * "Reading proposal.pdf (2/3)" → "Reading proposal.pdf" + "File 2 of 3".
+ *
+ * The ingest pipeline reports one free-text stage per file. There is no named
+ * crew here — just documents — so the parenthetical count is the only part
+ * worth lifting out of the label.
+ */
+function readIngestStage(stage: string): { label: string; detail: string | null } {
+  const m = /^(.*?)\s*\((\d+)\/(\d+)\)\s*$/.exec(stage);
+  if (!m) return { label: stage || 'Reading…', detail: null };
+  return { label: m[1]!.trim(), detail: `File ${m[2]} of ${m[3]}` };
+}
 
 /**
  * Create an estimate from pasted text and/or uploaded client material. Files are
@@ -60,9 +76,9 @@ export function NewEstimateForm() {
 
       const title = (fd.get('title') as string)?.trim();
       const pasted = (fd.get('sowText') as string)?.trim();
-      if (!title) return setError('Title is required.');
+      if (!title) return setError('Give the estimate a title before creating it.');
       if (!pasted && files.length === 0) {
-        return setError('Paste a Statement of Work or upload at least one file.');
+        return setError('Paste a statement of work or attach at least one file.');
       }
 
       setPhase('submitting');
@@ -89,110 +105,169 @@ export function NewEstimateForm() {
     [files, pollIngest, router],
   );
 
+  const { label, detail } = readIngestStage(progress.stage);
+
   return (
-    <form onSubmit={onSubmit} className="mt-6 max-w-2xl space-y-4">
-      <div>
-        <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-          Title
-        </label>
-        <input
-          id="title"
-          name="title"
-          type="text"
-          required
-          disabled={busy}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none disabled:opacity-60"
-          placeholder="e.g. Customer Loyalty Mobile App"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Client material</label>
-        <p className="text-xs text-gray-500">
-          PDF, Word (.docx), images (png/jpg/webp), or text. Diagrams, screenshots and scanned pages
-          are read too.
-        </p>
-        <input
-          ref={fileRef}
-          name="files"
-          type="file"
-          multiple
-          accept={ACCEPT}
-          disabled={busy}
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          data-testid="file-input"
-          className="mt-1 block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-gray-700 disabled:opacity-60"
-        />
-        {files.length > 0 && (
-          <ul className="mt-2 space-y-1 text-xs text-gray-600" data-testid="file-list">
-            {files.map((f) => (
-              <li key={f.name}>
-                • {f.name} <span className="text-gray-400">({Math.ceil(f.size / 1024)} KB)</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="sowText" className="block text-sm font-medium text-gray-700">
-          Statement of Work <span className="font-normal text-gray-400">(optional if files attached)</span>
-        </label>
-        <textarea
-          id="sowText"
-          name="sowText"
-          rows={10}
-          disabled={busy}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none disabled:opacity-60"
-          placeholder="Paste scope, features, integrations… or upload the BRD above."
-        />
-      </div>
-
-      <button
-        type="submit"
-        disabled={busy}
-        data-testid="create-estimate-submit"
-        className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {busy && (
-          <span
-            className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"
-            aria-hidden
+    <form onSubmit={onSubmit} className="mt-6 max-w-2xl">
+      <div className="rounded-[10px] border border-line bg-surface p-5">
+        <div>
+          <FieldLabel htmlFor="title">Title</FieldLabel>
+          <Input
+            id="title"
+            name="title"
+            type="text"
+            required
+            disabled={busy}
+            placeholder="e.g. Customer Loyalty Mobile App"
           />
-        )}
-        {phase === 'ingesting' ? 'Reading documents…' : phase === 'submitting' ? 'Creating…' : 'Create draft'}
-      </button>
-
-      {phase === 'ingesting' && (
-        <div className="max-w-md" data-testid="ingest-progress">
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <span data-testid="ingest-stage">{progress.stage}</span>
-            <span>{progress.pct}%</span>
-          </div>
-          <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full bg-gray-900 transition-[width] duration-500 ease-out"
-              style={{ width: `${Math.min(100, Math.max(3, progress.pct))}%` }}
-            />
-          </div>
         </div>
+
+        <div className="mt-5">
+          <FieldLabel htmlFor="files">Client material</FieldLabel>
+          <p className="-mt-1 mb-2 text-[12.5px] leading-relaxed text-ink-3">
+            PDF, Word (.docx), images (png/jpg/webp) or plain text. Diagrams, screenshots and
+            scanned pages are read too.
+          </p>
+          <input
+            id="files"
+            ref={fileRef}
+            name="files"
+            type="file"
+            multiple
+            accept={ACCEPT}
+            disabled={busy}
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            data-testid="file-input"
+            className="block w-full cursor-pointer rounded-md border border-dashed border-line bg-surface-2 p-2.5 text-[12.5px] text-ink-2 file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-line file:bg-surface file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-ink-2 hover:border-green-line hover:file:border-ink-4 hover:file:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          />
+
+          {files.length > 0 && (
+            <ul
+              className="mt-2.5 divide-y divide-line-soft rounded-md border border-line-soft bg-surface-2"
+              data-testid="file-list"
+            >
+              {files.map((f) => (
+                <li
+                  key={f.name}
+                  className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-[12.5px]"
+                >
+                  <span className="truncate text-ink-2">{f.name}</span>
+                  <span className="num shrink-0 text-[11.5px] text-ink-3">
+                    {Math.ceil(f.size / 1024)} KB
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="mt-5">
+          <FieldLabel htmlFor="sowText">
+            Statement of work{' '}
+            <span className="font-normal text-ink-4">— optional if you attach files</span>
+          </FieldLabel>
+          <Textarea
+            id="sowText"
+            name="sowText"
+            rows={10}
+            disabled={busy}
+            className="leading-relaxed"
+            placeholder="Paste scope, features, integrations… or attach the BRD above."
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button type="submit" disabled={busy} aria-busy={busy} data-testid="create-estimate-submit">
+          {busy && (
+            <span
+              className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-surface/40 border-t-surface"
+              aria-hidden
+            />
+          )}
+          {phase === 'ingesting'
+            ? 'Reading documents…'
+            : phase === 'submitting'
+              ? 'Creating…'
+              : 'Create draft'}
+        </Button>
+        {!busy && (
+          <span className="text-[12.5px] text-ink-3">
+            You can run the estimate once the draft exists.
+          </span>
+        )}
+      </div>
+
+      {/* ── In flight: files are being read on the server. Bronze, determinate,
+             and honest about where it is. ─────────────────────────────────── */}
+      {phase === 'ingesting' && (
+        <section
+          className="mt-4 rounded-[10px] border border-bronze-line bg-[#FDFBF4] p-4"
+          aria-live="polite"
+          data-testid="ingest-progress"
+        >
+          <div className="flex flex-wrap items-start gap-3.5">
+            <div className="min-w-[220px] flex-1">
+              <div className="eyebrow">Reading your documents</div>
+              {/* The count in the raw stage ("… (2/3)") is spelled out on the
+                  detail line below, so the headline drops it. */}
+              <div
+                className="mt-1.5 truncate text-[14.5px] font-semibold text-ink"
+                data-testid="ingest-stage"
+              >
+                {label}
+              </div>
+              <p className="mt-1 text-[12.5px] text-ink-3">
+                {detail
+                  ? `${detail} — text, tables and diagrams are pulled out of each page.`
+                  : 'Text, tables and diagrams are pulled out of each page.'}
+              </p>
+            </div>
+
+            <div className="num text-[26px] leading-none font-medium tracking-[-0.02em] text-bronze-ink">
+              {progress.pct}
+              <span className="text-[15px] text-bronze">%</span>
+            </div>
+          </div>
+
+          <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-surface-2">
+            <div
+              className="relative h-full rounded-full bg-bronze transition-[width] duration-500 ease-out"
+              style={{ width: `${Math.min(100, Math.max(3, progress.pct))}%` }}
+            >
+              <span className="absolute inset-0 animate-pulse rounded-full bg-bronze-tint/40" aria-hidden />
+            </div>
+          </div>
+
+          <p className="mt-3.5 flex items-center gap-2 text-xs text-ink-3">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Safe to close this tab — the files are read on the server and progress is saved.
+          </p>
+        </section>
       )}
 
-      {phase === 'error' && error && (
+      {error && (
         <div
           data-testid="ingest-error"
-          className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mt-4 rounded-[10px] border border-brick-line bg-brick-tint px-3.5 py-3"
+          role="alert"
         >
-          <span className="font-medium">Error:</span> {error}
-          {partialId && (
-            <>
-              {' '}
-              <a className="underline" href={`/estimates/${partialId}`}>
-                Open the draft anyway
-              </a>
-              .
-            </>
-          )}
+          <div className="text-[13px] font-semibold text-brick">
+            {partialId ? 'The files couldn’t be read' : 'The draft wasn’t created'}
+          </div>
+          <p className="mt-1 text-[12.5px] leading-relaxed break-words text-ink-2">
+            {error}
+            {partialId && (
+              <>
+                {' '}
+                The draft was saved with whatever was read before the failure.{' '}
+                <a className="font-semibold text-brick underline" href={`/estimates/${partialId}`}>
+                  Open the draft anyway
+                </a>
+                .
+              </>
+            )}
+          </p>
         </div>
       )}
     </form>

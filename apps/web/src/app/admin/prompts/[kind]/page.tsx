@@ -4,6 +4,10 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@repo/db';
 import type { AgentKind } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
+import { Input, Textarea, FieldLabel } from '@/components/ui/input';
 
 const AGENT_KINDS: AgentKind[] = [
   'SUPERVISOR',
@@ -78,101 +82,112 @@ export default async function PromptEditorPage({
 
   return (
     <div data-testid="admin-prompt-editor">
-      <Link href="/admin/prompts" className="text-sm text-gray-500 hover:underline">
-        &larr; Back to prompts
+      <Link
+        href="/admin/prompts"
+        className="text-[12.5px] text-ink-3 hover:text-ink hover:underline"
+      >
+        ← Prompts
       </Link>
 
-      <div className="mt-2 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-gray-900">{kind}</h1>
-        <span
-          className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800"
-          data-testid="prompt-active-version"
-        >
-          v{active.version}
-        </span>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Heading level={1} className="min-w-0 break-words">
+          {kind}
+        </Heading>
+        <div className="flex items-center gap-2">
+          <Pill tone="green" dot={false} data-testid="prompt-active-version" className="num">
+            v{active.version}
+          </Pill>
+          <span className="eyebrow">active version</span>
+        </div>
       </div>
-      <p className="mt-1 text-sm text-gray-500">
-        Saving creates a new active version; older versions are kept in the history below.
+      <p className="mt-1.5 text-[13px] text-ink-3">
+        Saving creates a new active version; v<span className="num">{active.version}</span> is kept in
+        the history below and can be reactivated from its detail page.
       </p>
 
-      <form action={savePrompt} className="mt-6 max-w-2xl space-y-4">
+      <form action={savePrompt} className="mt-5 max-w-3xl">
         <input type="hidden" name="kind" value={kind} />
-        <div>
-          <label htmlFor="modelString" className="block text-sm font-medium text-gray-700">
-            Model
-          </label>
-          <input
-            id="modelString"
-            name="modelString"
-            defaultValue={active.modelString}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-          />
+
+        <Card>
+          <CardBody className="space-y-4 p-4 sm:p-5">
+            <div className="max-w-md">
+              <FieldLabel htmlFor="modelString">Model</FieldLabel>
+              <Input
+                id="modelString"
+                name="modelString"
+                defaultValue={active.modelString}
+                className="num text-[12.5px]"
+              />
+            </div>
+
+            <div>
+              <FieldLabel htmlFor="body">Prompt body</FieldLabel>
+              <Textarea
+                id="body"
+                name="body"
+                rows={18}
+                defaultValue={active.body}
+                className="font-mono text-[12.5px] leading-relaxed"
+              />
+            </div>
+          </CardBody>
+        </Card>
+
+        <div className="mt-4">
+          <Button type="submit" data-testid="save-prompt">
+            Save new version
+          </Button>
         </div>
-        <div>
-          <label htmlFor="body" className="block text-sm font-medium text-gray-700">
-            Prompt body
-          </label>
-          <textarea
-            id="body"
-            name="body"
-            rows={10}
-            defaultValue={active.body}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-          data-testid="save-prompt"
-        >
-          Save new version
-        </button>
       </form>
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Version history
-        </h2>
-        <table className="mt-2 w-full border-collapse text-sm" data-testid="prompt-history">
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-gray-500">
-              <th className="py-2 font-medium">Version</th>
-              <th className="py-2 font-medium">Model</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {versions.map((v) => (
-              <tr
-                key={v.id}
-                className="border-b border-gray-100"
-                data-testid={`prompt-version-${v.version}`}
-              >
-                <td className="py-3 text-gray-900">
-                  <Link
-                    href={`/admin/prompts/${kind}/${v.version}`}
-                    className="hover:underline"
-                    data-testid={`prompt-version-link-${v.version}`}
+        <Eyebrow>Version history</Eyebrow>
+        <Card className="mt-2 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]" data-testid="prompt-history">
+              <thead>
+                <tr className="border-b border-line bg-surface-2 text-left">
+                  <th className="eyebrow px-4 py-2.5 font-bold">Version</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Model</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Status</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map((v) => (
+                  <tr
+                    key={v.id}
+                    className="border-b border-line-soft last:border-0 hover:bg-surface-2"
+                    data-testid={`prompt-version-${v.version}`}
                   >
-                    v{v.version}
-                  </Link>
-                </td>
-                <td className="py-3 text-gray-600">{v.modelString}</td>
-                <td className="py-3">
-                  {v.active ? (
-                    <span className="text-green-700">active</span>
-                  ) : (
-                    <span className="text-gray-400">inactive</span>
-                  )}
-                </td>
-                <td className="py-3 text-gray-500">
-                  {new Date(v.createdAt).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <td className="num px-4 py-3 whitespace-nowrap">
+                      <Link
+                        href={`/admin/prompts/${kind}/${v.version}`}
+                        className="font-semibold text-ink hover:text-green hover:underline"
+                        data-testid={`prompt-version-link-${v.version}`}
+                      >
+                        v{v.version}
+                      </Link>
+                    </td>
+                    <td className="num px-4 py-3 text-[12px] text-ink-2">{v.modelString}</td>
+                    <td className="px-4 py-3">
+                      {v.active ? (
+                        <Pill tone="green">active</Pill>
+                      ) : (
+                        <Pill tone="neutral" dot={false}>
+                          inactive
+                        </Pill>
+                      )}
+                    </td>
+                    <td className="num px-4 py-3 whitespace-nowrap text-ink-3">
+                      {new Date(v.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </section>
     </div>
   );

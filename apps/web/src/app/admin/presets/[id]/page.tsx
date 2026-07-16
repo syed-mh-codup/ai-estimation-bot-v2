@@ -3,6 +3,10 @@ import { revalidatePath } from 'next/cache';
 import { notFound } from 'next/navigation';
 import { prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
+import { Input, Textarea, Select, FieldLabel } from '@/components/ui/input';
 
 const LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const;
 const DATA_VOLUMES = ['NONE', 'LOW', 'HIGH'] as const;
@@ -123,148 +127,233 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
 
   return (
     <div data-testid="admin-preset-editor">
-      <Link href="/admin/presets" className="text-sm text-gray-500 hover:underline">
-        &larr; Back to presets
+      <Link
+        href="/admin/presets"
+        className="text-[12.5px] text-ink-3 hover:text-ink hover:underline"
+      >
+        ← Presets
       </Link>
-      <div className="mt-2 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-gray-900">
-          {id} · {active.name}
-        </h1>
-        <span
-          className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800"
-          data-testid="preset-active-version"
-        >
-          v{active.version}
-        </span>
-      </div>
 
-      <form action={savePreset} className="mt-6 max-w-3xl space-y-4">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="num text-[12.5px] text-ink-3">{id}</span>
+        <Heading level={1} className="min-w-0 break-words">
+          {active.name}
+        </Heading>
+        <div className="flex items-center gap-2">
+          <Pill tone="green" dot={false} data-testid="preset-active-version" className="num">
+            v{active.version}
+          </Pill>
+          <span className="eyebrow">active version</span>
+        </div>
+      </div>
+      <p className="mt-1.5 text-[13px] text-ink-3">
+        Saving creates a new active version. Nothing is overwritten — v
+        <span className="num">{active.version}</span> stays in the history below.
+      </p>
+
+      <form action={savePreset} className="mt-5 max-w-3xl">
         <input type="hidden" name="presetId" value={id} />
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Name" name="name" defaultValue={active.name} />
-          <Field label="Category" name="category" defaultValue={active.category} />
-          <Field label="Req. type" name="reqType" defaultValue={active.reqType} />
-          <NumField label="Integration count" name="integrationCount" defaultValue={active.integrationCount} />
-          <NumField label="BE hours" name="beHours" defaultValue={active.beHours} />
-          <NumField label="FE hours" name="feHours" defaultValue={active.feHours} />
-          <SelectField label="Risk" name="risk" options={LEVELS} defaultValue={active.risk} />
-          <SelectField label="AI assist" name="aiAssist" options={LEVELS} defaultValue={active.aiAssist} />
-          <SelectField label="Data volume" name="dataVolume" options={DATA_VOLUMES} defaultValue={active.dataVolume} />
-          <SelectField label="Phase" name="phase" options={PHASES} defaultValue={active.phase} />
+
+        <Card>
+          <CardBody className="space-y-4 p-4 sm:p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Name" name="name" defaultValue={active.name} />
+              <Field label="Category" name="category" defaultValue={active.category} />
+              <Field label="Req. type" name="reqType" defaultValue={active.reqType} />
+              <NumField
+                label="Integration count"
+                name="integrationCount"
+                defaultValue={active.integrationCount}
+              />
+              <NumField label="BE hours" name="beHours" defaultValue={active.beHours} />
+              <NumField label="FE hours" name="feHours" defaultValue={active.feHours} />
+              <SelectField label="Risk" name="risk" options={LEVELS} defaultValue={active.risk} />
+              <SelectField
+                label="AI assist"
+                name="aiAssist"
+                options={LEVELS}
+                defaultValue={active.aiAssist}
+              />
+              <SelectField
+                label="Data volume"
+                name="dataVolume"
+                options={DATA_VOLUMES}
+                defaultValue={active.dataVolume}
+              />
+              <SelectField
+                label="Phase"
+                name="phase"
+                options={PHASES}
+                defaultValue={active.phase}
+              />
+            </div>
+
+            <Field
+              label="Platforms (comma-separated)"
+              name="platforms"
+              defaultValue={active.platforms.join(', ')}
+            />
+            <Field
+              label="Keywords (comma-separated)"
+              name="keywords"
+              defaultValue={active.keywords.join(', ')}
+            />
+
+            <div>
+              <FieldLabel htmlFor="description">Description</FieldLabel>
+              <Textarea
+                id="description"
+                name="description"
+                rows={3}
+                defaultValue={active.description}
+                className="font-mono text-[12.5px] leading-relaxed"
+              />
+            </div>
+
+            <div>
+              <FieldLabel htmlFor="notes">Notes / assumptions</FieldLabel>
+              <Textarea
+                id="notes"
+                name="notes"
+                rows={2}
+                defaultValue={active.notes}
+                className="font-mono text-[12.5px] leading-relaxed"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-x-6 gap-y-2 border-t border-line-soft pt-4">
+              <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                <input
+                  type="checkbox"
+                  name="canParallel"
+                  defaultChecked={active.canParallel}
+                  className="h-3.5 w-3.5 accent-[var(--color-green)]"
+                />
+                Can parallel
+              </label>
+              <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                <input
+                  type="checkbox"
+                  name="spikeNeeded"
+                  defaultChecked={active.spikeNeeded}
+                  className="h-3.5 w-3.5 accent-[var(--color-green)]"
+                />
+                Spike needed
+              </label>
+            </div>
+          </CardBody>
+        </Card>
+
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <Field
+              label="Change reason"
+              name="changeReason"
+              defaultValue=""
+              placeholder="What changed, and why?"
+            />
+          </div>
+          <Button type="submit" data-testid="save-preset">
+            Save new version
+          </Button>
         </div>
-        <Field label="Platforms (comma-separated)" name="platforms" defaultValue={active.platforms.join(', ')} />
-        <Field label="Keywords (comma-separated)" name="keywords" defaultValue={active.keywords.join(', ')} />
-        <div>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="description">
-            Description
-          </label>
-          <textarea
-            id="description"
-            name="description"
-            rows={3}
-            defaultValue={active.description}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="notes">
-            Notes / assumptions
-          </label>
-          <textarea
-            id="notes"
-            name="notes"
-            rows={2}
-            defaultValue={active.notes}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-        <div className="flex gap-6">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" name="canParallel" defaultChecked={active.canParallel} /> Can parallel
-          </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" name="spikeNeeded" defaultChecked={active.spikeNeeded} /> Spike needed
-          </label>
-        </div>
-        <Field label="Change reason" name="changeReason" defaultValue="" />
-        <button
-          type="submit"
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-          data-testid="save-preset"
-        >
-          Save new version
-        </button>
       </form>
 
       {diff.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Changes vs v{previous!.version}
-          </h2>
-          <ul className="mt-2 space-y-1 text-sm" data-testid="preset-diff">
-            {diff.map((d) => (
-              <li key={d.field}>
-                <span className="font-medium text-gray-700">{d.field}:</span>{' '}
-                <span className="text-red-600 line-through">{d.from || '∅'}</span>{' '}
-                <span className="text-gray-400">→</span>{' '}
-                <span className="text-green-700">{d.to || '∅'}</span>
-              </li>
-            ))}
-          </ul>
+        <section className="mt-8 max-w-3xl">
+          <Eyebrow>
+            Changes vs v<span className="num">{previous!.version}</span>
+          </Eyebrow>
+          <Card className="mt-2 overflow-hidden">
+            <ul className="divide-y divide-line-soft" data-testid="preset-diff">
+              {diff.map((d) => (
+                <li key={d.field} className="px-4 py-2.5">
+                  <div className="num text-[11.5px] text-ink-3">{d.field}</div>
+                  <div className="mt-1 flex flex-col gap-1 overflow-x-auto">
+                    <div className="flex min-w-0 items-start gap-2 rounded border border-brick-line bg-brick-tint px-2 py-1">
+                      <span className="num shrink-0 text-[12px] font-bold text-brick">−</span>
+                      <span className="font-mono text-[12.5px] break-words text-ink-2">
+                        {d.from || '∅'}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 items-start gap-2 rounded border border-green-line bg-green-tint px-2 py-1">
+                      <span className="num shrink-0 text-[12px] font-bold text-green">+</span>
+                      <span className="font-mono text-[12.5px] break-words text-ink">
+                        {d.to || '∅'}
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
         </section>
       )}
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Version history
-        </h2>
-        <table className="mt-2 w-full border-collapse text-sm" data-testid="preset-history">
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-gray-500">
-              <th className="py-2 font-medium">Version</th>
-              <th className="py-2 text-right font-medium">BE/FE</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Reason</th>
-              <th className="py-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {versions.map((v) => (
-              <tr key={v.id} className="border-b border-gray-100" data-testid={`preset-version-${v.version}`}>
-                <td className="py-2 text-gray-900">v{v.version}</td>
-                <td className="py-2 text-right text-gray-600">
-                  {v.beHours}/{v.feHours}h
-                </td>
-                <td className="py-2">
-                  {v.active ? (
-                    <span className="text-green-700">active</span>
-                  ) : (
-                    <span className="text-gray-400">inactive</span>
-                  )}
-                </td>
-                <td className="py-2 text-gray-500">{v.changeReason ?? '—'}</td>
-                <td className="py-2 text-gray-500">{new Date(v.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Eyebrow>Version history</Eyebrow>
+        <Card className="mt-2 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]" data-testid="preset-history">
+              <thead>
+                <tr className="border-b border-line bg-surface-2 text-left">
+                  <th className="eyebrow px-4 py-2.5 font-bold">Version</th>
+                  <th className="eyebrow px-4 py-2.5 text-right font-bold">BE/FE</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Status</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Reason</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map((v) => (
+                  <tr
+                    key={v.id}
+                    className="border-b border-line-soft last:border-0"
+                    data-testid={`preset-version-${v.version}`}
+                  >
+                    <td className="num px-4 py-2.5 whitespace-nowrap text-ink">v{v.version}</td>
+                    <td className="num px-4 py-2.5 text-right whitespace-nowrap text-ink-2">
+                      {v.beHours}/{v.feHours}h
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {v.active ? (
+                        <Pill tone="green">active</Pill>
+                      ) : (
+                        <Pill tone="neutral" dot={false}>
+                          inactive
+                        </Pill>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-ink-2">{v.changeReason ?? '—'}</td>
+                    <td className="num px-4 py-2.5 whitespace-nowrap text-ink-3">
+                      {new Date(v.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </section>
     </div>
   );
 }
 
-function Field({ label, name, defaultValue }: { label: string; name: string; defaultValue: string }) {
+function Field({
+  label,
+  name,
+  defaultValue,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  defaultValue: string;
+  placeholder?: string;
+}) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700" htmlFor={name}>
-        {label}
-      </label>
-      <input
-        id={name}
-        name={name}
-        defaultValue={defaultValue}
-        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-      />
+      <FieldLabel htmlFor={name}>{label}</FieldLabel>
+      <Input id={name} name={name} defaultValue={defaultValue} placeholder={placeholder} />
     </div>
   );
 }
@@ -272,16 +361,8 @@ function Field({ label, name, defaultValue }: { label: string; name: string; def
 function NumField({ label, name, defaultValue }: { label: string; name: string; defaultValue: number }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700" htmlFor={name}>
-        {label}
-      </label>
-      <input
-        id={name}
-        name={name}
-        type="number"
-        defaultValue={defaultValue}
-        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-      />
+      <FieldLabel htmlFor={name}>{label}</FieldLabel>
+      <Input id={name} name={name} type="number" defaultValue={defaultValue} className="num" />
     </div>
   );
 }
@@ -299,21 +380,14 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700" htmlFor={name}>
-        {label}
-      </label>
-      <select
-        id={name}
-        name={name}
-        defaultValue={defaultValue}
-        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-      >
+      <FieldLabel htmlFor={name}>{label}</FieldLabel>
+      <Select id={name} name={name} defaultValue={defaultValue} className="w-full py-2">
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

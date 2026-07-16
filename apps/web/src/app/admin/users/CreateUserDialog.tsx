@@ -3,6 +3,8 @@
 import { useActionState, useEffect, useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input, Select, FieldLabel } from '@/components/ui/input';
 
 export type CreateUserState = { ok?: boolean; error?: string; emailed?: boolean };
 
@@ -40,14 +42,10 @@ export function CreateUserDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          data-testid="open-create-user"
-        >
+        <Button type="button" data-testid="open-create-user">
           <UserPlus className="h-4 w-4" />
           Add user
-        </button>
+        </Button>
       </DialogTrigger>
       <DialogContent data-testid="create-user-form">
         <DialogTitle>Add a user</DialogTitle>
@@ -55,34 +53,37 @@ export function CreateUserDialog({
           They can sign in right away with the temporary password. We&rsquo;ll email it to them.
         </DialogDescription>
 
-        <form action={formAction} className="mt-4 space-y-3">
-          <label className="block text-xs font-medium text-gray-600">
-            Email
-            <input
+        <form action={formAction} className="mt-4 space-y-3.5">
+          <div>
+            <FieldLabel htmlFor="new-user-email">Email</FieldLabel>
+            <Input
+              id="new-user-email"
               name="email"
               type="email"
               required
               autoComplete="off"
-              className="mt-1 w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
               data-testid="new-user-email"
             />
-          </label>
+          </div>
 
-          <label className="block text-xs font-medium text-gray-600">
-            Name <span className="font-normal text-gray-400">(optional)</span>
-            <input
+          <div>
+            <FieldLabel htmlFor="new-user-name">
+              Name <span className="font-normal text-ink-4">(optional)</span>
+            </FieldLabel>
+            <Input
+              id="new-user-name"
               name="name"
               type="text"
               autoComplete="off"
-              className="mt-1 w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
               data-testid="new-user-name"
             />
-          </label>
+          </div>
 
-          <label className="block text-xs font-medium text-gray-600">
-            Temporary password
-            <div className="mt-1 flex gap-2">
-              <input
+          <div>
+            <FieldLabel htmlFor="new-user-password">Temporary password</FieldLabel>
+            <div className="flex gap-2">
+              <Input
+                id="new-user-password"
                 name="password"
                 type="text"
                 required
@@ -90,55 +91,54 @@ export function CreateUserDialog({
                 autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                className="num"
                 data-testid="new-user-password"
               />
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => setPassword(generatePassword())}
-                className="shrink-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                className="shrink-0"
                 data-testid="generate-password"
               >
                 Generate
-              </button>
+              </Button>
             </div>
-          </label>
+            <p className="mt-1.5 text-[11.5px] text-ink-3">
+              At least 8 characters. They can change it after signing in.
+            </p>
+          </div>
 
-          <label className="block text-xs font-medium text-gray-600">
-            Role
-            <select
+          <div>
+            <FieldLabel htmlFor="new-user-role">Role</FieldLabel>
+            <Select
+              id="new-user-role"
               name="role"
               defaultValue="ESTIMATOR"
-              className="mt-1 w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              className="w-full py-2"
               data-testid="new-user-role"
             >
               <option value="ESTIMATOR">Estimator</option>
               <option value="ADMIN">Admin</option>
-            </select>
-          </label>
+            </Select>
+          </div>
 
           {state.error && (
-            <p className="text-xs font-medium text-red-600" data-testid="create-user-error">
+            <p
+              className="rounded-md border border-brick-line bg-brick-tint px-3 py-2 text-[12.5px] font-medium text-brick"
+              data-testid="create-user-error"
+            >
               {state.error}
             </p>
           )}
 
           <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={pending}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
-              data-testid="create-user-submit"
-            >
+            </Button>
+            <Button type="submit" disabled={pending} data-testid="create-user-submit">
               {pending ? 'Creating…' : 'Create user'}
-            </button>
+            </Button>
           </div>
         </form>
       </DialogContent>

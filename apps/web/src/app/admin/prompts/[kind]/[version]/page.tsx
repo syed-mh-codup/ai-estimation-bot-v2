@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { prisma } from '@repo/db';
 import type { AgentKind } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody, Heading } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
+import { Textarea, FieldLabel } from '@/components/ui/input';
 
 const AGENT_KINDS: AgentKind[] = [
   'SUPERVISOR',
@@ -73,69 +77,75 @@ export default async function PromptVersionDetailPage({
 
   return (
     <div data-testid="admin-prompt-version-detail">
-      <Link href={`/admin/prompts/${kind}`} className="text-sm text-gray-500 hover:underline">
-        &larr; Back to {kind}
+      <Link
+        href={`/admin/prompts/${kind}`}
+        className="text-[12.5px] text-ink-3 hover:text-ink hover:underline"
+      >
+        ← {kind}
       </Link>
 
-      <div className="mt-2 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-gray-900">
-          {kind} · v{promptVersion.version}
-        </h1>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Heading level={1} className="min-w-0 break-words">
+          {kind} <span className="num text-ink-3">v{promptVersion.version}</span>
+        </Heading>
         {promptVersion.active ? (
-          <span
-            className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800"
-            data-testid="version-status"
-          >
+          <Pill tone="green" data-testid="version-status">
             active
-          </span>
+          </Pill>
         ) : (
-          <span
-            className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
-            data-testid="version-status"
-          >
+          <Pill tone="neutral" dot={false} data-testid="version-status">
             inactive
-          </span>
+          </Pill>
         )}
       </div>
+      <p className="mt-1.5 text-[13px] text-ink-3">
+        {promptVersion.active
+          ? 'This is the version the crew runs today.'
+          : 'A superseded version, kept for the record. Activate it to put it back in service.'}
+      </p>
 
-      <dl className="mt-4 grid max-w-2xl grid-cols-2 gap-x-4 gap-y-2 text-sm">
-        <dt className="text-gray-500">Model</dt>
-        <dd className="text-gray-900" data-testid="version-model">
-          {promptVersion.modelString}
-        </dd>
-        <dt className="text-gray-500">Created</dt>
-        <dd className="text-gray-900">{new Date(promptVersion.createdAt).toLocaleString()}</dd>
-        <dt className="text-gray-500">Change reason</dt>
-        <dd className="text-gray-900">{promptVersion.changeReason ?? '—'}</dd>
-      </dl>
+      <div className="mt-5 max-w-3xl">
+        <Card>
+          <CardBody className="p-4 sm:p-5">
+            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[auto_minmax(0,1fr)]">
+              <dt className="eyebrow self-center">Model</dt>
+              <dd className="num text-[12.5px] break-all text-ink" data-testid="version-model">
+                {promptVersion.modelString}
+              </dd>
+              <dt className="eyebrow self-center">Created</dt>
+              <dd className="num text-[12.5px] text-ink">
+                {new Date(promptVersion.createdAt).toLocaleString()}
+              </dd>
+              <dt className="eyebrow self-center">Change reason</dt>
+              <dd className="text-[13px] text-ink">{promptVersion.changeReason ?? '—'}</dd>
+            </dl>
+          </CardBody>
+        </Card>
 
-      <div className="mt-6 max-w-2xl">
-        <label className="block text-sm font-medium text-gray-700" htmlFor="version-body">
-          Prompt body
-        </label>
-        <textarea
-          id="version-body"
-          readOnly
-          rows={16}
-          value={promptVersion.body}
-          className="mt-1 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 focus:outline-none"
-          data-testid="version-body"
-        />
+        <div className="mt-5">
+          <FieldLabel htmlFor="version-body" className="eyebrow mb-2">
+            Prompt body
+          </FieldLabel>
+          <Textarea
+            id="version-body"
+            readOnly
+            rows={20}
+            value={promptVersion.body}
+            className="bg-surface-2 font-mono text-[12.5px] leading-relaxed text-ink-2"
+            data-testid="version-body"
+          />
+        </div>
+
+        {!promptVersion.active && (
+          <form action={activateVersion} className="mt-4">
+            <input type="hidden" name="kind" value={kind} />
+            <input type="hidden" name="version" value={promptVersion.version} />
+            <Button type="submit" data-testid="activate-version">
+              Activate this version
+            </Button>
+          </form>
+        )}
       </div>
-
-      {!promptVersion.active && (
-        <form action={activateVersion} className="mt-4">
-          <input type="hidden" name="kind" value={kind} />
-          <input type="hidden" name="version" value={promptVersion.version} />
-          <button
-            type="submit"
-            className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-            data-testid="activate-version"
-          >
-            Activate this version
-          </button>
-        </form>
-      )}
     </div>
   );
 }

@@ -3,6 +3,8 @@
 import { signIn } from 'next-auth/react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input, FieldLabel } from '@/components/ui/input';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -21,7 +23,8 @@ export default function LoginPage() {
       redirect: false,
     });
     if (result?.error) {
-      setError('Invalid email or password');
+      // Say what happened and what to do next. No apology, no blame.
+      setError('That email and password don’t match an account. Check both and try again.');
       setLoading(false);
     } else {
       router.push('/dashboard');
@@ -29,59 +32,61 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold text-gray-900">AI Estimation</h1>
-          <p className="mt-1 text-sm text-gray-500">Sign in to your account</p>
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-5 py-10">
+      <div className="w-full max-w-[380px]">
+        {/* ── the wordmark: the first line of the document ─────────────────── */}
+        <div className="text-center">
+          <h1 className="font-serif text-[30px] leading-tight font-medium tracking-[-0.015em] text-ink">
+            AI Estimation
+          </h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            Scoped, priced and signed off in one place.
+          </p>
         </div>
 
-        {error && (
-          <p
-            role="alert"
-            className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-          >
-            {error}
-          </p>
-        )}
+        <div className="mt-6 rounded-[10px] border border-line bg-surface p-6 sm:p-7">
+          {error && (
+            <p
+              role="alert"
+              className="mb-5 rounded-md border border-brick-line bg-brick-tint px-3 py-2.5 text-[12.5px] leading-relaxed text-brick"
+            >
+              {error}
+            </p>
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <FieldLabel htmlFor="email">Email</FieldLabel>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                placeholder="you@company.com"
+              />
+            </div>
+            <div>
+              <FieldLabel htmlFor="password">Password</FieldLabel>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+            <Button type="submit" size="lg" full disabled={loading} className="mt-1">
+              {loading ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+        </div>
+
+        <p className="mt-5 text-center text-[11.5px] text-ink-4">
+          Codup · internal estimation ledger
+        </p>
       </div>
     </main>
   );

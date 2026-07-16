@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from './dialog';
+import { Button } from './button';
 
 /**
  * Two-click confirmation for a destructive server action. The trigger you pass
@@ -33,25 +34,22 @@ export function ConfirmDialog({
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
         <div className="mt-5 flex justify-end gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => setOpen(false)}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
             data-testid="confirm-cancel"
           >
             Cancel
-          </button>
+          </Button>
           <form action={action}>
             {Object.entries(hidden).map(([k, v]) => (
               <input key={k} type="hidden" name={k} value={v} />
             ))}
-            <button
-              type="submit"
-              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
-              data-testid="confirm-submit"
-            >
+            <Button type="submit" variant="destructive" size="sm" data-testid="confirm-submit">
               {confirmLabel}
-            </button>
+            </Button>
           </form>
         </div>
       </DialogContent>

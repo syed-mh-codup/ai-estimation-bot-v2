@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export const COLLAPSE_ALL_EVENT = 'estimate:collapse-all';
 
@@ -17,14 +18,13 @@ export function CollapseAllButton() {
   };
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-      data-testid="collapse-all"
-    >
-      {collapsed ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+    <Button variant="outline" size="sm" onClick={toggle} data-testid="collapse-all">
+      {collapsed ? (
+        <ChevronsUpDown className="h-3.5 w-3.5" />
+      ) : (
+        <ChevronsDownUp className="h-3.5 w-3.5" />
+      )}
       {collapsed ? 'Expand all' : 'Collapse all'}
-    </button>
+    </Button>
   );
 }

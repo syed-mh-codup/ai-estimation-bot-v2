@@ -5,11 +5,10 @@ import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * A collapsible/accordion section. Accepts server-rendered `children` (a client
- * wrapper around RSC children is fine) so it can wrap the estimate's SOW /
- * narrative / assumptions / menu-card sections without making them client
- * components. Open/closed state persists in localStorage when `storageKey` is
- * given.
+ * A collapsible panel of the document. Accepts server-rendered `children` (a
+ * client wrapper around RSC children is fine) so it can wrap the estimate's
+ * SOW / narrative / assumptions without making them client components.
+ * Open/closed state persists in localStorage when `storageKey` is given.
  */
 export function CollapsibleSection({
   title,
@@ -17,6 +16,7 @@ export function CollapsibleSection({
   defaultOpen = true,
   storageKey,
   right,
+  meta,
   className,
   headingClassName,
   'data-testid': testId,
@@ -27,6 +27,8 @@ export function CollapsibleSection({
   storageKey?: string;
   /** Optional controls rendered on the right of the header (won't toggle collapse). */
   right?: ReactNode;
+  /** Quiet context shown beside the title — e.g. "written by the Architect". */
+  meta?: ReactNode;
   className?: string;
   headingClassName?: string;
   'data-testid'?: string;
@@ -77,27 +79,34 @@ export function CollapsibleSection({
   }
 
   return (
-    <section className={className} data-testid={testId}>
-      <div className="flex items-center justify-between gap-2">
+    <section
+      className={cn('rounded-[10px] border border-line bg-surface', className)}
+      data-testid={testId}
+    >
+      <div className="flex items-center gap-2.5 px-4 py-3">
         <button
           type="button"
           onClick={toggle}
           aria-expanded={open}
           className={cn(
-            'flex flex-1 items-center gap-1.5 text-left text-sm font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-700',
+            'flex flex-1 items-center gap-2.5 text-left font-serif text-[17.5px] font-medium text-ink',
             headingClassName,
           )}
           data-testid={testId ? `${testId}-toggle` : undefined}
         >
           <ChevronRight
-            className={cn('h-4 w-4 shrink-0 transition-transform', open && 'rotate-90')}
+            className={cn(
+              'h-3.5 w-3.5 shrink-0 text-ink-4 transition-transform',
+              open && 'rotate-90',
+            )}
             aria-hidden
           />
           {title}
         </button>
+        {meta && <span className="text-[11.5px] text-ink-3">{meta}</span>}
         {right}
       </div>
-      {open && <div className="mt-2">{children}</div>}
+      {open && <div className="px-4 pb-4">{children}</div>}
     </section>
   );
 }

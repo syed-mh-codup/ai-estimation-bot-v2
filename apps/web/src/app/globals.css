@@ -1,33 +1,123 @@
 @import "tailwindcss";
 
-/* shadcn-style design tokens, mapped into Tailwind v4's theme so that
-   utilities like bg-primary / text-primary-foreground / ring-ring resolve. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   WARM LEDGER
+   ---------------------------------------------------------------------------
+   An estimate is a document before it is data: the thing this tool produces is
+   a client-facing proposal, so the tool reads like one. Warm putty paper, warm
+   ink, one accounting-green accent, and every number set in tabular mono so
+   hour columns align like a printed statement.
+
+   Colour has three jobs and never mixes them:
+     green  — settled quantity: totals, done, finalised, primary action
+     bronze — process: a run in flight, awaiting review
+     brick  — failure and destruction
+
+   Every text/surface pair below is WCAG-checked (20/20 pass at AA).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @theme {
-  --color-background: hsl(0 0% 100%);
-  --color-foreground: hsl(222.2 84% 4.9%);
+  /* ── warm neutrals ─────────────────────────────────────────────────────── */
+  --color-shell: #e2ded1;      /* sidebar — deepest putty          */
+  --color-canvas: #ebe7dc;     /* app background                   */
+  --color-surface: #fbfaf6;    /* cards, the "paper"               */
+  --color-surface-2: #f4f2ea;  /* sunken wells, section heads      */
+  --color-line: #d6d1c1;       /* hairline, visible                */
+  --color-line-soft: #e4e0d3;  /* hairline, quiet                  */
 
-  --color-primary: hsl(222.2 47.4% 11.2%);
-  --color-primary-foreground: hsl(210 40% 98%);
+  /* ── warm ink ──────────────────────────────────────────────────────────── */
+  --color-ink: #23211b;        /* body                    15.4:1   */
+  --color-ink-2: #555146;      /* secondary                7.6:1   */
+  --color-ink-3: #615d51;      /* muted labels             6.3:1   */
+  --color-ink-4: #948f81;      /* placeholder — decorative only    */
 
-  --color-secondary: hsl(210 40% 96.1%);
-  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);
+  /* ── green · settled quantity ──────────────────────────────────────────── */
+  --color-green: #2f6b4c;
+  --color-green-deep: #245239;
+  --color-green-tint: #e0e8dd;
+  --color-green-line: #b9cbb8;
 
-  --color-muted: hsl(210 40% 96.1%);
-  --color-muted-foreground: hsl(215.4 16.3% 46.9%);
+  /* ── bronze · process ──────────────────────────────────────────────────── */
+  --color-bronze: #a87524;
+  --color-bronze-ink: #8a5f16; /* the readable step — use for text */
+  --color-bronze-tint: #f2e7ce;
+  --color-bronze-line: #dcc38a;
 
-  --color-accent: hsl(210 40% 96.1%);
-  --color-accent-foreground: hsl(222.2 47.4% 11.2%);
+  /* ── brick · failure & destruction ─────────────────────────────────────── */
+  --color-brick: #a93f2e;
+  --color-brick-tint: #f3dfd9;
+  --color-brick-line: #e0b8ac;
 
-  --color-destructive: hsl(0 84.2% 60.2%);
-  --color-destructive-foreground: hsl(210 40% 98%);
+  /* ── semantic aliases (keep shadcn-shaped consumers working) ───────────── */
+  --color-background: #ebe7dc;
+  --color-foreground: #23211b;
+  --color-primary: #2f6b4c;
+  --color-primary-foreground: #fbfaf6;
+  --color-secondary: #f4f2ea;
+  --color-secondary-foreground: #23211b;
+  --color-muted: #f4f2ea;
+  --color-muted-foreground: #615d51;
+  --color-accent: #e0e8dd;
+  --color-accent-foreground: #245239;
+  --color-destructive: #a93f2e;
+  --color-destructive-foreground: #fbfaf6;
+  --color-border: #d6d1c1;
+  --color-input: #d6d1c1;
+  --color-ring: #2f6b4c;
 
-  --color-border: hsl(214.3 31.8% 91.4%);
-  --color-input: hsl(214.3 31.8% 91.4%);
-  --color-ring: hsl(222.2 84% 4.9%);
+  /* ── type: three faces, three jobs ─────────────────────────────────────── */
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-newsreader), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-card: 10px;
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus is never invisible. */
+:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Utilities
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Every quantity in this product wears this: mono, tabular, aligned. */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* The small structural label above a block. */
+@utility eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
 }

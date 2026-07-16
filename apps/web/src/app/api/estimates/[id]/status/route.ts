@@ -21,6 +21,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       runStage: true,
       runPct: true,
       runError: true,
+      runStartedAt: true,
+      runFinishedAt: true,
       status: true,
       _count: { select: { menuItems: true } },
     },
@@ -32,6 +34,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     runStage: est.runStage,
     runPct: est.runPct,
     runError: est.runError,
+    // Timestamps are DB-backed so "elapsed" stays honest across a reload —
+    // timing from when the poller mounted would restart the clock and lie.
+    runStartedAt: est.runStartedAt?.toISOString() ?? null,
+    runFinishedAt: est.runFinishedAt?.toISOString() ?? null,
     status: est.status,
     menuItemCount: est._count.menuItems,
   });

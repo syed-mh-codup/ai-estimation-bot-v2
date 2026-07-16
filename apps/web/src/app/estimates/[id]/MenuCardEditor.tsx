@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -23,53 +23,47 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronRight, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { InlineText } from '@/components/ui/input';
+import type { ItemDTO, SectionDTO, LineItemDTO } from './actions';
 import {
-  createSection,
-  renameSection,
-  deleteSection,
-  createMenuItem,
-  renameMenuItem,
-  setItemEnabled,
-  deleteMenuItem,
-  moveMenuItem,
-  createLineItem,
-  updateLineItem,
-  deleteLineItem,
-  type ItemDTO,
-  type SectionDTO,
-  type LineItemDTO,
-} from './actions';
+  ROLES,
+  UNGROUPED,
+  byRole,
+  itemTaxed,
+  round,
+  useLedger,
+  type Role,
+  type TaxPercents,
+} from './ledger-context';
 
-const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
-type Role = (typeof ROLES)[number];
-const UNGROUPED = '__ungrouped__';
+/**
+ * The ledger's column template, shared by every section head and item row. This
+ * is the whole point of the screen: per-role columns on every row mean a
+ * 500-hour estimate can be read down a column instead of expanded one node at a
+ * time.
+ *
+ * Below `sm` the four role columns collapse to zero and only Total survives.
+ */
+const COLS =
+  'grid grid-cols-[minmax(0,1fr)_0px_0px_0px_0px_72px] sm:grid-cols-[minmax(0,1fr)_52px_52px_52px_52px_66px] lg:grid-cols-[minmax(0,1fr)_66px_66px_66px_66px_84px] gap-1.5';
+/** Role cells hide with their column below `sm`. */
+const ROLE_CELL = 'hidden sm:block';
 
-type TaxPercents = Record<Role, number>;
+export function MenuCardEditor({ estimateId }: { estimateId: string }) {
+  const {
+    items,
+    sectionsSorted,
+    itemsIn,
+    containerOf,
+    taxPercents,
+    isFinalised,
+    error,
+    setItems,
+    onAddSection,
+    onMoveItem,
+  } = useLedger();
 
-export type MenuCardEditorProps = {
-  estimateId: string;
-  initialSections: SectionDTO[];
-  initialItems: ItemDTO[];
-  taxPercents: TaxPercents;
-  isFinalised: boolean;
-};
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-const snap = (h: number) => Math.max(0, Math.round(h * 4) / 4);
-const itemTaxed = (it: ItemDTO) => it.lineItems.reduce((s, li) => s + li.taxedHours, 0);
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
-
-export function MenuCardEditor({
-  estimateId,
-  initialSections,
-  initialItems,
-  taxPercents,
-  isFinalised,
-}: MenuCardEditorProps) {
-  const [sections, setSections] = useState<SectionDTO[]>(initialSections);
-  const [items, setItems] = useState<ItemDTO[]>(initialItems);
-  const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   // Collapse state (root / per-section / per-item), persisted in localStorage.
@@ -83,6 +77,7 @@ export function MenuCardEditor({
       /* ignore */
     }
   }, [collapseKey]);
+
   const toggleCollapse = useCallback(
     (key: string) => {
       setCollapsed((prev) => {
@@ -100,15 +95,7 @@ export function MenuCardEditor({
     [collapseKey],
   );
 
-  const errTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flashError = useCallback((e: unknown) => {
-    setError(errMsg(e));
-    if (errTimer.current) clearTimeout(errTimer.current);
-    errTimer.current = setTimeout(() => setError(null), 4500);
-  }, []);
-
-  // Respond to the page-level "collapse/expand all" control: fold/unfold the
-  // Menu Card root, every section group, and every item at once.
+  // Respond to the page-level "collapse/expand all" control.
   useEffect(() => {
     const onAll = (e: Event) => {
       const wantCollapsed = (e as CustomEvent<{ collapsed: boolean }>).detail?.collapsed;
@@ -116,7 +103,7 @@ export function MenuCardEditor({
         ? new Set<string>([
             'root',
             `sec:${UNGROUPED}`,
-            ...sections.map((s) => `sec:${s.id}`),
+            ...sectionsSorted.map((s) => `sec:${s.id}`),
             ...items.map((i) => `item:${i.id}`),
           ])
         : new Set<string>();
@@ -129,192 +116,12 @@ export function MenuCardEditor({
     };
     window.addEventListener('estimate:collapse-all', onAll);
     return () => window.removeEventListener('estimate:collapse-all', onAll);
-  }, [sections, items, collapseKey]);
+  }, [sectionsSorted, items, collapseKey]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  // Ordered helpers.
-  const sectionsSorted = useMemo(
-    () => [...sections].sort((a, b) => a.order - b.order),
-    [sections],
-  );
-  const itemsIn = useCallback(
-    (sectionId: string | null) =>
-      items.filter((i) => i.sectionId === sectionId).sort((a, b) => a.order - b.order),
-    [items],
-  );
-  const containerOf = useCallback(
-    (id: string): string | null => {
-      if (id === UNGROUPED) return UNGROUPED;
-      if (sections.some((s) => s.id === id)) return id; // a section container
-      const it = items.find((i) => i.id === id);
-      if (!it) return null;
-      return it.sectionId ?? UNGROUPED;
-    },
-    [items, sections],
-  );
-
-  // Live roll-up (enabled items only), mirrors the server-side rollup.
-  const rollup = useMemo(() => {
-    const totals: Record<Role, number> = { DEV: 0, QA: 0, PM: 0, BA: 0 };
-    let grand = 0;
-    for (const it of items) {
-      if (!it.enabled) continue;
-      for (const li of it.lineItems) {
-        if ((ROLES as readonly string[]).includes(li.role)) {
-          totals[li.role as Role] += li.taxedHours;
-          grand += li.taxedHours;
-        }
-      }
-    }
-    return { totals, grand };
-  }, [items]);
-
-  // ── optimistic mutation helper ──
-  const optimistic = useCallback(
-    async (apply: () => void, revertTo: { s: SectionDTO[]; i: ItemDTO[] }, server: () => Promise<void>) => {
-      apply();
-      try {
-        await server();
-      } catch (e) {
-        setSections(revertTo.s);
-        setItems(revertTo.i);
-        flashError(e);
-      }
-    },
-    [flashError],
-  );
-  const snapshot = () => ({ s: sections, i: items });
-
-  // ── Sections ──
-  const onAddSection = async () => {
-    try {
-      const created = await createSection(estimateId, 'New section');
-      setSections((prev) => [...prev, created]);
-    } catch (e) {
-      flashError(e);
-    }
-  };
-  const onRenameSection = (id: string, title: string) => {
-    const snap0 = snapshot();
-    void optimistic(
-      () => setSections((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s))),
-      snap0,
-      () => renameSection(id, title),
-    );
-  };
-  const onDeleteSection = (id: string) => {
-    const snap0 = snapshot();
-    void optimistic(
-      () => {
-        setSections((prev) => prev.filter((s) => s.id !== id));
-        // Detach its items to Ungrouped (mirrors the server SetNull).
-        setItems((prev) => prev.map((it) => (it.sectionId === id ? { ...it, sectionId: null } : it)));
-      },
-      snap0,
-      () => deleteSection(id),
-    );
-  };
-
-  // ── Items ──
-  const onAddItem = async (sectionId: string | null) => {
-    try {
-      const created = await createMenuItem(estimateId, sectionId);
-      setItems((prev) => [...prev, created]);
-    } catch (e) {
-      flashError(e);
-    }
-  };
-  const onRenameItem = (id: string, title: string) => {
-    const snap0 = snapshot();
-    void optimistic(
-      () => setItems((prev) => prev.map((it) => (it.id === id ? { ...it, title } : it))),
-      snap0,
-      () => renameMenuItem(id, title),
-    );
-  };
-  const onToggleItem = (id: string, enabled: boolean) => {
-    const snap0 = snapshot();
-    void optimistic(
-      () => setItems((prev) => prev.map((it) => (it.id === id ? { ...it, enabled } : it))),
-      snap0,
-      () => setItemEnabled(id, enabled),
-    );
-  };
-  const onDeleteItem = (id: string) => {
-    const snap0 = snapshot();
-    void optimistic(
-      () => setItems((prev) => prev.filter((it) => it.id !== id)),
-      snap0,
-      () => deleteMenuItem(id),
-    );
-  };
-
-  // ── Line items ──
-  const onAddLineItem = async (menuItemId: string, role: Role) => {
-    try {
-      const created = await createLineItem(menuItemId, role);
-      setItems((prev) =>
-        prev.map((it) =>
-          it.id === menuItemId ? { ...it, lineItems: [...it.lineItems, created] } : it,
-        ),
-      );
-    } catch (e) {
-      flashError(e);
-    }
-  };
-  const patchLineItem = (menuItemId: string, li: LineItemDTO) =>
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === menuItemId
-          ? { ...it, lineItems: it.lineItems.map((x) => (x.id === li.id ? li : x)) }
-          : it,
-      ),
-    );
-  const onEditLineTitle = (menuItemId: string, li: LineItemDTO, title: string) => {
-    if (title === (li.title ?? '')) return;
-    const snap0 = snapshot();
-    void optimistic(
-      () => patchLineItem(menuItemId, { ...li, title }),
-      snap0,
-      async () => {
-        const updated = await updateLineItem(li.id, { title });
-        patchLineItem(menuItemId, updated);
-      },
-    );
-  };
-  const onEditLineHours = (menuItemId: string, li: LineItemDTO, raw: number) => {
-    const base = snap(Number.isFinite(raw) ? raw : 0);
-    if (base === li.baseHours) return;
-    const taxed = snap(base * (1 + (taxPercents[li.role as Role] ?? 0) / 100));
-    const snap0 = snapshot();
-    void optimistic(
-      () => patchLineItem(menuItemId, { ...li, baseHours: base, taxedHours: taxed, edited: true }),
-      snap0,
-      async () => {
-        const updated = await updateLineItem(li.id, { baseHours: base });
-        patchLineItem(menuItemId, updated);
-      },
-    );
-  };
-  const onDeleteLineItem = (menuItemId: string, id: string) => {
-    const snap0 = snapshot();
-    void optimistic(
-      () =>
-        setItems((prev) =>
-          prev.map((it) =>
-            it.id === menuItemId
-              ? { ...it, lineItems: it.lineItems.filter((x) => x.id !== id) }
-              : it,
-          ),
-        ),
-      snap0,
-      () => deleteLineItem(id),
-    );
-  };
 
   // ── Drag & drop (items between/within sections) ──
   const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
@@ -327,8 +134,8 @@ export function MenuCardEditor({
     if (!activeContainer || !overContainer || activeContainer === overContainer) return;
     // Move the dragged item into the container it's now hovering.
     const targetSectionId = overContainer === UNGROUPED ? null : overContainer;
-    setItems((prev) =>
-      prev.map((it) => (it.id === active.id ? { ...it, sectionId: targetSectionId } : it)),
+    setItems(
+      items.map((it) => (it.id === active.id ? { ...it, sectionId: targetSectionId } : it)),
     );
   };
 
@@ -349,51 +156,24 @@ export function MenuCardEditor({
     if (oldIndex === -1) return;
 
     const reordered = arrayMove(inContainer, oldIndex, newIndex);
-    const orderedIds = reordered.map((i) => i.id);
-    const snap0 = snapshot();
-
-    // Apply new order locally.
-    setItems((prev) =>
-      prev.map((it) => {
-        const idx = orderedIds.indexOf(it.id);
-        if (idx === -1) return it.sectionId === targetSectionId ? it : it;
-        return { ...it, sectionId: targetSectionId, order: idx };
-      }),
+    onMoveItem(
+      String(active.id),
+      targetSectionId,
+      reordered.map((i) => i.id),
     );
-
-    moveMenuItem(String(active.id), targetSectionId, orderedIds).catch((err) => {
-      setSections(snap0.s);
-      setItems(snap0.i);
-      flashError(err);
-    });
   };
 
-  const activeItem = activeId ? items.find((i) => i.id === activeId) ?? null : null;
+  const activeItem = activeId ? (items.find((i) => i.id === activeId) ?? null) : null;
   const rootCollapsed = collapsed.has('root');
   const ungrouped = itemsIn(null);
+  const isEmpty = items.length === 0 && sectionsSorted.length === 0;
+
+  const shared = { collapsed, onToggleCollapse: toggleCollapse };
 
   const editorBody = (
-    <div className="mt-3 space-y-4" data-testid="menu-card-body">
+    <div className="mt-3 space-y-3" data-testid="menu-card-body">
       {sectionsSorted.map((section) => (
-        <SectionGroup
-          key={section.id}
-          section={section}
-          items={itemsIn(section.id)}
-          collapsed={collapsed}
-          onToggleCollapse={toggleCollapse}
-          taxPercents={taxPercents}
-          isFinalised={isFinalised}
-          onRenameSection={onRenameSection}
-          onDeleteSection={onDeleteSection}
-          onAddItem={onAddItem}
-          onRenameItem={onRenameItem}
-          onToggleItem={onToggleItem}
-          onDeleteItem={onDeleteItem}
-          onAddLineItem={onAddLineItem}
-          onEditLineTitle={onEditLineTitle}
-          onEditLineHours={onEditLineHours}
-          onDeleteLineItem={onDeleteLineItem}
-        />
+        <SectionGroup key={section.id} section={section} items={itemsIn(section.id)} {...shared} />
       ))}
 
       {/* Ungrouped bucket — always a drop target so items can leave sections. */}
@@ -401,422 +181,513 @@ export function MenuCardEditor({
         <SectionGroup
           section={{ id: UNGROUPED, title: 'Ungrouped', order: Number.MAX_SAFE_INTEGER }}
           items={ungrouped}
-          collapsed={collapsed}
-          onToggleCollapse={toggleCollapse}
-          taxPercents={taxPercents}
-          isFinalised={isFinalised}
           isUngrouped
-          onRenameSection={onRenameSection}
-          onDeleteSection={onDeleteSection}
-          onAddItem={onAddItem}
-          onRenameItem={onRenameItem}
-          onToggleItem={onToggleItem}
-          onDeleteItem={onDeleteItem}
-          onAddLineItem={onAddLineItem}
-          onEditLineTitle={onEditLineTitle}
-          onEditLineHours={onEditLineHours}
-          onDeleteLineItem={onDeleteLineItem}
+          {...shared}
         />
       )}
 
       {!isFinalised && (
-        <button
-          type="button"
-          onClick={onAddSection}
-          className="flex items-center gap-1 rounded-md border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-400 hover:text-gray-800"
-          data-testid="add-section"
-        >
+        <Button variant="dashed" size="sm" onClick={onAddSection} data-testid="add-section">
           <Plus className="h-3.5 w-3.5" /> Add section
-        </button>
+        </Button>
       )}
     </div>
   );
 
   return (
-    <section className="mt-6" data-testid="menu-card">
-      {/* Prominent, always-visible totals: the estimate total + per-role
-          sub-totals, recomputed live as items are edited/toggled. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5" data-testid="rollup-totals">
-        <div className="col-span-2 rounded-xl border border-indigo-100 bg-indigo-50 p-4 sm:col-span-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-500">
-            Total estimate
-          </div>
-          <div className="mt-1 text-2xl font-semibold text-indigo-900" data-testid="total-all">
-            {round(rollup.grand)}
-            <span className="text-base font-normal text-indigo-400">h</span>
-          </div>
-        </div>
-        {ROLES.map((r) => (
-          <div key={r} className="rounded-xl border border-gray-200 bg-white p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{r}</div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900" data-testid={`total-${r}`}>
-              {round(rollup.totals[r])}
-              <span className="text-base font-normal text-gray-400">h</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+    <section className="mt-4 scroll-mt-4" id="menucard" data-testid="menu-card">
+      <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
         <button
           type="button"
           onClick={() => toggleCollapse('root')}
           aria-expanded={!rootCollapsed}
-          className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-700"
+          className="flex flex-1 items-center gap-2 text-left"
           data-testid="menu-card-toggle"
         >
           <ChevronRight
-            className={cn('h-4 w-4 transition-transform', !rootCollapsed && 'rotate-90')}
+            className={cn('h-4 w-4 text-ink-4 transition-transform', !rootCollapsed && 'rotate-90')}
             aria-hidden
           />
-          Menu Card
+          <h2 className="font-serif text-[22px] font-medium text-ink">Menu card</h2>
         </button>
       </div>
 
       {error && (
         <div
-          className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mb-2 rounded-md border border-brick-line bg-brick-tint px-3 py-2 text-sm text-brick"
           data-testid="menu-card-error"
         >
           {error}
         </div>
       )}
 
-      {!rootCollapsed &&
-        (isFinalised ? (
-          editorBody
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={onDragStart}
-            onDragOver={onDragOver}
-            onDragEnd={onDragEnd}
-          >
-            {editorBody}
-            <DragOverlay>
-              {activeItem ? (
-                <div className="rounded-md border border-indigo-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-lg">
-                  {activeItem.title}
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        ))}
+      {/* An empty screen is an invitation to act, not an apology — and the
+          invitation belongs where the actions are. Column heads over an empty
+          table would just be furniture. */}
+      {!rootCollapsed && isEmpty && (
+        <div
+          className="rounded-[10px] border border-dashed border-line bg-surface px-6 py-10 text-center"
+          data-testid="estimate-not-run"
+        >
+          <div className="font-serif text-[20px] text-ink">Nothing costed yet</div>
+          <p className="mx-auto mt-1.5 max-w-[400px] text-[13px] leading-relaxed text-ink-3">
+            Run the crew above to draft a menu card from the statement of work, or start one by
+            hand. You can edit every line either way.
+          </p>
+          {!isFinalised && (
+            <Button className="mt-5" onClick={onAddSection} data-testid="add-section">
+              <Plus className="h-3.5 w-3.5" /> Add a section
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!rootCollapsed && !isEmpty && (
+        <>
+          {/* Column heads carry the buffer each role attracts, stated where its
+              numbers live rather than in a footnote nobody reads. */}
+          <div className={cn(COLS, 'sticky top-0 z-[3] border-b border-line bg-canvas px-3.5 py-2')}>
+            <div className="text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase">Item</div>
+            {ROLES.map((r) => (
+              <div
+                key={r}
+                className={cn(
+                  ROLE_CELL,
+                  'text-right text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase',
+                )}
+              >
+                {r}
+                {taxPercents[r] > 0 && (
+                  <span className="num block text-[9.5px] font-medium tracking-normal text-ink-4 normal-case">
+                    +{taxPercents[r]}%
+                  </span>
+                )}
+              </div>
+            ))}
+            <div className="text-right text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase">
+              Total
+            </div>
+          </div>
+
+          {isFinalised ? (
+            editorBody
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDragEnd={onDragEnd}
+            >
+              {editorBody}
+              <DragOverlay>
+                {activeItem ? (
+                  <div className="rounded-md border border-green-line bg-surface px-3 py-2 text-sm font-medium text-ink shadow-lg">
+                    {activeItem.title}
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          )}
+        </>
+      )}
     </section>
   );
 }
 
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
 // ─── Section group ──────────────────────────────────────────────────────────────
 
-type SectionGroupProps = {
+type GroupProps = {
   section: SectionDTO;
   items: ItemDTO[];
   collapsed: Set<string>;
   onToggleCollapse: (key: string) => void;
-  taxPercents: TaxPercents;
-  isFinalised: boolean;
   isUngrouped?: boolean;
-  onRenameSection: (id: string, title: string) => void;
-  onDeleteSection: (id: string) => void;
-  onAddItem: (sectionId: string | null) => void;
-  onRenameItem: (id: string, title: string) => void;
-  onToggleItem: (id: string, enabled: boolean) => void;
-  onDeleteItem: (id: string) => void;
-  onAddLineItem: (menuItemId: string, role: Role) => void;
-  onEditLineTitle: (menuItemId: string, li: LineItemDTO, title: string) => void;
-  onEditLineHours: (menuItemId: string, li: LineItemDTO, raw: number) => void;
-  onDeleteLineItem: (menuItemId: string, id: string) => void;
 };
 
-function SectionGroup(props: SectionGroupProps) {
-  const { section, items, collapsed, onToggleCollapse, isFinalised, isUngrouped } = props;
+function SectionGroup({ section, items, collapsed, onToggleCollapse, isUngrouped }: GroupProps) {
+  const { isFinalised, onRenameSection, onDeleteSection, onAddItem } = useLedger();
   const containerId = isUngrouped ? UNGROUPED : section.id;
   const { setNodeRef } = useSortable({ id: containerId, data: { container: true } });
   const key = `sec:${section.id}`;
   const isCollapsed = collapsed.has(key);
-  const subtotal = items.reduce((s, it) => (it.enabled ? s + itemTaxed(it) : s), 0);
+
+  const enabled = items.filter((i) => i.enabled);
+  const offCount = items.length - enabled.length;
+  const subtotal = enabled.reduce((s, it) => s + itemTaxed(it), 0);
+  const roleTotals = ROLES.reduce(
+    (acc, r) => {
+      acc[r] = enabled.reduce((s, it) => s + byRole(it)[r], 0);
+      return acc;
+    },
+    {} as Record<Role, number>,
+  );
 
   return (
-    <div
-      ref={setNodeRef}
-      className="rounded-lg border border-gray-200 bg-gray-50/60 p-3"
-      data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
-    >
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onToggleCollapse(key)}
-          aria-expanded={!isCollapsed}
-          className="flex flex-1 items-center gap-1.5 text-left"
-        >
-          <ChevronRight
-            className={cn('h-4 w-4 shrink-0 text-gray-400 transition-transform', !isCollapsed && 'rotate-90')}
-            aria-hidden
-          />
+    <div ref={setNodeRef} data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}>
+      <div
+        className={cn(
+          COLS,
+          'items-center border border-line bg-surface-2 px-3.5 py-2',
+          isCollapsed ? 'rounded-md' : 'rounded-t-md',
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onToggleCollapse(key)}
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Expand section' : 'Collapse section'}
+            className="shrink-0"
+          >
+            <ChevronRight
+              className={cn(
+                'h-3.5 w-3.5 text-ink-4 transition-transform',
+                !isCollapsed && 'rotate-90',
+              )}
+              aria-hidden
+            />
+          </button>
           {isUngrouped ? (
-            <span className="text-sm font-semibold text-gray-500">Ungrouped</span>
+            <span className="font-serif text-[15.5px] font-semibold text-ink-3">Ungrouped</span>
           ) : (
             <InlineText
-              value={section.title}
-              onCommit={(t) => props.onRenameSection(section.id, t)}
+              defaultValue={section.title}
+              onBlur={(e) => {
+                const v = e.currentTarget.value.trim();
+                if (v && v !== section.title) onRenameSection(section.id, v);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') {
+                  e.currentTarget.value = section.title;
+                  e.currentTarget.blur();
+                }
+              }}
               disabled={isFinalised}
-              className="text-sm font-semibold text-gray-800"
+              aria-label="Section title"
+              className="-ml-1.5 font-serif text-[15.5px] font-semibold disabled:opacity-100"
               data-testid={`section-title-${section.id}`}
             />
           )}
-        </button>
-        <span className="text-xs text-gray-500" data-testid={`section-total-${section.id}`}>
-          {round(subtotal)}h
-        </span>
-        {!isFinalised && (
-          <>
+          <span className="num shrink-0 text-[10.5px] whitespace-nowrap text-ink-4">
+            {items.length} item{items.length === 1 ? '' : 's'}
+            {offCount > 0 && ` · ${offCount} off`}
+          </span>
+          {!isFinalised && !isUngrouped && (
             <button
               type="button"
-              onClick={() => props.onAddItem(isUngrouped ? null : section.id)}
-              title="Add item"
-              className="flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
-              data-testid={`add-item-${isUngrouped ? 'ungrouped' : section.id}`}
+              onClick={() => onDeleteSection(section.id)}
+              title="Delete section (items move to Ungrouped)"
+              aria-label="Delete section"
+              className="ml-1 shrink-0 rounded border border-line bg-surface p-1 text-ink-4 hover:border-brick-line hover:text-brick"
+              data-testid={`delete-section-${section.id}`}
             >
-              <Plus className="h-3.5 w-3.5" /> Item
+              <Trash2 className="h-3 w-3" />
             </button>
-            {!isUngrouped && (
-              <button
-                type="button"
-                onClick={() => props.onDeleteSection(section.id)}
-                title="Delete section (items move to Ungrouped)"
-                className="rounded-md border border-gray-300 bg-white p-1 text-gray-400 hover:border-red-200 hover:text-red-600"
-                data-testid={`delete-section-${section.id}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </>
-        )}
+          )}
+        </div>
+
+        {ROLES.map((r) => (
+          <div key={r} className={cn(ROLE_CELL, 'num text-right text-xs font-medium text-ink-2')}>
+            {roleTotals[r] > 0 ? round(roleTotals[r]) : <span className="text-ink-4">—</span>}
+          </div>
+        ))}
+        <div
+          className="num text-right text-xs font-semibold text-ink"
+          data-testid={`section-total-${section.id}`}
+        >
+          {round(subtotal)}
+        </div>
       </div>
 
       {!isCollapsed && (
-        <div className="mt-2">
-          <SortableContext
-            items={items.map((i) => i.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-2" data-empty={items.length === 0 ? 'true' : undefined}>
+        <div className="overflow-hidden rounded-b-md border border-t-0 border-line bg-surface">
+          <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+            <div data-empty={items.length === 0 ? 'true' : undefined}>
               {items.length === 0 ? (
-                <p className="rounded-md border border-dashed border-gray-200 px-3 py-3 text-center text-xs text-gray-400">
-                  {isFinalised ? 'No items.' : 'Drag items here, or use “+ Item”.'}
+                <p className="px-3.5 py-4 text-center text-xs text-ink-4">
+                  {isFinalised ? 'No items.' : 'Drag items here, or add one.'}
                 </p>
               ) : (
                 items.map((item) => (
-                  <SortableItemCard key={item.id} item={item} {...props} />
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    collapsed={collapsed}
+                    onToggleCollapse={onToggleCollapse}
+                  />
                 ))
               )}
             </div>
           </SortableContext>
+          {!isFinalised && (
+            <div className="border-t border-line-soft px-3.5 py-2">
+              <Button
+                variant="dashed"
+                size="xs"
+                onClick={() => onAddItem(isUngrouped ? null : section.id)}
+                data-testid={`add-item-${isUngrouped ? 'ungrouped' : section.id}`}
+              >
+                <Plus className="h-3 w-3" /> Item
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Sortable item card ─────────────────────────────────────────────────────────
+// ─── Item row ───────────────────────────────────────────────────────────────────
 
-function SortableItemCard(props: SectionGroupProps & { item: ItemDTO }) {
-  const { item, collapsed, onToggleCollapse, isFinalised } = props;
+function ItemRow({
+  item,
+  collapsed,
+  onToggleCollapse,
+}: {
+  item: ItemDTO;
+  collapsed: Set<string>;
+  onToggleCollapse: (key: string) => void;
+}) {
+  const { isFinalised, onRenameItem, onToggleItem, onDeleteItem, onAddLineItem } = useLedger();
   const sortable = useSortable({ id: item.id, disabled: isFinalised });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
   const style = { transform: CSS.Transform.toString(transform), transition };
   const key = `item:${item.id}`;
   const isCollapsed = collapsed.has(key);
+  const roles = byRole(item);
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        'rounded-md border bg-white',
-        item.enabled ? 'border-gray-200' : 'border-gray-200 bg-gray-50 opacity-60',
+        'border-b border-line-soft last:border-b-0',
         isDragging && 'opacity-40',
+        // A disabled item is still priced — it just doesn't count. Hatching says
+        // "excluded" without hiding numbers you might switch back on.
+        !item.enabled &&
+          'bg-[repeating-linear-gradient(135deg,transparent,transparent_5px,rgba(148,143,129,0.05)_5px,rgba(148,143,129,0.05)_10px)]',
       )}
       data-testid={`menu-item-${item.id}`}
     >
-      <div className="flex items-center gap-2 p-3">
-        {!isFinalised && (
-          <button
-            type="button"
-            className="cursor-grab touch-none text-gray-300 hover:text-gray-500 active:cursor-grabbing"
-            aria-label="Drag to reorder"
-            data-testid={`drag-${item.id}`}
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => onToggleCollapse(key)}
-          aria-expanded={!isCollapsed}
-          className="shrink-0 text-gray-400 hover:text-gray-600"
-        >
-          <ChevronRight className={cn('h-4 w-4 transition-transform', !isCollapsed && 'rotate-90')} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <InlineText
-            value={item.title}
-            onCommit={(t) => props.onRenameItem(item.id, t)}
-            disabled={isFinalised}
-            className="font-medium text-gray-900"
-            data-testid={`item-title-${item.id}`}
-          />
-        </div>
-        <span className="text-xs text-gray-500" data-testid={`item-total-${item.id}`}>
-          {round(itemTaxed(item))}h
-        </span>
-        {!isFinalised && (
-          <>
+      <div className={cn(COLS, 'group relative items-center px-3.5 py-2 hover:bg-surface-2')}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {!isFinalised && (
             <button
               type="button"
-              onClick={() => props.onToggleItem(item.id, !item.enabled)}
-              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="-ml-1.5 shrink-0 cursor-grab touch-none text-line opacity-0 group-hover:text-ink-4 group-hover:opacity-100 active:cursor-grabbing"
+              aria-label="Drag to reorder"
+              data-testid={`drag-${item.id}`}
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onToggleCollapse(key)}
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Show line items' : 'Hide line items'}
+            className="shrink-0"
+          >
+            <ChevronRight
+              className={cn('h-3 w-3 text-ink-4 transition-transform', !isCollapsed && 'rotate-90')}
+              aria-hidden
+            />
+          </button>
+          <InlineText
+            defaultValue={item.title}
+            onBlur={(e) => {
+              const v = e.currentTarget.value.trim();
+              if (v && v !== item.title) onRenameItem(item.id, v);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') {
+                e.currentTarget.value = item.title;
+                e.currentTarget.blur();
+              }
+            }}
+            disabled={isFinalised}
+            aria-label="Item title"
+            className={cn(
+              '-ml-1.5 text-[13.5px] font-medium disabled:opacity-100',
+              !item.enabled && 'text-ink-4 line-through decoration-line',
+            )}
+            data-testid={`item-title-${item.id}`}
+          />
+          {!item.enabled && (
+            <span className="shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
+              Off
+            </span>
+          )}
+        </div>
+
+        {ROLES.map((r) => (
+          <div
+            key={r}
+            className={cn(ROLE_CELL, 'num text-right text-xs', item.enabled ? 'text-ink-2' : 'text-ink-4')}
+          >
+            {roles[r] > 0 ? round(roles[r]) : <span className="text-ink-4">—</span>}
+          </div>
+        ))}
+        <div
+          className={cn('num text-right text-xs font-semibold', item.enabled ? 'text-ink' : 'text-ink-4')}
+          data-testid={`item-total-${item.id}`}
+        >
+          {round(itemTaxed(item))}
+        </div>
+
+        {!isFinalised && (
+          <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1 bg-surface-2 pl-2 opacity-0 group-hover:opacity-100">
+            <button
+              type="button"
+              onClick={() => onToggleItem(item.id, !item.enabled)}
+              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-3 hover:border-ink-4 hover:text-ink"
               data-testid={`toggle-item-${item.id}`}
             >
               {item.enabled ? 'Disable' : 'Enable'}
             </button>
             <button
               type="button"
-              onClick={() => props.onDeleteItem(item.id)}
+              onClick={() => onDeleteItem(item.id)}
               title="Delete item"
-              className="rounded-md border border-gray-300 p-1 text-gray-400 hover:border-red-200 hover:text-red-600"
+              aria-label="Delete item"
+              className="rounded border border-line bg-surface p-1 text-ink-4 hover:border-brick-line hover:text-brick"
               data-testid={`delete-item-${item.id}`}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
             </button>
-          </>
+          </div>
         )}
       </div>
 
       {!isCollapsed && (
-        <div className="space-y-2 border-t border-gray-100 px-3 py-2">
-          {ROLES.map((role) => {
-            const lines = item.lineItems.filter((li) => li.role === role);
-            const subtotal = lines.reduce((s, li) => s + li.taxedHours, 0);
-            return (
-              <div key={role} className="text-xs text-gray-600">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-700">{role}</span>
-                  <span className="text-gray-400">{round(subtotal)}h</span>
-                  {!isFinalised && (
-                    <button
-                      type="button"
-                      onClick={() => props.onAddLineItem(item.id, role)}
-                      className="ml-1 inline-flex items-center gap-0.5 text-gray-400 hover:text-indigo-600"
-                      data-testid={`add-line-${role}-${item.id}`}
-                    >
-                      <Plus className="h-3 w-3" /> line item
-                    </button>
-                  )}
-                </div>
-                {lines.length > 0 && (
-                  <div className="mt-1 space-y-1">
-                    {lines.map((li) => (
-                      <div key={li.id} className="ml-2 flex flex-wrap items-center gap-2">
-                        <InlineText
-                          value={li.title ?? ''}
-                          placeholder="Describe this work…"
-                          onCommit={(t) => props.onEditLineTitle(item.id, li, t)}
-                          disabled={isFinalised}
-                          className="min-w-0 flex-1 text-gray-600"
-                          data-testid={`line-title-${li.id}`}
-                        />
-                        <input
-                          type="number"
-                          step="0.25"
-                          min="0"
-                          defaultValue={li.baseHours}
-                          disabled={isFinalised}
-                          onBlur={(e) => props.onEditLineHours(item.id, li, Number(e.target.value))}
-                          className="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40"
-                          data-testid={`base-${role}-${item.id}-${li.id}`}
-                        />
-                        <span className="text-gray-400" data-testid={`taxed-${role}-${item.id}-${li.id}`}>
-                          → {round(li.taxedHours)}h
-                        </span>
-                        {!isFinalised && (
-                          <button
-                            type="button"
-                            onClick={() => props.onDeleteLineItem(item.id, li.id)}
-                            title="Delete line item"
-                            className="text-gray-300 hover:text-red-600"
-                            data-testid={`delete-line-${li.id}`}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div className="border-t border-line-soft bg-surface-2 py-1">
+          {item.lineItems.length === 0 && (
+            <p className="px-3.5 py-2 pl-10 text-xs text-ink-4">No line items yet.</p>
+          )}
+          {ROLES.flatMap((role) =>
+            item.lineItems
+              .filter((li) => li.role === role)
+              .map((li) => <LineRow key={li.id} li={li} role={role} item={item} />),
+          )}
+          {!isFinalised && (
+            <div className="flex flex-wrap items-center gap-1.5 px-3.5 py-1.5 pl-10">
+              <span className="text-[11px] text-ink-4">Add:</span>
+              {ROLES.map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => onAddLineItem(item.id, role)}
+                  className="num rounded border border-dashed border-line px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-3 hover:border-green-line hover:bg-green-tint hover:text-green"
+                  data-testid={`add-line-${role}-${item.id}`}
+                >
+                  + {role}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Inline editable text ───────────────────────────────────────────────────────
+// ─── Line item row ──────────────────────────────────────────────────────────────
 
-function InlineText({
-  value,
-  onCommit,
-  disabled,
-  placeholder,
-  className,
-  'data-testid': testId,
-}: {
-  value: string;
-  onCommit: (v: string) => void;
-  disabled?: boolean;
-  placeholder?: string;
-  className?: string;
-  'data-testid'?: string;
-}) {
-  const [draft, setDraft] = useState(value);
-  // Keep in sync if the value changes underneath us (e.g. server reconcile).
-  useEffect(() => setDraft(value), [value]);
+/**
+ * One line item: who does the work, what it is, and what it costs.
+ *
+ * Line rows step out of the role-column grid on purpose. You type *base* hours
+ * and the buffer is applied for you, so the row has to hold "10 +15% → 11.5" —
+ * far wider than a 66px column, and in flow it would shove every column
+ * sideways. The role tag carries identity instead, and the taxed figure is
+ * pinned to the Total column's width so it still lands under Total.
+ */
+function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDTO }) {
+  const { taxPercents, isFinalised, onEditLineTitle, onEditLineHours, onDeleteLineItem } =
+    useLedger();
+  const pct = (taxPercents as TaxPercents)[role] ?? 0;
 
-  if (disabled) {
-    return (
-      <span className={cn('block truncate', className)} data-testid={testId}>
-        {value || <span className="text-gray-400">{placeholder ?? '—'}</span>}
-      </span>
-    );
-  }
   return (
-    <input
-      type="text"
-      value={draft}
-      placeholder={placeholder}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== value && onCommit(draft)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        if (e.key === 'Escape') {
-          setDraft(value);
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-      className={cn(
-        'w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-gray-200 focus:border-indigo-300 focus:bg-white focus:outline-none',
-        className,
+    <div className="group/line flex items-center gap-2 px-3.5 py-1 pl-10 hover:bg-line-soft">
+      <span className="num shrink-0 rounded border border-line bg-surface px-1 text-[10px] font-semibold text-ink-3">
+        {role}
+      </span>
+
+      <InlineText
+        defaultValue={li.title ?? ''}
+        placeholder="Describe this work…"
+        onBlur={(e) => onEditLineTitle(item.id, li, e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            e.currentTarget.value = li.title ?? '';
+            e.currentTarget.blur();
+          }
+        }}
+        disabled={isFinalised}
+        aria-label={`${role} line item title`}
+        className="min-w-0 flex-1 text-[12.5px] text-ink-2 disabled:opacity-100"
+        data-testid={`line-title-${li.id}`}
+      />
+
+      {/* A human overrode the crew's number here. */}
+      {li.edited && (
+        <span
+          title="Edited by hand"
+          className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 uppercase"
+        >
+          edited
+        </span>
       )}
-      data-testid={testId}
-    />
+
+      {!isFinalised && (
+        <button
+          type="button"
+          onClick={() => onDeleteLineItem(item.id, li.id)}
+          title="Delete line item"
+          aria-label="Delete line item"
+          className="shrink-0 px-1 text-ink-4 opacity-0 group-hover/line:opacity-100 hover:text-brick"
+          data-testid={`delete-line-${li.id}`}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+
+      {!isFinalised && (
+        <input
+          type="number"
+          step="0.25"
+          min="0"
+          defaultValue={li.baseHours}
+          onBlur={(e) => onEditLineHours(item.id, li, Number(e.currentTarget.value))}
+          aria-label={`${role} base hours`}
+          className="num w-[54px] shrink-0 rounded border border-line bg-surface px-1.5 py-0.5 text-right text-xs text-ink focus:border-green focus:outline-none"
+          data-testid={`base-${role}-${item.id}-${li.id}`}
+        />
+      )}
+
+      {/* Only worth showing where a buffer actually changes the number. */}
+      {pct > 0 && !isFinalised && (
+        <span className="num hidden shrink-0 text-[10px] whitespace-nowrap text-ink-4 lg:inline">
+          +{pct}% →
+        </span>
+      )}
+
+      <span
+        className={cn(
+          'num w-[72px] shrink-0 text-right text-xs sm:w-[66px] lg:w-[84px]',
+          pct > 0 ? 'font-semibold text-green' : 'text-ink-3',
+        )}
+        data-testid={`taxed-${role}-${item.id}-${li.id}`}
+      >
+        {round(li.taxedHours)}
+      </span>
+    </div>
   );
 }

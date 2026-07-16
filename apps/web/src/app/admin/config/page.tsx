@@ -1,6 +1,10 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
+import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
+import { Button } from '@/components/ui/button';
+import { Input, Textarea, FieldLabel } from '@/components/ui/input';
 
 function parseJsonField(value: FormDataEntryValue | null): object | null {
   if (typeof value !== 'string') return null;
@@ -67,111 +71,123 @@ export default async function ConfigAdminPage() {
   if (!config) {
     return (
       <div data-testid="admin-config">
-        <h1 className="text-2xl font-semibold text-gray-900">Config</h1>
-        <p className="mt-2 text-gray-600">No active configuration. Run the seed first.</p>
+        <Heading level={1} className="text-[28px]">
+          Estimation config
+        </Heading>
+        <div className="mt-5 rounded-[10px] border border-dashed border-line bg-surface px-6 py-10 text-center">
+          <div className="font-serif text-[20px] text-ink">No active configuration</div>
+          <p className="mx-auto mt-1.5 max-w-[420px] text-[13px] leading-relaxed text-ink-3">
+            The estimation engine needs a config version before it can tax or buffer any hours.
+            Seed one with <span className="num text-ink-2">pnpm db:seed</span>, then reload this
+            page to edit it.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div data-testid="admin-config">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-gray-900">Estimation Config</h1>
-        <span
-          className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800"
-          data-testid="config-version"
-        >
-          v{config.version}
-        </span>
+      <div className="flex flex-wrap items-center gap-3">
+        <Heading level={1} className="text-[28px]">
+          Estimation config
+        </Heading>
+        <Pill tone="green" dot={false} data-testid="config-version">
+          <span className="num">v{config.version}</span>
+        </Pill>
       </div>
-      <p className="mt-1 text-sm text-gray-500">
-        Saving creates a new active version (the previous one is retained, deactivated).
+      <p className="mt-1 text-[13px] text-ink-3">
+        Saving creates a new active version. The previous one is retained, deactivated — nothing
+        is overwritten.
       </p>
 
-      <form action={saveConfig} className="mt-6 max-w-2xl space-y-4">
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label
-              htmlFor="pmCommunicationTaxPct"
-              className="block text-sm font-medium text-gray-700"
-            >
-              PM comms tax %
-            </label>
-            <input
-              id="pmCommunicationTaxPct"
-              name="pmCommunicationTaxPct"
-              type="number"
-              step="0.1"
-              defaultValue={config.pmCommunicationTaxPct}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="baCommunicationTaxPct"
-              className="block text-sm font-medium text-gray-700"
-            >
-              BA comms tax %
-            </label>
-            <input
-              id="baCommunicationTaxPct"
-              name="baCommunicationTaxPct"
-              type="number"
-              step="0.1"
-              defaultValue={config.baCommunicationTaxPct}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="qaRegressionBufferPct"
-              className="block text-sm font-medium text-gray-700"
-            >
-              QA regression buffer %
-            </label>
-            <input
-              id="qaRegressionBufferPct"
-              name="qaRegressionBufferPct"
-              type="number"
-              step="0.1"
-              defaultValue={config.qaRegressionBufferPct}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-            />
-          </div>
-        </div>
+      <form action={saveConfig} className="mt-5 max-w-2xl space-y-3.5">
+        <Card>
+          <CardBody>
+            <Eyebrow>Role adjustments</Eyebrow>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              Applied on top of base hours for each role. DEV hours are never taxed.
+            </p>
+            <div className="mt-3.5 grid gap-3.5 sm:grid-cols-3">
+              <div>
+                <FieldLabel htmlFor="pmCommunicationTaxPct">PM comms tax %</FieldLabel>
+                <Input
+                  id="pmCommunicationTaxPct"
+                  name="pmCommunicationTaxPct"
+                  type="number"
+                  step="0.1"
+                  defaultValue={config.pmCommunicationTaxPct}
+                  className="num"
+                />
+              </div>
+              <div>
+                <FieldLabel htmlFor="baCommunicationTaxPct">BA comms tax %</FieldLabel>
+                <Input
+                  id="baCommunicationTaxPct"
+                  name="baCommunicationTaxPct"
+                  type="number"
+                  step="0.1"
+                  defaultValue={config.baCommunicationTaxPct}
+                  className="num"
+                />
+              </div>
+              <div>
+                <FieldLabel htmlFor="qaRegressionBufferPct">QA regression buffer %</FieldLabel>
+                <Input
+                  id="qaRegressionBufferPct"
+                  name="qaRegressionBufferPct"
+                  type="number"
+                  step="0.1"
+                  defaultValue={config.qaRegressionBufferPct}
+                  className="num"
+                />
+              </div>
+            </div>
+          </CardBody>
+        </Card>
 
-        <div>
-          <label htmlFor="complexityRules" className="block text-sm font-medium text-gray-700">
-            Complexity rules (JSON)
-          </label>
-          <textarea
-            id="complexityRules"
-            name="complexityRules"
-            rows={5}
-            defaultValue={JSON.stringify(config.complexityRules, null, 2)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label htmlFor="infraBaseline" className="block text-sm font-medium text-gray-700">
-            Infra baseline (JSON)
-          </label>
-          <textarea
-            id="infraBaseline"
-            name="infraBaseline"
-            rows={4}
-            defaultValue={JSON.stringify(config.infraBaseline, null, 2)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs focus:border-gray-500 focus:outline-none"
-          />
-        </div>
+        <Card>
+          <CardBody>
+            <Eyebrow>Rules</Eyebrow>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              Both fields must be valid JSON objects — a malformed value is rejected and no
+              version is written.
+            </p>
 
-        <button
-          type="submit"
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-          data-testid="save-config"
-        >
-          Save new version
-        </button>
+            <div className="mt-3.5">
+              <FieldLabel htmlFor="complexityRules">Complexity rules</FieldLabel>
+              <Textarea
+                id="complexityRules"
+                name="complexityRules"
+                rows={5}
+                defaultValue={JSON.stringify(config.complexityRules, null, 2)}
+                className="num text-xs leading-relaxed"
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="mt-3.5">
+              <FieldLabel htmlFor="infraBaseline">Infra baseline</FieldLabel>
+              <Textarea
+                id="infraBaseline"
+                name="infraBaseline"
+                rows={4}
+                defaultValue={JSON.stringify(config.infraBaseline, null, 2)}
+                className="num text-xs leading-relaxed"
+                spellCheck={false}
+              />
+            </div>
+          </CardBody>
+        </Card>
+
+        <div className="flex items-center gap-3">
+          <Button type="submit" data-testid="save-config">
+            Save new version
+          </Button>
+          <span className="text-[12.5px] text-ink-3">
+            This will become <span className="num">v{config.version + 1}</span>.
+          </span>
+        </div>
       </form>
     </div>
   );

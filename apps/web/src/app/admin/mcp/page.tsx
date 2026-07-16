@@ -3,6 +3,10 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
 import { LiveMcpProvider } from '@repo/providers';
 import { requireAdmin } from '@/lib/rbac';
+import { Card, CardBody, Heading } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
+import { Button } from '@/components/ui/button';
+import { Input, Select, FieldLabel } from '@/components/ui/input';
 
 async function addConnector(formData: FormData) {
   'use server';
@@ -81,150 +85,147 @@ export default async function McpAdminPage({
 
   return (
     <div data-testid="admin-mcp">
-      <h1 className="text-2xl font-semibold text-gray-900">MCP Connectors</h1>
-      <p className="mt-1 text-sm text-gray-500">Add a connector, test it, then enable it.</p>
+      <Heading level={1} className="text-[28px]">
+        MCP connectors
+      </Heading>
+      <p className="mt-1 text-[13px] text-ink-3">
+        Add a connector, test it, then enable it. A connector stays disabled until you turn it on.
+      </p>
 
       {sp.tested && (
         <div
           data-testid="mcp-test-result"
-          className={`mt-4 rounded-md border px-3 py-2 text-sm ${
+          className={`mt-4 rounded-md border px-3.5 py-2.5 text-[13px] leading-relaxed ${
             sp.ok === 'true'
-              ? 'border-green-200 bg-green-50 text-green-800'
-              : 'border-red-200 bg-red-50 text-red-700'
+              ? 'border-green-line bg-green-tint text-green'
+              : 'border-brick-line bg-brick-tint text-brick'
           }`}
         >
-          <span className="font-medium">{sp.tested}:</span>{' '}
+          <span className="font-semibold">{sp.tested}:</span>{' '}
           {sp.ok === 'true' ? sp.detail : `Test failed — ${sp.detail}`}
         </div>
       )}
 
-      <form action={addConnector} className="mt-6 flex flex-wrap items-end gap-3">
-        <div>
-          <label htmlFor="name" className="block text-xs font-medium text-gray-600">
-            Name
-          </label>
-          <input
-            id="name"
-            name="name"
-            required
-            className="mt-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label htmlFor="transport" className="block text-xs font-medium text-gray-600">
-            Transport
-          </label>
-          <select
-            id="transport"
-            name="transport"
-            defaultValue="sse"
-            className="mt-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-          >
-            <option value="sse">sse</option>
-            <option value="http">http</option>
-            <option value="stdio">stdio</option>
-          </select>
-        </div>
-        <div className="flex-1">
-          <label htmlFor="endpoint" className="block text-xs font-medium text-gray-600">
-            Endpoint
-          </label>
-          <input
-            id="endpoint"
-            name="endpoint"
-            required
-            placeholder="https://…"
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-          data-testid="add-connector"
-        >
-          Add connector
-        </button>
-      </form>
+      <Card className="mt-5">
+        <CardBody>
+          <form action={addConnector} className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[160px]">
+              <FieldLabel htmlFor="name">Name</FieldLabel>
+              <Input id="name" name="name" required />
+            </div>
+            <div>
+              <FieldLabel htmlFor="transport">Transport</FieldLabel>
+              <Select id="transport" name="transport" defaultValue="sse" className="num h-9 py-2">
+                <option value="sse">sse</option>
+                <option value="http">http</option>
+                <option value="stdio">stdio</option>
+              </Select>
+            </div>
+            <div className="min-w-[220px] flex-1">
+              <FieldLabel htmlFor="endpoint">Endpoint</FieldLabel>
+              <Input id="endpoint" name="endpoint" required placeholder="https://…" className="num" />
+            </div>
+            <Button type="submit" data-testid="add-connector">
+              Add connector
+            </Button>
+          </form>
+        </CardBody>
+      </Card>
 
       {connectors.length === 0 ? (
-        <p className="mt-8 text-sm text-gray-500" data-testid="connectors-empty">
-          No connectors yet.
-        </p>
+        <div
+          className="mt-3.5 rounded-[10px] border border-dashed border-line bg-surface px-6 py-10 text-center"
+          data-testid="connectors-empty"
+        >
+          <div className="font-serif text-[20px] text-ink">No connectors yet</div>
+          <p className="mx-auto mt-1.5 max-w-[400px] text-[13px] leading-relaxed text-ink-3">
+            Add one above to let the estimation crew pull context from an MCP server — the
+            endpoint and transport are all it needs to start.
+          </p>
+        </div>
       ) : (
-        <table className="mt-6 w-full border-collapse text-sm" data-testid="connectors-table">
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-gray-500">
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Transport</th>
-              <th className="py-2 font-medium">Test</th>
-              <th className="py-2 font-medium">Enabled</th>
-              <th className="py-2 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {connectors.map((c) => (
-              <tr
-                key={c.id}
-                className="border-b border-gray-100"
-                data-testid={`connector-row-${c.id}`}
-              >
-                <td className="py-3 text-gray-900">{c.name}</td>
-                <td className="py-3 text-gray-600">{c.transport}</td>
-                <td className="py-3" data-testid={`connector-test-${c.id}`}>
-                  {c.lastTestOk == null ? (
-                    <span className="text-gray-400">untested</span>
-                  ) : c.lastTestOk ? (
-                    <span className="text-green-700">OK</span>
-                  ) : (
-                    <span className="text-red-700">failed</span>
-                  )}
-                </td>
-                <td className="py-3" data-testid={`connector-enabled-${c.id}`}>
-                  {c.enabled ? (
-                    <span className="text-green-700">enabled</span>
-                  ) : (
-                    <span className="text-gray-500">disabled</span>
-                  )}
-                </td>
-                <td className="py-3">
-                  <div className="flex justify-end gap-2">
-                    <form action={testConnector}>
-                      <input type="hidden" name="id" value={c.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                        data-testid={`test-connector-${c.id}`}
-                      >
-                        Test
-                      </button>
-                    </form>
-                    <form action={toggleConnector}>
-                      <input type="hidden" name="id" value={c.id} />
-                      <input type="hidden" name="enabled" value={(!c.enabled).toString()} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                        data-testid={`toggle-connector-${c.id}`}
-                      >
-                        {c.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                    </form>
-                    <form action={deleteConnector}>
-                      <input type="hidden" name="id" value={c.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                        data-testid={`delete-connector-${c.id}`}
-                      >
-                        Delete
-                      </button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card className="mt-3.5 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]" data-testid="connectors-table">
+              <thead>
+                <tr className="border-b border-line bg-surface-2 text-left">
+                  <th className="eyebrow px-4 py-2.5 font-bold">Name</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Transport</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Test</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Enabled</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {connectors.map((c) => (
+                  <tr
+                    key={c.id}
+                    className="border-b border-line-soft last:border-0"
+                    data-testid={`connector-row-${c.id}`}
+                  >
+                    <td className="px-4 py-3 text-ink">{c.name}</td>
+                    <td className="num px-4 py-3 text-ink-2">{c.transport}</td>
+                    <td className="px-4 py-3" data-testid={`connector-test-${c.id}`}>
+                      {c.lastTestOk == null ? (
+                        <Pill tone="neutral">untested</Pill>
+                      ) : c.lastTestOk ? (
+                        <Pill tone="green">OK</Pill>
+                      ) : (
+                        <Pill tone="brick">failed</Pill>
+                      )}
+                    </td>
+                    <td className="px-4 py-3" data-testid={`connector-enabled-${c.id}`}>
+                      {c.enabled ? (
+                        <Pill tone="green">enabled</Pill>
+                      ) : (
+                        <Pill tone="neutral">disabled</Pill>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <form action={testConnector}>
+                          <input type="hidden" name="id" value={c.id} />
+                          <Button
+                            type="submit"
+                            variant="outline"
+                            size="xs"
+                            data-testid={`test-connector-${c.id}`}
+                          >
+                            Test
+                          </Button>
+                        </form>
+                        <form action={toggleConnector}>
+                          <input type="hidden" name="id" value={c.id} />
+                          <input type="hidden" name="enabled" value={(!c.enabled).toString()} />
+                          <Button
+                            type="submit"
+                            variant="outline"
+                            size="xs"
+                            data-testid={`toggle-connector-${c.id}`}
+                          >
+                            {c.enabled ? 'Disable' : 'Enable'}
+                          </Button>
+                        </form>
+                        <form action={deleteConnector}>
+                          <input type="hidden" name="id" value={c.id} />
+                          <Button
+                            type="submit"
+                            variant="quiet"
+                            size="xs"
+                            className="hover:text-brick"
+                            data-testid={`delete-connector-${c.id}`}
+                          >
+                            Delete
+                          </Button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </div>
   );

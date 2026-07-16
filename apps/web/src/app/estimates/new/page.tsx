@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
+import { Heading } from '@/components/ui/card';
 import { NewEstimateForm } from './NewEstimateForm';
 
 export default async function NewEstimatePage() {
@@ -11,13 +12,16 @@ export default async function NewEstimatePage() {
 
   return (
     <div data-testid="new-estimate-page">
-      <Link href="/dashboard" className="text-sm text-gray-500 hover:underline">
-        &larr; Back to estimates
+      <Link href="/dashboard" className="text-[12.5px] text-ink-3 hover:text-ink hover:underline">
+        ← Estimates
       </Link>
-      <h1 className="mt-2 text-2xl font-semibold text-gray-900">New estimate</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Upload the client&apos;s material (BRD/SOW as PDF, Word, images) and/or paste text to create a
-        draft. You can run the estimate once it&apos;s created.
+
+      <Heading level={1} className="mt-3">
+        New estimate
+      </Heading>
+      <p className="mt-2 max-w-2xl text-[13.5px] leading-relaxed text-ink-3">
+        Attach the client&rsquo;s material — a BRD or SOW as PDF, Word or images — and paste any
+        scope you have as text. Both together read best. We turn it into a draft you can run.
       </p>
 
       <NewEstimateForm />

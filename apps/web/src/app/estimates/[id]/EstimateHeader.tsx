@@ -1,29 +1,28 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { Pill, STATUS_TONE } from '@/components/ui/pill';
 import { renameEstimate, setComplexityScore } from './actions';
 
 /**
- * Inline-editable estimate title + complexity score in the detail header.
- * Optimistic: edits apply immediately and persist on blur/change; a failed save
- * reverts and surfaces a small error.
+ * The estimate's masthead: an inline-editable title and its status. Optimistic —
+ * the edit applies immediately and persists on blur; a failed save reverts and
+ * surfaces the reason. Complexity lives in the rail with the rest of the
+ * metadata, as <ComplexityField> below.
  */
 export function EstimateHeader({
   estimateId,
   initialTitle,
   status,
-  initialComplexity,
   isFinalised,
 }: {
   estimateId: string;
   initialTitle: string;
   status: string;
-  initialComplexity: number | null;
   isFinalised: boolean;
 }) {
   const [title, setTitle] = useState(initialTitle);
   const [draft, setDraft] = useState(initialTitle);
-  const [complexity, setComplexity] = useState<number | null>(initialComplexity);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -46,24 +45,13 @@ export function EstimateHeader({
     });
   };
 
-  const commitComplexity = (value: number | null) => {
-    const prev = complexity;
-    setComplexity(value);
-    startTransition(async () => {
-      try {
-        await setComplexityScore(estimateId, value);
-      } catch (e) {
-        setComplexity(prev);
-        setError(e instanceof Error ? e.message : 'Could not update complexity');
-      }
-    });
-  };
-
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-start gap-3.5">
         {isFinalised ? (
-          <h1 className="text-2xl font-semibold text-gray-900">{title}</h1>
+          <h1 className="min-w-0 flex-1 font-serif text-[33px] leading-[1.15] font-medium tracking-[-0.015em] text-ink">
+            {title}
+          </h1>
         ) : (
           <input
             value={draft}
@@ -77,48 +65,72 @@ export function EstimateHeader({
               }
             }}
             aria-label="Estimate title"
-            className="-ml-1 rounded-md border border-transparent px-1 text-2xl font-semibold text-gray-900 hover:border-gray-200 focus:border-indigo-300 focus:bg-white focus:outline-none"
+            className="-ml-2 min-w-[260px] flex-1 rounded-md border border-transparent bg-transparent px-2 font-serif text-[33px] leading-[1.15] font-medium tracking-[-0.015em] text-ink hover:border-line focus:border-green focus:bg-surface focus:outline-none"
             data-testid="estimate-title-input"
           />
         )}
-        <span
-          className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700"
-          data-testid="estimate-status"
-        >
-          {status}
-        </span>
 
-        {/* Complexity */}
-        {isFinalised ? (
-          complexity != null && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-              complexity {complexity}/5
-            </span>
-          )
-        ) : (
-          <label className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-            complexity
-            <select
-              value={complexity ?? ''}
-              onChange={(e) => commitComplexity(e.target.value === '' ? null : Number(e.target.value))}
-              className="rounded border border-amber-200 bg-white px-1 py-0.5 text-xs text-amber-900 focus:outline-none"
-              data-testid="complexity-select"
-            >
-              <option value="">—</option>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  {n}/5
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {/* `estimate-status` is asserted with toHaveText — the pill's dot is an
+            empty element, so its textContent stays exactly the status word. */}
+        <span className="mt-1.5 shrink-0">
+          <Pill tone={STATUS_TONE[status] ?? 'neutral'} data-testid="estimate-status">
+            {status}
+          </Pill>
+        </span>
       </div>
+
       {error && (
-        <p className="mt-1 text-xs font-medium text-red-600" data-testid="estimate-header-error">
+        <p className="mt-1 text-xs font-medium text-brick" data-testid="estimate-header-error">
           {error}
         </p>
       )}
     </div>
+  );
+}
+
+/** The complexity control, shown in the rail beside the rest of the metadata. */
+export function ComplexityField({
+  estimateId,
+  initialComplexity,
+  isFinalised,
+}: {
+  estimateId: string;
+  initialComplexity: number | null;
+  isFinalised: boolean;
+}) {
+  const [complexity, setComplexity] = useState<number | null>(initialComplexity);
+  const [, startTransition] = useTransition();
+
+  const commit = (value: number | null) => {
+    const prev = complexity;
+    setComplexity(value);
+    startTransition(async () => {
+      try {
+        await setComplexityScore(estimateId, value);
+      } catch {
+        setComplexity(prev);
+      }
+    });
+  };
+
+  if (isFinalised) {
+    return <span className="num">{complexity != null ? `${complexity}/5` : '—'}</span>;
+  }
+
+  return (
+    <select
+      value={complexity ?? ''}
+      onChange={(e) => commit(e.target.value === '' ? null : Number(e.target.value))}
+      aria-label="Complexity score"
+      className="num rounded border border-line bg-surface px-1 py-0.5 text-[11.5px] text-ink focus:border-green focus:outline-none"
+      data-testid="complexity-select"
+    >
+      <option value="">—</option>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <option key={n} value={n}>
+          {n}/5
+        </option>
+      ))}
+    </select>
   );
 }

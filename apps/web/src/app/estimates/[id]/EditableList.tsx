@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { Plus, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /**
  * Editable bullet list for the estimate's narrative / assumptions (both are
@@ -48,9 +49,12 @@ export function EditableList({
 
   if (isFinalised) {
     return (
-      <ul className="list-disc space-y-1 pl-5 text-sm text-gray-800" data-testid={testid}>
+      <ul className="space-y-2" data-testid={testid}>
         {items.map((t, i) => (
-          <li key={i}>{t}</li>
+          <li key={i} className="flex items-start gap-2.5">
+            <span className="mt-[9px] h-[5px] w-[5px] shrink-0 rounded-full bg-green-line" aria-hidden />
+            <span className="text-[13.5px] leading-relaxed text-ink-2">{t}</span>
+          </li>
         ))}
       </ul>
     );
@@ -58,39 +62,38 @@ export function EditableList({
 
   return (
     <div data-testid={testid}>
-      <ul className="space-y-1.5">
+      <ul>
         {items.map((t, i) => (
-          <li key={i} className="flex items-start gap-2">
-            <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden />
+          <li key={i} className="group flex items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-surface-2">
+            <span
+              className="mt-[9px] h-[5px] w-[5px] shrink-0 rounded-full bg-green-line group-hover:bg-green"
+              aria-hidden
+            />
             <textarea
               value={t}
               rows={1}
               onChange={(e) => editAt(i, e.target.value)}
               onBlur={commit}
-              className="min-w-0 flex-1 resize-none rounded-md border border-transparent px-1.5 py-1 text-sm text-gray-800 hover:border-gray-200 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="-mx-1.5 -my-0.5 min-w-0 flex-1 resize-none rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[13.5px] leading-relaxed text-ink-2 hover:border-line hover:bg-surface focus:border-green focus:bg-surface focus:outline-none"
               data-testid={`${testid}-item-${i}`}
             />
             <button
               type="button"
               onClick={() => removeAt(i)}
               title="Remove"
-              className="mt-1 text-gray-300 hover:text-red-600"
+              aria-label="Remove"
+              className="mt-0.5 shrink-0 p-0.5 text-ink-4 opacity-0 group-hover:opacity-100 hover:text-brick"
               data-testid={`${testid}-remove-${i}`}
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </button>
           </li>
         ))}
       </ul>
-      <button
-        type="button"
-        onClick={add}
-        className="mt-2 inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:border-gray-400 hover:text-gray-800"
-        data-testid={`${testid}-add`}
-      >
-        <Plus className="h-3.5 w-3.5" /> {addLabel}
-      </button>
-      {error && <p className="mt-1 text-xs font-medium text-red-600">{error}</p>}
+      <Button variant="dashed" size="xs" className="mt-1.5" onClick={add} data-testid={`${testid}-add`}>
+        <Plus className="h-3 w-3" /> {addLabel}
+      </Button>
+      {error && <p className="mt-1.5 text-xs font-medium text-brick">{error}</p>}
     </div>
   );
 }
