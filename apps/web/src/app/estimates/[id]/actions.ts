@@ -244,3 +244,48 @@ export async function deleteLineItem(id: string): Promise<void> {
   await assertEditable(estimateId);
   await prisma.roleLineItem.delete({ where: { id } });
 }
+
+// ─── Estimate header / body ─────────────────────────────────────────────────────
+
+export async function renameEstimate(id: string, title: string): Promise<void> {
+  await requireSession();
+  await assertEditable(id);
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  await prisma.estimate.update({ where: { id }, data: { title: trimmed } });
+}
+
+/** Set the 1–5 complexity score, or clear it with null. */
+export async function setComplexityScore(id: string, score: number | null): Promise<void> {
+  await requireSession();
+  await assertEditable(id);
+  const clamped = score == null ? null : Math.min(5, Math.max(1, Math.round(score)));
+  await prisma.estimate.update({ where: { id }, data: { complexityScore: clamped } });
+}
+
+export async function updateNarrative(id: string, items: string[]): Promise<void> {
+  await requireSession();
+  await assertEditable(id);
+  await prisma.estimate.update({ where: { id }, data: { narrative: cleanList(items) } });
+}
+
+export async function updateAssumptions(id: string, items: string[]): Promise<void> {
+  await requireSession();
+  await assertEditable(id);
+  await prisma.estimate.update({ where: { id }, data: { assumptions: cleanList(items) } });
+}
+
+/** Drop empty trailing entries but keep intentional order. */
+function cleanList(items: string[]): string[] {
+  return items.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Delete an estimate and everything under it (sections, menu items, line items,
+ * uploaded files all cascade). Allowed regardless of status — the owner may
+ * remove a finalised estimate.
+ */
+export async function deleteEstimate(id: string): Promise<void> {
+  await requireSession();
+  await prisma.estimate.delete({ where: { id } });
+}

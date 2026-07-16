@@ -44,6 +44,24 @@ export function CollapsibleSection({
     }
   }, [storageKey]);
 
+  // Respond to the page-level "collapse/expand all" control.
+  useEffect(() => {
+    const onAll = (e: Event) => {
+      const collapsed = (e as CustomEvent<{ collapsed: boolean }>).detail?.collapsed;
+      const next = !collapsed;
+      setOpen(next);
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(storageKey, next ? '1' : '0');
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener('estimate:collapse-all', onAll);
+    return () => window.removeEventListener('estimate:collapse-all', onAll);
+  }, [storageKey]);
+
   function toggle() {
     setOpen((prev) => {
       const next = !prev;

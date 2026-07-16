@@ -1,13 +1,25 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
 import { auth } from '@/lib/auth';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const STATUS_STYLES: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   REVIEW: 'bg-amber-100 text-amber-800',
   FINALISED: 'bg-green-100 text-green-800',
 };
+
+async function deleteEstimateAction(formData: FormData) {
+  'use server';
+  const session = await auth();
+  if (!session?.user) return;
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await prisma.estimate.delete({ where: { id } });
+  revalidatePath('/dashboard');
+}
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -45,6 +57,7 @@ export default async function DashboardPage() {
               <th className="py-2 font-medium">Status</th>
               <th className="py-2 font-medium">Owner</th>
               <th className="py-2 font-medium">Created</th>
+              <th className="py-2 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -71,6 +84,29 @@ export default async function DashboardPage() {
                 <td className="py-3 text-gray-600">{e.owner.email}</td>
                 <td className="py-3 text-gray-500">
                   {new Date(e.createdAt).toLocaleDateString()}
+                </td>
+                <td className="py-3 text-right">
+                  <ConfirmDialog
+                    action={deleteEstimateAction}
+                    hidden={{ id: e.id }}
+                    title="Delete estimate?"
+                    description={
+                      <>
+                        <span className="font-medium text-gray-700">{e.title}</span> and everything
+                        under it will be permanently deleted. This can&rsquo;t be undone.
+                      </>
+                    }
+                    confirmLabel="Delete estimate"
+                    trigger={
+                      <button
+                        type="button"
+                        className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                        data-testid={`delete-estimate-${e.id}`}
+                      >
+                        Delete
+                      </button>
+                    }
+                  />
                 </td>
               </tr>
             ))}

@@ -107,6 +107,30 @@ export function MenuCardEditor({
     errTimer.current = setTimeout(() => setError(null), 4500);
   }, []);
 
+  // Respond to the page-level "collapse/expand all" control: fold/unfold the
+  // Menu Card root, every section group, and every item at once.
+  useEffect(() => {
+    const onAll = (e: Event) => {
+      const wantCollapsed = (e as CustomEvent<{ collapsed: boolean }>).detail?.collapsed;
+      const next = wantCollapsed
+        ? new Set<string>([
+            'root',
+            `sec:${UNGROUPED}`,
+            ...sections.map((s) => `sec:${s.id}`),
+            ...items.map((i) => `item:${i.id}`),
+          ])
+        : new Set<string>();
+      setCollapsed(next);
+      try {
+        window.localStorage.setItem(collapseKey, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('estimate:collapse-all', onAll);
+    return () => window.removeEventListener('estimate:collapse-all', onAll);
+  }, [sections, items, collapseKey]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -410,7 +434,30 @@ export function MenuCardEditor({
 
   return (
     <section className="mt-6" data-testid="menu-card">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Prominent, always-visible totals: the estimate total + per-role
+          sub-totals, recomputed live as items are edited/toggled. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5" data-testid="rollup-totals">
+        <div className="col-span-2 rounded-xl border border-indigo-100 bg-indigo-50 p-4 sm:col-span-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-500">
+            Total estimate
+          </div>
+          <div className="mt-1 text-2xl font-semibold text-indigo-900" data-testid="total-all">
+            {round(rollup.grand)}
+            <span className="text-base font-normal text-indigo-400">h</span>
+          </div>
+        </div>
+        {ROLES.map((r) => (
+          <div key={r} className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{r}</div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900" data-testid={`total-${r}`}>
+              {round(rollup.totals[r])}
+              <span className="text-base font-normal text-gray-400">h</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => toggleCollapse('root')}
@@ -424,16 +471,6 @@ export function MenuCardEditor({
           />
           Menu Card
         </button>
-        <div className="text-sm text-gray-600" data-testid="rollup-totals">
-          {ROLES.map((r) => (
-            <span key={r} className="ml-3" data-testid={`total-${r}`}>
-              {r} {round(rollup.totals[r])}
-            </span>
-          ))}
-          <span className="ml-3 font-semibold text-gray-900" data-testid="total-all">
-            Total {round(rollup.grand)}h
-          </span>
-        </div>
       </div>
 
       {error && (

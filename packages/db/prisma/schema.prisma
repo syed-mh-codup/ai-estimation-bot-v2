@@ -295,7 +295,7 @@ model UploadedFile {
 model MenuItem {
   id             String       @id @default(cuid())
   estimateId     String
-  estimate       Estimate     @relation(fields: [estimateId], references: [id])
+  estimate       Estimate     @relation(fields: [estimateId], references: [id], onDelete: Cascade)
   taxonomyKey    String
   /// Controlled-vocabulary category (see @repo/shared CategorySchema); optional
   /// for legacy/injected items (baseline, hidden-work) predating the envelope.

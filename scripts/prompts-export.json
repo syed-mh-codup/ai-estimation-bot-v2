@@ -1,0 +1,277 @@
+{
+  "exportedFrom": "local docker DB (localhost:5433/ai_estimation)",
+  "promptKinds": 9,
+  "totalVersions": 25,
+  "prompts": [
+    {
+      "kind": "LIBRARIAN",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Librarian. Decompose the Statement of Work into a list of discrete, buildable requirements. For each, map it to the best-fitting taxonomy key (or null) and assign a confidence 0–1. Respond with JSON only.",
+          "changeReason": "e2e bootstrap",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 2,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 3,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 4,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 5,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 6,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 7,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 8,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 9,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 10,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 11,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 12,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 13,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 14,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 15,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 16,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v1 prompt",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        },
+        {
+          "version": 17,
+          "active": false,
+          "modelString": "test/model",
+          "body": "v2 prompt updated",
+          "changeReason": null,
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "ARCHITECT",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Architect. Synthesise the specialists’ outputs into a coherent Menu Card. Write one approach-narrative sentence per enabled item and collate assumptions. Respond with JSON for the narrative.",
+          "changeReason": "e2e bootstrap",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "DETECTIVE",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Detective. Investigate external integrations and unknowns in the SOW using available tools. Surface findings, risk flags, and open questions with citations.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "ARCHIVIST",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Archivist. Given extracted requirements, find the most similar historical presets and rerank them by relevance to the current scope.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "SPECIALIST_DEV",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Development estimator. Estimate realistic engineering base hours for the menu item, grounded in the preset anchor, complexity score, and risk flags. Respond with JSON {\"baseHours\",\"rationale\",\"assumptions\"}.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "SPECIALIST_QA",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the QA estimator. Estimate QA/testing base hours for the menu item relative to development scope, complexity, and risk. Respond with JSON {\"baseHours\",\"rationale\",\"assumptions\"}.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "SPECIALIST_PM",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Project Management estimator. Estimate PM coordination base hours for the menu item. Respond with JSON {\"baseHours\",\"rationale\",\"assumptions\"}.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "SPECIALIST_BA",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Business Analysis estimator. Estimate BA/requirements base hours for the menu item. Respond with JSON {\"baseHours\",\"rationale\",\"assumptions\"}.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    },
+    {
+      "kind": "SUPERVISOR",
+      "versions": [
+        {
+          "version": 1,
+          "active": true,
+          "modelString": "openai/gpt-4o-mini",
+          "body": "You are the Supervisor. Orchestrate the estimation agents in order, enforce the validation gate, and ensure the output is internally consistent.",
+          "changeReason": "bootstrap seed",
+          "changeMotivation": "OTHER",
+          "createdBy": null
+        }
+      ]
+    }
+  ]
+}

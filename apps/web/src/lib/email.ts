@@ -87,6 +87,27 @@ export function sendIngestCompleteEmail(n: EstimateNotice): Promise<{ sent: bool
   });
 }
 
+/** Welcome email for a newly created account — login link + temporary password. */
+export function sendWelcomeEmail(n: {
+  to: string;
+  name?: string | null;
+  tempPassword: string;
+  role: string;
+}): Promise<{ sent: boolean }> {
+  const url = `${appBaseUrl()}/login`;
+  return sendEmail({
+    to: n.to,
+    subject: 'Your AI Estimation account is ready',
+    html: renderEmail({
+      greeting: greet(n.name),
+      lead: `An account has been created for you on AI Estimation with the <strong>${escapeHtml(n.role)}</strong> role. Use the temporary password below to sign in, then change it.`,
+      credentials: { email: n.to, password: n.tempPassword },
+      cta: { label: 'Sign in', url },
+      url,
+    }),
+  });
+}
+
 /** Email sent when the estimate run finishes and the Menu Card is generated. */
 export function sendRunCompleteEmail(n: EstimateNotice): Promise<{ sent: boolean }> {
   const url = estimateUrl(n.estimateId);
@@ -114,7 +135,20 @@ function renderEmail(opts: {
   lead: string;
   cta: { label: string; url: string };
   url: string;
+  credentials?: { email: string; password: string };
 }): string {
+  const credentialsRow = opts.credentials
+    ? `<tr>
+              <td style="padding:0 32px 20px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+                  <tr><td style="padding:12px 16px 4px;font-size:12px;color:#6b7280;">Email</td></tr>
+                  <tr><td style="padding:0 16px 10px;font-size:14px;color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${escapeHtml(opts.credentials.email)}</td></tr>
+                  <tr><td style="padding:0 16px 4px;font-size:12px;color:#6b7280;">Temporary password</td></tr>
+                  <tr><td style="padding:0 16px 12px;font-size:14px;color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${escapeHtml(opts.credentials.password)}</td></tr>
+                </table>
+              </td>
+            </tr>`
+    : '';
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -133,6 +167,7 @@ function renderEmail(opts: {
             <tr>
               <td style="padding:8px 32px 20px;font-size:15px;line-height:1.55;color:#374151;">${opts.lead}</td>
             </tr>
+            ${credentialsRow}
             <tr>
               <td style="padding:0 32px 28px;">
                 <a href="${opts.cta.url}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 20px;border-radius:8px;">${escapeHtml(opts.cta.label)}</a>

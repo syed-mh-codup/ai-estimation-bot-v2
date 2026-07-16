@@ -7,8 +7,13 @@ import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { RunControls } from './RunControls';
 import { MenuCardEditor } from './MenuCardEditor';
+import { EstimateHeader } from './EstimateHeader';
+import { EditableList } from './EditableList';
+import { CollapseAllButton } from './CollapseAllButton';
+import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import type { ItemDTO, SectionDTO } from './actions';
 
 type Role = 'DEV' | 'QA' | 'PM' | 'BA';
@@ -68,8 +73,6 @@ async function exportSheetsAction(formData: FormData) {
     })),
   }));
 
-  // Falls back to a synthetic-URL stub when GOOGLE_SERVICE_ACCOUNT_JSON /
-  // GOOGLE_DRIVE_FOLDER_ID aren't configured for this environment.
   const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
   await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
   revalidatePath(`/estimates/${id}`);
@@ -80,10 +83,17 @@ async function finaliseAction(formData: FormData) {
   await requireSession();
   const id = formData.get('id');
   if (typeof id !== 'string') return;
-  // Status -> FINALISED. (Promoting menu items into the preset corpus needs
-  // embeddings, which are credit-gated; see writeback.ts for that path.)
   await prisma.estimate.update({ where: { id }, data: { status: 'FINALISED' } });
   revalidatePath(`/estimates/${id}`);
+}
+
+async function deleteEstimateAction(formData: FormData) {
+  'use server';
+  await requireSession();
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await deleteEstimate(id);
+  redirect('/dashboard');
 }
 
 export default async function EstimateDetailPage({
@@ -131,9 +141,6 @@ export default async function EstimateDetailPage({
     })),
   }));
 
-  // Re-mount the editor when the *structure* changes server-side (a run
-  // completing populates the menu card via router.refresh); stays stable during
-  // in-session editing so optimistic state isn't blown away.
   const editorKey = `${sectionDTOs.map((s) => s.id).join(',')}|${itemDTOs.map((i) => i.id).join(',')}`;
 
   return (
@@ -142,19 +149,14 @@ export default async function EstimateDetailPage({
         &larr; Back to estimates
       </Link>
 
-      <div className="mt-2 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-gray-900">{estimate.title}</h1>
-        <span
-          className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700"
-          data-testid="estimate-status"
-        >
-          {estimate.status}
-        </span>
-        {estimate.complexityScore != null && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-            complexity {estimate.complexityScore}/5
-          </span>
-        )}
+      <div className="mt-2">
+        <EstimateHeader
+          estimateId={estimate.id}
+          initialTitle={estimate.title}
+          status={estimate.status}
+          initialComplexity={estimate.complexityScore}
+          isFinalised={isFinalised}
+        />
       </div>
       <p className="mt-1 text-sm text-gray-500">
         Owner: {estimate.owner.email} · Created {new Date(estimate.createdAt).toLocaleString()} ·
@@ -173,31 +175,51 @@ export default async function EstimateDetailPage({
           }}
         />
         {estimate.menuItems.length > 0 && (
-          <>
-            <form action={exportSheetsAction}>
-              <input type="hidden" name="id" value={estimate.id} />
-              <button
-                type="submit"
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                data-testid="export-sheets"
-              >
-                Export to Sheets
-              </button>
-            </form>
-            {!isFinalised && (
-              <form action={finaliseAction}>
-                <input type="hidden" name="id" value={estimate.id} />
-                <button
-                  type="submit"
-                  className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800"
-                  data-testid="finalise-estimate"
-                >
-                  Finalise
-                </button>
-              </form>
-            )}
-          </>
+          <form action={exportSheetsAction}>
+            <input type="hidden" name="id" value={estimate.id} />
+            <button
+              type="submit"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              data-testid="export-sheets"
+            >
+              Export to Sheets
+            </button>
+          </form>
         )}
+        {estimate.menuItems.length > 0 && !isFinalised && (
+          <form action={finaliseAction}>
+            <input type="hidden" name="id" value={estimate.id} />
+            <button
+              type="submit"
+              className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800"
+              data-testid="finalise-estimate"
+            >
+              Finalise
+            </button>
+          </form>
+        )}
+        <CollapseAllButton />
+        <ConfirmDialog
+          action={deleteEstimateAction}
+          hidden={{ id: estimate.id }}
+          title="Delete estimate?"
+          description={
+            <>
+              <span className="font-medium text-gray-700">{estimate.title}</span> and all its menu
+              items, sections and line items will be permanently deleted. This can&rsquo;t be undone.
+            </>
+          }
+          confirmLabel="Delete estimate"
+          trigger={
+            <button
+              type="button"
+              className="rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+              data-testid="delete-estimate"
+            >
+              Delete
+            </button>
+          }
+        />
       </div>
 
       {estimate.sheetUrl && (
@@ -225,26 +247,37 @@ export default async function EstimateDetailPage({
         </p>
       </CollapsibleSection>
 
-      {estimate.narrative.length > 0 && (
-        <CollapsibleSection
-          className="mt-6"
-          storageKey={`est:${estimate.id}:narrative`}
-          title="Narrative"
-          data-testid="section-narrative"
-        >
-          <List items={estimate.narrative} />
-        </CollapsibleSection>
-      )}
-      {estimate.assumptions.length > 0 && (
-        <CollapsibleSection
-          className="mt-6"
-          storageKey={`est:${estimate.id}:assumptions`}
-          title="Assumptions"
-          data-testid="section-assumptions"
-        >
-          <List items={estimate.assumptions} />
-        </CollapsibleSection>
-      )}
+      <CollapsibleSection
+        className="mt-6"
+        storageKey={`est:${estimate.id}:narrative`}
+        title="Narrative"
+        data-testid="section-narrative"
+      >
+        <EditableList
+          estimateId={estimate.id}
+          initialItems={estimate.narrative}
+          action={updateNarrative}
+          isFinalised={isFinalised}
+          addLabel="Add narrative point"
+          testid="narrative-list"
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        className="mt-6"
+        storageKey={`est:${estimate.id}:assumptions`}
+        title="Assumptions"
+        data-testid="section-assumptions"
+      >
+        <EditableList
+          estimateId={estimate.id}
+          initialItems={estimate.assumptions}
+          action={updateAssumptions}
+          isFinalised={isFinalised}
+          addLabel="Add assumption"
+          testid="assumptions-list"
+        />
+      </CollapsibleSection>
 
       {estimate.menuItems.length === 0 && estimate.sections.length === 0 && (
         <p className="mt-6 text-sm text-gray-500" data-testid="estimate-not-run">
@@ -262,15 +295,5 @@ export default async function EstimateDetailPage({
         isFinalised={isFinalised}
       />
     </div>
-  );
-}
-
-function List({ items }: { items: string[] }) {
-  return (
-    <ul className="list-disc space-y-1 pl-5 text-sm text-gray-800">
-      {items.map((t, i) => (
-        <li key={i}>{t}</li>
-      ))}
-    </ul>
   );
 }

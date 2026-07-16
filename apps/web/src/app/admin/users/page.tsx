@@ -3,7 +3,9 @@ import { Prisma, prisma } from '@repo/db';
 import { auth } from '@/lib/auth';
 import { requireAdmin } from '@/lib/rbac';
 import { hashPassword } from '@/lib/password';
-import { CreateUserForm, type CreateUserState } from './CreateUserForm';
+import { sendWelcomeEmail } from '@/lib/email';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { CreateUserDialog, type CreateUserState } from './CreateUserDialog';
 
 const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,19 +50,19 @@ async function createUser(_state: CreateUserState, formData: FormData): Promise<
 
   try {
     const hash = await hashPassword(password);
-    await prisma.user.create({
-      data: { email, hash, role, name: name || null },
-    });
+    await prisma.user.create({ data: { email, hash, role, name: name || null } });
   } catch (err) {
-    // Unique-constraint violation on email.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       return { error: 'A user with that email already exists.' };
     }
     throw err;
   }
 
+  // Best-effort welcome email with the temp password — never fail creation on it.
+  const { sent } = await sendWelcomeEmail({ to: email, name: name || null, tempPassword: password, role });
+
   revalidatePath('/admin/users');
-  return { ok: true };
+  return { ok: true, emailed: sent };
 }
 
 async function deleteUser(formData: FormData) {
@@ -75,7 +77,6 @@ async function deleteUser(formData: FormData) {
   if (userId === actingUserId) return;
 
   // Estimate.ownerId is a required FK — deleting an owner would violate it.
-  // Block instead of orphaning/cascading estimates.
   const owned = await prisma.estimate.count({ where: { ownerId: userId } });
   if (owned > 0) return;
 
@@ -100,10 +101,13 @@ export default async function UsersAdminPage() {
 
   return (
     <div data-testid="admin-users">
-      <h1 className="text-2xl font-semibold text-gray-900">Users</h1>
-      <p className="mt-1 text-sm text-gray-500">Add users, manage roles, and remove accounts.</p>
-
-      <CreateUserForm action={createUser} />
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Users</h1>
+          <p className="mt-1 text-sm text-gray-500">Add users, manage roles, and remove accounts.</p>
+        </div>
+        <CreateUserDialog action={createUser} />
+      </div>
 
       <table className="mt-6 w-full border-collapse text-sm" data-testid="users-table">
         <thead>
@@ -118,7 +122,6 @@ export default async function UsersAdminPage() {
         <tbody>
           {users.map((u) => {
             const nextRole = u.role === 'ADMIN' ? 'ESTIMATOR' : 'ADMIN';
-            // Block the acting admin from demoting their own account.
             const isSelf = u.id === currentUserId;
             const isSelfDemotion = isSelf && nextRole !== 'ADMIN';
             const ownsEstimates = u._count.estimates > 0;
@@ -128,18 +131,12 @@ export default async function UsersAdminPage() {
                 ? `Owns ${u._count.estimates} estimate(s) — reassign or remove them first`
                 : undefined;
             return (
-              <tr
-                key={u.id}
-                className="border-b border-gray-100"
-                data-testid={`user-row-${u.id}`}
-              >
+              <tr key={u.id} className="border-b border-gray-100" data-testid={`user-row-${u.id}`}>
                 <td className="py-3 text-gray-900">{u.email}</td>
                 <td className="py-3">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      u.role === 'ADMIN'
-                        ? 'bg-indigo-100 text-indigo-800'
-                        : 'bg-gray-100 text-gray-700'
+                      u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
                     }`}
                     data-testid={`role-${u.id}`}
                   >
@@ -149,9 +146,7 @@ export default async function UsersAdminPage() {
                 <td className="py-3 text-gray-500" data-testid={`estimate-count-${u.id}`}>
                   {u._count.estimates}
                 </td>
-                <td className="py-3 text-gray-500">
-                  {new Date(u.createdAt).toLocaleDateString()}
-                </td>
+                <td className="py-3 text-gray-500">{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td className="py-3">
                   <div className="flex items-center justify-end gap-2">
                     <form action={setUserRole} className="inline">
@@ -167,18 +162,29 @@ export default async function UsersAdminPage() {
                         {nextRole === 'ADMIN' ? 'Make admin' : 'Make estimator'}
                       </button>
                     </form>
-                    <form action={deleteUser} className="inline">
-                      <input type="hidden" name="userId" value={u.id} />
-                      <button
-                        type="submit"
-                        disabled={Boolean(deleteBlockedReason)}
-                        title={deleteBlockedReason}
-                        className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 disabled:opacity-60"
-                        data-testid={`delete-user-${u.id}`}
-                      >
-                        Delete
-                      </button>
-                    </form>
+                    <ConfirmDialog
+                      action={deleteUser}
+                      hidden={{ userId: u.id }}
+                      title="Delete user?"
+                      description={
+                        <>
+                          <span className="font-medium text-gray-700">{u.email}</span> will be
+                          permanently removed. This can&rsquo;t be undone.
+                        </>
+                      }
+                      confirmLabel="Delete user"
+                      trigger={
+                        <button
+                          type="button"
+                          disabled={Boolean(deleteBlockedReason)}
+                          title={deleteBlockedReason}
+                          className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 disabled:opacity-60"
+                          data-testid={`delete-user-${u.id}`}
+                        >
+                          Delete
+                        </button>
+                      }
+                    />
                   </div>
                 </td>
               </tr>
