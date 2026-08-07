@@ -11,6 +11,7 @@ export const inngest = new Inngest({ id: 'codup-ai-estimation' });
 export const EVENT_RUN = 'estimate/run.requested' as const;
 export const EVENT_INGEST = 'estimate/ingest.requested' as const;
 export const EVENT_EMBED_PRESETS = 'preset/embed.requested' as const;
+export const EVENT_PROMOTE = 'estimate/finalised' as const;
 
 export type EstimateEventData = { estimateId: string };
 
@@ -20,3 +21,10 @@ export type EstimateEventData = { estimateId: string };
  * save that triggers it.
  */
 export type EmbedPresetsEventData = { presetIds?: string[] };
+
+/**
+ * A finalised estimate is ready to feed the preset library. Out of band because
+ * promotion writes many rows and then spends money embedding them — finalising
+ * must stay fast, and the write-back must be able to retry on its own.
+ */
+export type PromoteEventData = { estimateId: string };

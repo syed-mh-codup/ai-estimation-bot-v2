@@ -2,14 +2,17 @@ import { createHash } from 'node:crypto';
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, backfillPresetEmbeddings, type IngestFile } from '@repo/agents';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteMenuItemsToPresets, type IngestFile } from '@repo/agents';
+import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import {
   inngest,
   EVENT_RUN,
   EVENT_INGEST,
   EVENT_EMBED_PRESETS,
+  EVENT_PROMOTE,
   type EstimateEventData,
   type EmbedPresetsEventData,
+  type PromoteEventData,
 } from '@/lib/inngest';
 import { sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 
@@ -229,4 +232,72 @@ const embedPresetsFn = inngest.createFunction(
   },
 );
 
-export const inngestFunctions: InngestFunction.Any[] = [runEstimateFn, ingestFn, embedPresetsFn];
+/**
+ * Feed a finalised estimate back into the preset library.
+ *
+ * Two durable steps so the paid half can retry without redoing the writes:
+ * promote (DB only), then embed (network). Promotion is idempotent via
+ * `sourceEstimateId`, so a retry of either step is safe.
+ */
+const promoteFn = inngest.createFunction(
+  { id: 'estimate-promote', name: 'Promote finalised estimate to presets', retries: 2, triggers: [{ event: EVENT_PROMOTE }] },
+  async ({ event, step }) => {
+    const { estimateId } = event.data as PromoteEventData;
+
+    const result = await step.run('promote', async () => {
+      const est = await prisma.estimate.findUnique({
+        where: { id: estimateId },
+        include: { menuItems: { include: { lineItems: true } } },
+      });
+      if (!est) return { promoted: [], skipped: [], versioned: [], created: [] };
+
+      const items: MenuItemDTO[] = est.menuItems.map((m) => ({
+        id: m.id,
+        taxonomyKey: m.taxonomyKey,
+        title: m.title,
+        enabled: m.enabled,
+        sourcePresetId: m.sourcePresetId ?? undefined,
+        matchScore: m.matchScore ?? undefined,
+        parentItemId: m.parentItemId ?? undefined,
+        requirementIds: [],
+        toggleable: true,
+        notSafelyRemovable: false,
+        thinSlice: false,
+        lineItems: m.lineItems.map((li) => ({
+          role: li.role,
+          title: li.title ?? undefined,
+          baseHours: li.baseHours,
+          taxedHours: li.taxedHours,
+          notes: li.notes ?? undefined,
+          edited: li.edited,
+          aiAssistApplied: false,
+          dependsOn: [],
+          anchorPresetIds: [],
+          touchesFrontend: li.touchesFrontend,
+          touchesBackend: li.touchesBackend,
+        })),
+      }));
+
+      return promoteMenuItemsToPresets(prisma, estimateId, items);
+    });
+
+    // A preset the Archivist can't see is a preset that never matches, so the
+    // embed is part of promoting — just a separately retried part of it.
+    if (result.promoted.length > 0) {
+      await step.run('embed-promoted', () =>
+        backfillPresetEmbeddings(prisma, new EmbeddingProvider(createModelProvider()), {
+          presetIds: result.promoted,
+        }),
+      );
+    }
+
+    return result;
+  },
+);
+
+export const inngestFunctions: InngestFunction.Any[] = [
+  runEstimateFn,
+  ingestFn,
+  embedPresetsFn,
+  promoteFn,
+];

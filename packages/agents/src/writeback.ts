@@ -1,17 +1,120 @@
 import type { PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
-import type { MenuItem } from '@repo/shared';
+import type { MenuItem, RoleLineItem } from '@repo/shared';
+
+// ─── Dev hours → a preset's beHours / feHours ─────────────────────────────────
+
+/**
+ * Frontend's share of dev effort across the seeded library (P01–P45),
+ * hours-weighted: 310 FE of 964 total. Used ONLY to apportion line items that
+ * carry no side tag — never to manufacture hours that don't exist.
+ */
+const LIBRARY_FE_SHARE = 0.32;
+
+/**
+ * Minimum Archivist match score at which a finalised card is written back onto
+ * the preset it matched, rather than becoming a new preset.
+ *
+ * Observed scores run ~0.46–0.62 on ordinary SOWs and ~0.60–0.83 on
+ * preset-adjacent ones, so this is deliberately strict: a 0.5 "match" is a
+ * family resemblance, and letting it overwrite an established preset would
+ * corrupt the anchor every future estimate reads.
+ */
+export const PROMOTION_MATCH_THRESHOLD = 0.75;
+
+export type DevSplit = {
+  beHours: number;
+  feHours: number;
+  /** How the split was arrived at — recorded on the version for auditability. */
+  basis: 'tagged' | 'mixed' | 'estimated';
+  /** Dev hours that carried no side tag and had to be apportioned. */
+  untaggedHours: number;
+};
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * Partition a card's DEV hours into backend and frontend.
+ *
+ * This replaces the old `feHours = round(beHours * 0.4)`, which assigned 100%
+ * of DEV to backend and then ADDED 40% on top — storing 1.4x the estimate it
+ * came from. Because a promoted preset becomes the anchor for the next
+ * estimate (specialist.ts feeds beHours+feHours back in), that error compounded
+ * every cycle.
+ *
+ * The partition here always sums to the card's actual DEV total:
+ *   - tagged backend-only / frontend-only → counted whole to that side
+ *   - tagged both (genuinely inseparable) → halved
+ *   - untagged → apportioned by the library ratio, and reported via `basis`
+ *     so the caller can say so rather than implying precision it doesn't have
+ */
+export function splitDevHours(lineItems: RoleLineItem[]): DevSplit {
+  const dev = lineItems.filter((l) => l.role === 'DEV');
+
+  let be = 0;
+  let fe = 0;
+  let untagged = 0;
+
+  for (const li of dev) {
+    const h = li.taxedHours;
+    const f = li.touchesFrontend;
+    const b = li.touchesBackend;
+    if (f && b) {
+      // Inseparable full-stack unit: nothing better than an even hand, but the
+      // total is still right, which is what the preset library depends on.
+      be += h / 2;
+      fe += h / 2;
+    } else if (b) {
+      be += h;
+    } else if (f) {
+      fe += h;
+    } else {
+      untagged += h;
+    }
+  }
+
+  if (untagged > 0) {
+    fe += untagged * LIBRARY_FE_SHARE;
+    be += untagged * (1 - LIBRARY_FE_SHARE);
+  }
+
+  const taggedHours = dev.reduce((s, l) => s + l.taxedHours, 0) - untagged;
+  const basis: DevSplit['basis'] =
+    untagged === 0 ? 'tagged' : taggedHours === 0 ? 'estimated' : 'mixed';
+
+  return { beHours: round2(be), feHours: round2(fe), basis, untaggedHours: round2(untagged) };
+}
+
+/** Human-readable provenance for the split, for `changeReason`. */
+function describeSplit(s: DevSplit): string {
+  if (s.basis === 'tagged') return 'BE/FE from line-item side tags (exact)';
+  const pct = Math.round(LIBRARY_FE_SHARE * 100);
+  return s.basis === 'estimated'
+    ? `BE/FE apportioned from untagged dev hours at the library ratio (${100 - pct}/${pct})`
+    : `BE/FE from side tags, with ${s.untaggedHours}h untagged apportioned at the library ratio (${100 - pct}/${pct})`;
+}
 
 // ─── WS20-01: Promote enabled menu items to PresetVersions ────────────────────
 
 export type PromoteResult = {
   promoted: string[];  // preset IDs created/updated
   skipped: string[];   // already exists
+  /** Promotions that became a new version of the preset the card matched. */
+  versioned: string[];
+  /** Promotions that minted a brand-new preset (no strong match). */
+  created: string[];
 };
 
 /**
- * Finalise an estimate: promote each enabled menu item to a new PresetVersion.
- * Idempotent — re-finalising skips items already promoted from this estimate.
+ * Finalise an estimate: write each enabled menu item back into the preset
+ * library. Idempotent — re-finalising skips items already promoted from this
+ * estimate.
+ *
+ * Hybrid target selection. A card that matched an existing preset strongly
+ * (>= PROMOTION_MATCH_THRESHOLD) becomes a NEW VERSION of that preset, so the
+ * library actually learns from delivered work. A weak or absent match mints a
+ * new `promoted-*` preset instead, because writing loosely-related work onto
+ * P26 would poison the anchor every future estimate reads.
  */
 export async function promoteMenuItemsToPresets(
   db: PrismaClient,
@@ -21,91 +124,101 @@ export async function promoteMenuItemsToPresets(
   const enabled = menuItems.filter((m) => m.enabled);
   const promoted: string[] = [];
   const skipped: string[] = [];
+  const versioned: string[] = [];
+  const created: string[] = [];
 
-  // Update estimate status to FINALISED
+  // Redundant next to finaliseAction, which has already done this — kept so the
+  // function is correct when called on its own, and harmless because it's
+  // idempotent.
   await db.estimate.update({
     where: { id: estimateId },
     data: { status: 'FINALISED' },
   });
 
   for (const item of enabled) {
-    // Skip baseline items (they're not real features)
+    // Injected placeholders (infra baseline, hidden work) aren't features and
+    // have no side tags — they must never enter the library.
     if (item.id.startsWith('baseline-') || item.id.startsWith('hidden-')) continue;
 
-    const presetId = `promoted-${estimateId}-${item.id}`;
+    // Hybrid: version the matched preset only on a confident match.
+    const strongMatch =
+      item.sourcePresetId && (item.matchScore ?? 0) >= PROMOTION_MATCH_THRESHOLD
+        ? item.sourcePresetId
+        : null;
+    const presetId = strongMatch ?? `promoted-${estimateId}-${item.id}`;
 
-    // Check if already promoted from this estimate
+    // Already promoted from this estimate — don't stack duplicate versions on
+    // a re-finalise.
     const existing = await db.presetVersion.findFirst({
       where: { presetId, sourceEstimateId: estimateId },
     });
-
     if (existing) {
       skipped.push(presetId);
       continue;
     }
 
-    // Get next version number for this preset
     const latestVersion = await db.presetVersion.findFirst({
       where: { presetId },
       orderBy: { version: 'desc' },
     });
     const newVersion = (latestVersion?.version ?? 0) + 1;
 
-    // Deactivate prior versions
     if (latestVersion) {
-      await db.presetVersion.updateMany({
-        where: { presetId },
-        data: { active: false },
-      });
+      await db.presetVersion.updateMany({ where: { presetId }, data: { active: false } });
     }
 
-    // Ensure parent Preset record exists
     const presetExists = await db.preset.findUnique({ where: { id: presetId } });
     if (!presetExists) {
       await db.preset.create({ data: { id: presetId } });
     }
 
-    // A role's DEV scope can now span several <=4h line items (FOUR-HOUR RULE
-    // decomposition), so sum them rather than reading a single lump item.
-    const devLineItems = item.lineItems.filter((l) => l.role === 'DEV');
-    const beHours = devLineItems.reduce((s, l) => s + l.taxedHours, 0);
-    const feHours = Math.round(beHours * 0.4); // approximate FE split
+    // Dev hours partitioned by side tag, always summing to the card's real DEV
+    // total (see splitDevHours — this is what replaced the 1.4x inflation).
+    const split = splitDevHours(item.lineItems);
+
+    // Versioning a real preset: keep its taxonomy/metadata and change only what
+    // this estimate actually evidences. Minting one: derive what we can.
+    const carry = strongMatch && latestVersion ? latestVersion : null;
 
     await db.presetVersion.create({
       data: {
         presetId,
         version: newVersion,
         active: true,
-        category: item.taxonomyKey.split('.')[0] ?? 'general',
-        name: item.title,
-        description: `Promoted from estimate ${estimateId}`,
-        beHours,
-        feHours,
-        platforms: [],
-        reqType: 'FEATURE',
-        keywords: [item.taxonomyKey],
-        userStoryTags: [],
-        projectSizeFit: [],
-        integrationCount: 0,
-        dataVolume: 'LOW',
-        phase: 'CORE',
-        requires: [],
-        blocks: [],
-        canParallel: true,
-        aiAssist: 'LOW',
-        risk: 'LOW',
-        spikeNeeded: false,
-        notes: '',
-        taxonomyKey: item.taxonomyKey,
-        changeMotivation: 'OTHER',
+        category: carry?.category ?? item.taxonomyKey.split('.')[0] ?? 'general',
+        name: carry?.name ?? item.title,
+        description: carry?.description ?? `Promoted from estimate ${estimateId}`,
+        beHours: Math.round(split.beHours),
+        feHours: Math.round(split.feHours),
+        platforms: carry?.platforms ?? [],
+        reqType: carry?.reqType ?? 'FEATURE',
+        keywords: carry?.keywords ?? [item.taxonomyKey],
+        userStoryTags: carry?.userStoryTags ?? [],
+        projectSizeFit: carry?.projectSizeFit ?? [],
+        integrationCount: carry?.integrationCount ?? 0,
+        dataVolume: carry?.dataVolume ?? 'LOW',
+        phase: carry?.phase ?? 'CORE',
+        requires: carry?.requires ?? [],
+        blocks: carry?.blocks ?? [],
+        canParallel: carry?.canParallel ?? true,
+        aiAssist: carry?.aiAssist ?? 'LOW',
+        risk: carry?.risk ?? 'LOW',
+        spikeNeeded: carry?.spikeNeeded ?? false,
+        notes: carry?.notes ?? '',
+        taxonomyKey: carry?.taxonomyKey ?? item.taxonomyKey,
+        changeMotivation: 'POST_DELIVERY_VALIDATION',
         sourceEstimateId: estimateId,
+        changeReason: strongMatch
+          ? `Recalibrated from finalised estimate ${estimateId} (match ${(item.matchScore ?? 0).toFixed(2)}) — ${describeSplit(split)}`
+          : `Promoted from finalised estimate ${estimateId} — ${describeSplit(split)}`,
       },
     });
 
     promoted.push(presetId);
+    (strongMatch ? versioned : created).push(presetId);
   }
 
-  return { promoted, skipped };
+  return { promoted, skipped, versioned, created };
 }
 
 // ─── WS20-02: Generate + store embeddings for promoted rows ───────────────────
@@ -280,9 +393,22 @@ export async function recordActuals(
 
   const newVersion = current.version + 1;
 
-  // Adjust hours based on role
-  const devActual = entry.role === 'DEV' ? entry.actualHours : current.beHours;
-  const feActual = entry.role === 'DEV' ? Math.round(entry.actualHours * 0.4) : current.feHours;
+  // Post-delivery dev actuals: we know the real TOTAL but not how it divided,
+  // so keep the proportion this preset already records and rescale it to the
+  // measured total. Falls back to the library ratio if the preset somehow has
+  // no hours to take a proportion from.
+  //
+  // This used to be `beHours = actual; feHours = round(actual * 0.4)`, which
+  // inflated measured, delivered hours by 40% — the calibration path made
+  // things worse than not calibrating at all.
+  let beActual = current.beHours;
+  let feActual = current.feHours;
+  if (entry.role === 'DEV') {
+    const prior = current.beHours + current.feHours;
+    const feShare = prior > 0 ? current.feHours / prior : LIBRARY_FE_SHARE;
+    feActual = Math.round(entry.actualHours * feShare);
+    beActual = Math.round(entry.actualHours - feActual);
+  }
 
   await db.presetVersion.create({
     data: {
@@ -292,7 +418,7 @@ export async function recordActuals(
       category: current.category,
       name: current.name,
       description: current.description,
-      beHours: devActual,
+      beHours: beActual,
       feHours: feActual,
       platforms: current.platforms,
       reqType: current.reqType,

@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
 import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
+import { inngest, EVENT_PROMOTE } from '@/lib/inngest';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -93,6 +95,23 @@ async function finaliseAction(formData: FormData) {
   if (typeof id !== 'string') return;
   await prisma.estimate.update({ where: { id }, data: { status: 'FINALISED' } });
   revalidatePath(`/estimates/${id}`);
+
+  // Feed the finalised estimate back into the preset library. Out of band and
+  // after the response: promotion writes many rows and then spends money
+  // embedding them, and the Inngest SDK retries a failed send with backoff —
+  // neither belongs in the click that finalises an estimate.
+  //
+  // Best-effort by design. Finalising has already committed; if the event bus
+  // is down the estimate is still finalised and the library just doesn't learn
+  // from it yet. Promotion is idempotent (keyed on sourceEstimateId), so
+  // re-finalising or replaying the event is safe.
+  after(async () => {
+    try {
+      await inngest.send({ name: EVENT_PROMOTE, data: { estimateId: id } });
+    } catch (err) {
+      console.error(`[presets] could not queue promotion for estimate ${id}:`, err);
+    }
+  });
 }
 
 async function deleteEstimateAction(formData: FormData) {
