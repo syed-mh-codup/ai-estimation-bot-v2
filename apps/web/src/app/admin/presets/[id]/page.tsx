@@ -171,10 +171,10 @@ function diffVersions(curr: VersionRow, prev: VersionRow): Array<{ field: string
 
 export default async function PresetEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const versions = await prisma.presetVersion.findMany({
-    where: { presetId: id },
-    orderBy: { version: 'desc' },
-  });
+  const [preset, versions] = await Promise.all([
+    prisma.preset.findUnique({ where: { id }, select: { code: true, origin: true } }),
+    prisma.presetVersion.findMany({ where: { presetId: id }, orderBy: { version: 'desc' } }),
+  ]);
   const active = versions.find((v) => v.active) ?? versions[0];
   if (!active) {
     notFound();
@@ -192,7 +192,14 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
       </Link>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="num text-[12.5px] text-ink-3">{id}</span>
+        <span className="num text-[12.5px] text-ink-3" data-testid="preset-code">
+          {preset?.code ?? id}
+        </span>
+        {preset && preset.origin !== 'SEEDED' && (
+          <span className="text-[10.5px] tracking-[0.04em] text-ink-4 uppercase">
+            {preset.origin === 'FINALISED' ? 'from delivered work' : 'entered by hand'}
+          </span>
+        )}
         <Heading level={1} className="min-w-0 break-words">
           {active.name}
         </Heading>

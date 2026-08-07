@@ -1,21 +1,36 @@
 import Link from 'next/link';
 import { prisma } from '@repo/db';
+import { Button } from '@/components/ui/button';
 import { Card, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 
 export default async function PresetsAdminPage() {
-  const presets = await prisma.preset.findMany({
+  const rows = await prisma.preset.findMany({
     include: { versions: { orderBy: { version: 'desc' } } },
-    orderBy: { id: 'asc' },
   });
+
+  // Sorted here, not in SQL: codes are free-flowing so a lexical sort puts P100
+  // before P46. Compare the numeric part instead; codeless rows sort last.
+  const codeNumber = (code: string | null): number =>
+    code ? Number(code.replace(/\D/g, '')) || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+  const presets = [...rows].sort((a, b) => codeNumber(a.code) - codeNumber(b.code));
 
   return (
     <div data-testid="admin-presets">
-      <Heading level={1}>Presets &amp; taxonomy</Heading>
-      <p className="mt-1.5 text-[13px] text-ink-3">
-        <span className="num text-ink-2">{presets.length}</span> reusable costed blocks. Editing one
-        creates a new active version — the old one stays in its history.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Heading level={1}>Presets &amp; taxonomy</Heading>
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            <span className="num text-ink-2">{presets.length}</span> reusable costed blocks. Editing
+            one creates a new active version — the old one stays in its history.
+          </p>
+        </div>
+        <Button asChild size="lg">
+          <Link href="/admin/presets/new" data-testid="new-preset">
+            New preset
+          </Link>
+        </Button>
+      </div>
 
       {presets.length === 0 ? (
         <div
@@ -23,13 +38,16 @@ export default async function PresetsAdminPage() {
           data-testid="presets-empty"
         >
           <div className="font-serif text-[20px] text-ink">No presets yet</div>
-          <p className="mx-auto mt-1.5 max-w-[420px] text-[13px] leading-relaxed text-ink-3">
-            The taxonomy is seeded from the repo. Run{' '}
+          <p className="mx-auto mt-1.5 max-w-[440px] text-[13px] leading-relaxed text-ink-3">
+            Add one by hand, or load the catalogue from the repo with{' '}
             <code className="num rounded border border-line-soft bg-surface-2 px-1.5 py-0.5 text-[12px] text-ink-2">
               db:seed:presets
-            </code>{' '}
-            to load the catalogue, then reload this page.
+            </code>
+            .
           </p>
+          <Button asChild className="mt-5">
+            <Link href="/admin/presets/new">Create the first preset</Link>
+          </Button>
         </div>
       ) : (
         <Card className="mt-5 overflow-hidden">
@@ -37,11 +55,11 @@ export default async function PresetsAdminPage() {
             <table className="w-full border-collapse text-[13px]" data-testid="presets-table">
               <thead>
                 <tr className="border-b border-line bg-surface-2 text-left">
-                  <th className="eyebrow px-4 py-2.5 font-bold">ID</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Code</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Name</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Category</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Req. type</th>
-                  <th className="eyebrow px-4 py-2.5 text-right font-bold">BE/FE</th>
+                  <th className="eyebrow px-4 py-2.5 text-right font-bold">Dev</th>
                   <th className="eyebrow px-4 py-2.5 text-right font-bold">Active</th>
                 </tr>
               </thead>
@@ -54,7 +72,12 @@ export default async function PresetsAdminPage() {
                       className="border-b border-line-soft last:border-0 hover:bg-surface-2"
                     >
                       <td className="num px-4 py-2.5 text-[12px] whitespace-nowrap text-ink-3">
-                        {p.id}
+                        {p.code ?? '—'}
+                        {p.origin !== 'SEEDED' && (
+                          <span className="ml-1.5 text-[10px] tracking-[0.04em] text-ink-4 uppercase">
+                            {p.origin === 'FINALISED' ? 'delivered' : 'manual'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <Link

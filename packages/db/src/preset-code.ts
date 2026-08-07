@@ -1,6 +1,13 @@
 import type { PrismaClient } from './generated/client/index.js';
 
 /**
+ * Just the raw-query surface these helpers need, so a transaction client
+ * (Prisma.TransactionClient) can be passed without a cast — allocating a code
+ * inside the same transaction that creates the preset is the normal case.
+ */
+type RawCapable = Pick<PrismaClient, '$queryRawUnsafe' | '$executeRawUnsafe'>;
+
+/**
  * Readable preset handles — "P46".
  *
  * Deliberately NOT `max(code) + 1`. Allocation is concurrent: two estimates
@@ -17,8 +24,15 @@ import type { PrismaClient } from './generated/client/index.js';
 const SEQUENCE = 'preset_code_seq';
 const PREFIX = 'P';
 
-/** Allocate the next preset code. Safe to call concurrently. */
-export async function allocatePresetCode(db: PrismaClient): Promise<string> {
+/**
+ * Allocate the next preset code. Safe to call concurrently.
+ *
+ * Note: sequences are deliberately non-transactional. If the surrounding
+ * transaction rolls back the number is still consumed, leaving a gap — the same
+ * trade-off Postgres makes for SERIAL columns, and the right one here: a gap is
+ * harmless, a reissued code would collide with a unique constraint.
+ */
+export async function allocatePresetCode(db: RawCapable): Promise<string> {
   const rows = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
     `SELECT nextval('${SEQUENCE}') AS n`,
   );
@@ -34,7 +48,7 @@ export async function allocatePresetCode(db: PrismaClient): Promise<string> {
  * `GREATEST` with the sequence's own value means calling this can't hand back
  * a code that was already issued.
  */
-export async function syncPresetCodeSequence(db: PrismaClient): Promise<void> {
+export async function syncPresetCodeSequence(db: RawCapable): Promise<void> {
   await db.$executeRawUnsafe(
     // `setval(..., false)` means "the next nextval returns this", so
     // `last_value` is already the next value — the +1 belongs on the max only.

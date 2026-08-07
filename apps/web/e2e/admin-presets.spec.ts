@@ -62,3 +62,73 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
     }
   });
 });
+
+test.describe('preset creation', () => {
+  /** Budget for a route's first compile under `next dev`. */
+  const COLD_COMPILE = 30_000;
+
+  test('an admin creates a preset without ever supplying a number', async ({ page }) => {
+    await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
+
+    await page.goto('/admin/presets');
+    await page.getByTestId('new-preset').click();
+    await page.waitForURL(/\/admin\/presets\/new/, { timeout: COLD_COMPILE });
+
+    // The point of the whole scheme: no id and no number field to fill in.
+    await expect(page.locator('input[name="id"]')).toHaveCount(0);
+    await expect(page.locator('input[name="code"]')).toHaveCount(0);
+
+    const unique = `E2E Created Preset ${Date.now()}`;
+    await page.getByTestId('new-preset-name').fill(unique);
+    await page.getByTestId('new-preset-category').fill('E2E');
+    await page.getByTestId('new-preset-reqtype').fill('UI Component');
+    await page
+      .getByTestId('new-preset-description')
+      .fill('Created by the e2e suite to prove presets can be added by hand.');
+    await page.getByTestId('new-preset-devhours').fill('12');
+    await page.getByTestId('new-preset-keywords').fill('e2e, created');
+    await page.getByTestId('create-preset').click();
+
+    // Lands on the editor, which shows an allocated code rather than a cuid.
+    await page.waitForURL(/\/admin\/presets\/(?!new)[^/]+$/, { timeout: COLD_COMPILE });
+    await expect(page.getByTestId('admin-preset-editor')).toBeVisible();
+    await expect(page.getByTestId('preset-code')).toHaveText(/^P\d+$/);
+    await expect(page.locator('#devHours')).toHaveValue('12');
+
+    // Recorded as hand-entered, with a real embedding-worthy description, and
+    // the URL is the cuid id — not the code.
+    const db = new PrismaClient({
+      datasources: { db: { url: process.env['TEST_DATABASE_URL']! } },
+    });
+    try {
+      const rows = await db.$queryRawUnsafe<Array<{ code: string; origin: string; id: string }>>(
+        `SELECT p.id, p.code, p.origin FROM "Preset" p
+           JOIN "PresetVersion" v ON v."presetId" = p.id
+          WHERE v.name = $1`,
+        unique,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.origin).toBe('MANUAL');
+      expect(rows[0]!.code).toMatch(/^P\d+$/);
+      expect(rows[0]!.id).not.toBe(rows[0]!.code);
+      await db.presetVersion.deleteMany({ where: { presetId: rows[0]!.id } });
+      await db.preset.delete({ where: { id: rows[0]!.id } });
+    } finally {
+      await db.$disconnect();
+    }
+  });
+
+  test('refuses a preset with no description — it would never match anything', async ({ page }) => {
+    await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
+    await page.goto('/admin/presets/new');
+
+    await page.getByTestId('new-preset-name').fill('No description');
+    await page.getByTestId('new-preset-category').fill('E2E');
+    await page.getByTestId('new-preset-reqtype').fill('UI Component');
+    await page.getByTestId('new-preset-description').fill('short');
+    await page.getByTestId('create-preset').click();
+
+    await expect(page.getByTestId('new-preset-error')).toContainText('description');
+    await expect(page).toHaveURL(/\/admin\/presets\/new/);
+  });
+});
