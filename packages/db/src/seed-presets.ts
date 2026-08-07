@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { PrismaClient } from './generated/client/index.js';
+import { syncPresetCodeSequence } from './preset-code';
 
 // tsx doesn't auto-load .env and Prisma Client doesn't read it at runtime.
 if (!process.env['DATABASE_URL']) {
@@ -152,7 +153,7 @@ async function main() {
       const preset = await prisma.preset.upsert({
         where: { code: id },
         update: {},
-        create: { id, code: id },
+        create: { id, code: id, origin: 'SEEDED' },
       });
       await prisma.presetVersion.upsert({
         where: { presetId_version: { presetId: preset.id, version: 1 } },
@@ -167,6 +168,8 @@ async function main() {
       });
       count += 1;
     }
+    // Keep allocated codes clear of anything the spreadsheet just introduced.
+    await syncPresetCodeSequence(prisma);
     // eslint-disable-next-line no-console
     console.log(`Preset seed complete: ${count} presets imported (P01–P${String(count).padStart(2, '0')}).`);
   } finally {

@@ -162,7 +162,14 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
 
     expect(result.versioned).toEqual([]);
     expect(result.created).toHaveLength(1);
-    expect(result.created[0]).toMatch(/^promoted-/);
+
+    // The new preset gets an opaque cuid id and a readable, allocated code —
+    // nothing synthesises an id from the estimate any more, and no human picks
+    // a number. Provenance lives in `origin`, not in the code's shape.
+    const minted = await db.preset.findUniqueOrThrow({ where: { id: result.created[0]! } });
+    expect(minted.origin).toBe('FINALISED');
+    expect(minted.code).toMatch(/^P\d+$/);
+    expect(minted.id).not.toMatch(/^P\d+$/); // id is a cuid, not the code
 
     // The established preset is untouched — still v1, still its own hours.
     const v = await activeVersion(MATCHED);

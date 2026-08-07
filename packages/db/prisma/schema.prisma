@@ -80,6 +80,18 @@ enum RoleKind {
   BA
 }
 
+/// How a preset entered the library. Stored as a column, not inferred from the
+/// code prefix — "show me everything validated against delivery" should be a
+/// query, not a string match.
+enum PresetOrigin {
+  /// Imported from docs/Estimate Presets (ISM).xlsx.
+  SEEDED
+  /// Written back from a finalised estimate.
+  FINALISED
+  /// Entered by hand in the admin UI.
+  MANUAL
+}
+
 // ─── Identity & Access ────────────────────────────────────────────────────────
 
 model User {
@@ -122,22 +134,22 @@ model TaxonomyNodeVersion {
 // ─── Preset Library ───────────────────────────────────────────────────────────
 
 model Preset {
-  /// cuid, generated. Nothing should ever have to allocate a preset number:
-  /// the creation UI shouldn't ask an operator to pick "the next one", and in a
-  /// shared library there is no safe way for them to know it.
-  ///
-  /// The seeded 45 keep the ids they were imported under (P01–P45) because
-  /// those strings are load-bearing *today*: `requires`/`blocks` form a real
-  /// dependency graph between presets (40 distinct ids referenced, 0 dangling),
-  /// existing MenuItem.sourcePresetId rows point at them, and six live agent
-  /// prompts name the P01–P45 range explicitly. Remapping them would mean
-  /// rewriting all of that in lockstep. New presets are cuids from here on.
+  /// cuid. Opaque and never allocated by a human — see `code` for the readable
+  /// handle. The seeded 45 keep the ids they were imported under (P01–P45),
+  /// which are load-bearing: requires/blocks form a real dependency graph
+  /// between presets, MenuItem.sourcePresetId rows point at them, and live
+  /// agent prompts name the range.
   id       String          @id @default(cuid())
-  /// The code this preset was imported under (P01–P45 from
-  /// `docs/Estimate Presets (ISM).xlsx`). Provenance and display only — NOT
-  /// identity, and null for anything created in the app. The seed keys on this
-  /// so re-importing stays idempotent without the number becoming the id.
+  /// Readable handle — "P46". Unique, shown everywhere, never typed by a user:
+  /// allocated from a Postgres sequence (see allocatePresetCode) so concurrent
+  /// finalises can't collide the way max()+1 would.
+  ///
+  /// Numbers are free-flowing — no zero padding, no fixed width. Codes imported
+  /// from the xlsx keep that file's own formatting (P01–P45) because people
+  /// cross-reference the spreadsheet; allocated codes are plain (P46, P100).
   code     String?         @unique
+  /// Where this preset came from. See PresetOrigin.
+  origin   PresetOrigin    @default(MANUAL)
   versions PresetVersion[]
 }
 
@@ -196,6 +208,12 @@ model PresetVersion {
   createdAt        DateTime         @default(now())
   createdBy        String?
   sourceEstimateId String?
+  /// Which menu item of that estimate this version came from. Together with
+  /// sourceEstimateId this is the idempotency key for promotion — re-finalising
+  /// must not stack duplicate versions. It used to be implicit in a synthesised
+  /// preset id (`promoted-<estimateId>-<itemId>`); now that ids are cuids the
+  /// key has to be a real column.
+  sourceMenuItemId String?
 
   @@unique([presetId, version])
 }

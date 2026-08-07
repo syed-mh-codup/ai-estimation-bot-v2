@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@repo/db';
+import { allocatePresetCode } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
 import type { MenuItem, RoleLineItem } from '@repo/shared';
 
@@ -101,21 +102,37 @@ export async function promoteMenuItemsToPresets(
     // have no side tags — they must never enter the library.
     if (item.id.startsWith('baseline-') || item.id.startsWith('hidden-')) continue;
 
+    // Already promoted from this estimate — don't stack duplicate versions on a
+    // re-finalise. Keyed on (estimate, menu item) rather than on a synthesised
+    // preset id: ids are cuids now, so there is nothing to reconstruct.
+    const existing = await db.presetVersion.findFirst({
+      where: { sourceEstimateId: estimateId, sourceMenuItemId: item.id },
+      select: { presetId: true },
+    });
+    if (existing) {
+      skipped.push(existing.presetId);
+      continue;
+    }
+
     // Hybrid: version the matched preset only on a confident match.
     const strongMatch =
       item.sourcePresetId && (item.matchScore ?? 0) >= PROMOTION_MATCH_THRESHOLD
         ? item.sourcePresetId
         : null;
-    const presetId = strongMatch ?? `promoted-${estimateId}-${item.id}`;
 
-    // Already promoted from this estimate — don't stack duplicate versions on
-    // a re-finalise.
-    const existing = await db.presetVersion.findFirst({
-      where: { presetId, sourceEstimateId: estimateId },
-    });
-    if (existing) {
-      skipped.push(presetId);
-      continue;
+    let presetId: string;
+    if (strongMatch) {
+      presetId = strongMatch;
+    } else {
+      // A brand-new preset: cuid id, and a readable code allocated from the
+      // sequence so nothing has to pick a number. origin records that this came
+      // from delivered work — the code prefix is uniform (P) on purpose, so
+      // provenance is a queryable column rather than a string match.
+      const created = await db.preset.create({
+        data: { code: await allocatePresetCode(db), origin: 'FINALISED' },
+        select: { id: true },
+      });
+      presetId = created.id;
     }
 
     const latestVersion = await db.presetVersion.findFirst({
@@ -126,11 +143,6 @@ export async function promoteMenuItemsToPresets(
 
     if (latestVersion) {
       await db.presetVersion.updateMany({ where: { presetId }, data: { active: false } });
-    }
-
-    const presetExists = await db.preset.findUnique({ where: { id: presetId } });
-    if (!presetExists) {
-      await db.preset.create({ data: { id: presetId } });
     }
 
     const effort = devEffortOf(item.lineItems);
@@ -176,6 +188,7 @@ export async function promoteMenuItemsToPresets(
         taxonomyKey: carry?.taxonomyKey ?? item.taxonomyKey,
         changeMotivation: 'POST_DELIVERY_VALIDATION',
         sourceEstimateId: estimateId,
+        sourceMenuItemId: item.id,
         changeReason: strongMatch
           ? `Recalibrated from finalised estimate ${estimateId} (match ${(item.matchScore ?? 0).toFixed(2)}) — ${describeSides(effort)}`
           : `Promoted from finalised estimate ${estimateId} — ${describeSides(effort)}`,
