@@ -36,6 +36,7 @@ import {
   type Role,
   type TaxPercents,
 } from './ledger-context';
+import { SideTag } from './SideTag';
 
 /**
  * The ledger's column template, shared by every section head and item row. This
@@ -609,7 +610,7 @@ function ItemRow({
  * pinned to the Total column's width so it still lands under Total.
  */
 function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDTO }) {
-  const { taxPercents, isFinalised, onEditLineTitle, onEditLineHours, onDeleteLineItem } =
+  const { taxPercents, isFinalised, onEditLineTitle, onSetLineSide, onEditLineHours, onDeleteLineItem } =
     useLedger();
   const pct = (taxPercents as TaxPercents)[role] ?? 0;
 
@@ -618,6 +619,15 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
       <span className="num shrink-0 rounded border border-line bg-surface px-1 text-[10px] font-semibold text-ink-3">
         {role}
       </span>
+
+      {/* Only DEV work has a frontend/backend side; QA, PM and BA don't. */}
+      {role === 'DEV' && (
+        <SideTag
+          li={li}
+          disabled={isFinalised}
+          onChange={(side) => onSetLineSide(item.id, li, side)}
+        />
+      )}
 
       <InlineText
         defaultValue={li.title ?? ''}

@@ -76,6 +76,8 @@ async function exportSheetsAction(formData: FormData) {
       aiAssistApplied: false,
       dependsOn: [],
       anchorPresetIds: [],
+      touchesFrontend: li.touchesFrontend,
+      touchesBackend: li.touchesBackend,
     })),
   }));
 
@@ -147,6 +149,8 @@ export default async function EstimateDetailPage({
       baseHours: li.baseHours,
       taxedHours: li.taxedHours,
       edited: li.edited,
+      touchesFrontend: li.touchesFrontend,
+      touchesBackend: li.touchesBackend,
     })),
   }));
 

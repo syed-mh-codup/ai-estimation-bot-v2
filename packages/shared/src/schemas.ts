@@ -295,6 +295,12 @@ export const SpecialistLineItemSchema = z.object({
   /** Intra-requirement ordering — other line_item_ids this depends on. */
   dependsOn: z.array(z.string()).default([]),
   anchorPresetIds: z.array(z.string()).default([]),
+  /**
+   * Which side of the stack this unit touches. DEV tags these; the other roles
+   * leave them false. The hours are never divided by them.
+   */
+  touchesFrontend: z.boolean().default(false),
+  touchesBackend: z.boolean().default(false),
 });
 export type SpecialistLineItem = z.infer<typeof SpecialistLineItemSchema>;
 
@@ -336,6 +342,13 @@ export const RoleLineItemSchema = z.object({
   anchorPresetIds: z.array(z.string()).default([]),
   notes: z.string().optional(),
   edited: z.boolean().default(false),
+  /**
+   * Which side of the stack this unit touches (DEV only). The hours stay one
+   * combined number — these describe what it covers, they don't divide it.
+   * Both false means untagged; both true means genuinely full-stack.
+   */
+  touchesFrontend: z.boolean().default(false),
+  touchesBackend: z.boolean().default(false),
 });
 export type RoleLineItem = z.infer<typeof RoleLineItemSchema>;
 

@@ -71,6 +71,8 @@ export function assembleCardsFromSpecialists(
         aiAssistApplied: li.aiAssistApplied,
         dependsOn: li.dependsOn,
         anchorPresetIds: li.anchorPresetIds,
+        touchesFrontend: li.touchesFrontend,
+        touchesBackend: li.touchesBackend,
         edited: false,
       });
     }

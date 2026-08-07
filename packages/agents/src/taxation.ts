@@ -97,6 +97,11 @@ export function injectInfraBaseline(
           aiAssistApplied: false,
           dependsOn: [],
           anchorPresetIds: [],
+          // Infra baseline (env setup, CI/CD, hypercare) isn't feature work, so
+          // it has no meaningful side. Left untagged rather than guessed at —
+          // and writeback skips baseline items anyway.
+          touchesFrontend: false,
+          touchesBackend: false,
         }),
       );
 

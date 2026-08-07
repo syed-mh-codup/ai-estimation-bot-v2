@@ -297,6 +297,8 @@ export async function runEstimate(
                   taxedHours: li.taxedHours,
                   notes: li.notes ?? null,
                   edited: li.edited,
+                  touchesFrontend: li.touchesFrontend,
+                  touchesBackend: li.touchesBackend,
                   meta: {
                     id: li.id ?? null,
                     requirementId: li.requirementId ?? null,

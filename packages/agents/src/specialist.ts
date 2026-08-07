@@ -30,6 +30,9 @@ const LLMLineItemSchema = z.object({
   complexity: ComplexityTierSchema,
   aiAssistApplied: z.boolean().default(false),
   dependsOn: z.array(z.number().int().min(0)).default([]),
+  // DEV only, and optional: a missing tag stays untagged rather than failing
+  // the run. Never used to divide `hours` — see side-tagging note below.
+  side: z.enum(['frontend', 'backend', 'both']).optional(),
 });
 
 const LLMSpecialistSchema = z.object({
@@ -53,6 +56,25 @@ function describeCoverage(input: SpecialistInput): string {
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/**
+ * Only DEV is asked which side of the stack an item touches — QA/PM/BA work
+ * isn't frontend or backend, and asking would invite meaningless answers.
+ */
+function sideFieldSpec(role: 'DEV' | 'QA' | 'PM' | 'BA'): string {
+  return role === 'DEV' ? ',\n      "side": "frontend" | "backend" | "both"' : '';
+}
+
+function sideGuidance(role: 'DEV' | 'QA' | 'PM' | 'BA'): string {
+  if (role !== 'DEV') return '';
+  // The hours stay one number. This is a label on the work, not a division of
+  // it — stated explicitly because a model told to think about FE and BE
+  // separately will otherwise try to give two figures.
+  return `
+SIDE: tag every item with the side of the stack it touches. Report ONE hours figure per item — "side" describes what that figure covers, it does NOT split it.
+Prefer "frontend" or "backend". At this granularity (<=4h atomic units) most work is clearly one or the other: schema, API, jobs, integrations and data migration are backend; components, views, state, styling and client-side validation are frontend.
+Use "both" only when a unit genuinely cannot be separated. If an item would be "both" simply because it spans a feature end to end, split it into a frontend item and a backend item instead — that is more faithful to the four-hour rule anyway.`;
 }
 
 function buildUserMessage(role: 'DEV' | 'QA' | 'PM' | 'BA', input: SpecialistInput): string {
@@ -81,13 +103,13 @@ Respond with JSON only, matching exactly this shape:
       "hours": <number, 0.25-4.0, granularity 0.25>,
       "complexity": "base" | "elevated" | "high",
       "aiAssistApplied": true | false,
-      "dependsOn": [<0-based indices of other items in THIS list this depends on>]
+      "dependsOn": [<0-based indices of other items in THIS list this depends on>]${sideFieldSpec(role)}
     }
   ],
   "assumptions": ["..."]
 }
 HARD CAP: no item's "hours" may exceed 4.0. If a unit of work needs more, split it into multiple items.
-If a category of work genuinely isn't needed for this requirement (e.g. no integration to test), OMIT it from "lineItems" entirely — do not include a 0-hour placeholder item.`;
+If a category of work genuinely isn't needed for this requirement (e.g. no integration to test), OMIT it from "lineItems" entirely — do not include a 0-hour placeholder item.${sideGuidance(role)}`;
 }
 
 function snapToQuarterHour(hours: number): number {
@@ -150,6 +172,7 @@ export async function runSpecialist(
     complexity: 'base' | 'elevated' | 'high';
     aiAssistApplied: boolean;
     dependsOn: number[];
+    side?: 'frontend' | 'backend' | 'both';
   };
 
   const rawLineItems = llmResult.lineItems as unknown as LLMLineItem[];
@@ -167,6 +190,7 @@ export async function runSpecialist(
     complexity: 'base' | 'elevated' | 'high';
     aiAssistApplied: boolean;
     dependsOnOriginal: number[] | null; // null = internal chain link, not the model's dependsOn
+    side?: 'frontend' | 'backend' | 'both';
   };
   const expanded: Expanded[] = [];
   const lastChunkIndexByOriginal = new Map<number, number>();
@@ -182,6 +206,8 @@ export async function runSpecialist(
         complexity: li.complexity,
         aiAssistApplied: li.aiAssistApplied,
         dependsOnOriginal: chunkIndex === 0 ? li.dependsOn : null,
+        // Splitting an oversized item doesn't change which side it touches.
+        ...(li.side ? { side: li.side } : {}),
       });
     });
     lastChunkIndexByOriginal.set(originalIndex, expanded.length - 1);
@@ -211,6 +237,12 @@ export async function runSpecialist(
       aiAssistApplied: item.aiAssistApplied,
       dependsOn: deps,
       anchorPresetIds: input.archivistMatch?.presetId ? [input.archivistMatch.presetId] : [],
+      // Untagged (both false) when the model omitted `side`. Non-DEV roles are
+      // forced untagged even if the model volunteers one: QA/PM/BA work has no
+      // side, the UI never surfaces it there, and writeback only sums DEV — so
+      // storing it would be invisible, meaningless state.
+      touchesFrontend: role === 'DEV' && (item.side === 'frontend' || item.side === 'both'),
+      touchesBackend: role === 'DEV' && (item.side === 'backend' || item.side === 'both'),
     };
   });
 

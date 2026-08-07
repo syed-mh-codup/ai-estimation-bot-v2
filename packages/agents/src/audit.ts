@@ -60,6 +60,9 @@ export function runHiddenWorkAudit(
         aiAssistApplied: false,
         dependsOn: [],
         anchorPresetIds: [],
+        // Injected hidden-work placeholders carry no side; writeback skips them.
+        touchesFrontend: false,
+        touchesBackend: false,
       })),
     });
   }

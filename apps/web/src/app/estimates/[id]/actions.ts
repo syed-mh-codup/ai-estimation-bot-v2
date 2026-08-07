@@ -24,6 +24,9 @@ export type LineItemDTO = {
   baseHours: number;
   taxedHours: number;
   edited: boolean;
+  /** Which side of the stack this DEV item touches. Never divides the hours. */
+  touchesFrontend: boolean;
+  touchesBackend: boolean;
 };
 export type ItemDTO = {
   id: string;
@@ -200,7 +203,7 @@ export async function createLineItem(menuItemId: string, role: RoleKind): Promis
   await assertEditable(await estimateIdForItem(menuItemId));
   const li = await prisma.roleLineItem.create({
     data: { menuItemId, role, title: '', baseHours: 0, taxedHours: 0, edited: true },
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
   });
   return li;
 }
@@ -234,9 +237,31 @@ export async function updateLineItem(
   const li = await prisma.roleLineItem.update({
     where: { id },
     data,
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
   });
   return li;
+}
+
+/**
+ * Set which side of the stack a DEV line item touches.
+ *
+ * Note what this does NOT do: it never touches `baseHours`/`taxedHours`. The
+ * hours stay one combined figure — these flags say what that figure covers.
+ * Summing DEV rows by them is what lets a finalised estimate map onto a
+ * preset's beHours/feHours exactly, instead of inventing the frontend share.
+ */
+export async function setLineItemSide(
+  id: string,
+  side: { touchesFrontend: boolean; touchesBackend: boolean },
+): Promise<LineItemDTO> {
+  await requireSession();
+  const { estimateId } = await estimateIdForLineItem(id);
+  await assertEditable(estimateId);
+  return prisma.roleLineItem.update({
+    where: { id },
+    data: { touchesFrontend: side.touchesFrontend, touchesBackend: side.touchesBackend, edited: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
+  });
 }
 
 export async function deleteLineItem(id: string): Promise<void> {

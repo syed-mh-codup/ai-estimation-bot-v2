@@ -20,6 +20,7 @@ import {
   moveMenuItem,
   createLineItem,
   updateLineItem,
+  setLineItemSide,
   deleteLineItem,
   type ItemDTO,
   type SectionDTO,
@@ -77,6 +78,11 @@ type Ledger = {
   onDeleteItem: (id: string) => void;
   onAddLineItem: (menuItemId: string, role: Role) => Promise<void>;
   onEditLineTitle: (menuItemId: string, li: LineItemDTO, title: string) => void;
+  onSetLineSide: (
+    menuItemId: string,
+    li: LineItemDTO,
+    side: { touchesFrontend: boolean; touchesBackend: boolean },
+  ) => void;
   onEditLineHours: (menuItemId: string, li: LineItemDTO, raw: number) => void;
   onDeleteLineItem: (menuItemId: string, id: string) => void;
   onMoveItem: (id: string, toSectionId: string | null, orderedIds: string[]) => void;
@@ -285,6 +291,26 @@ export function LedgerProvider({
       },
     );
   };
+  /**
+   * Toggling a side never recomputes hours — that's the whole point of the
+   * flags, so the optimistic patch deliberately carries baseHours/taxedHours
+   * through untouched.
+   */
+  const onSetLineSide = (
+    menuItemId: string,
+    li: LineItemDTO,
+    side: { touchesFrontend: boolean; touchesBackend: boolean },
+  ) => {
+    const snap0 = snapshot();
+    void optimistic(
+      () => patchLineItem(menuItemId, { ...li, ...side, edited: true }),
+      snap0,
+      async () => {
+        const updated = await setLineItemSide(li.id, side);
+        patchLineItem(menuItemId, updated);
+      },
+    );
+  };
   const onEditLineHours = (menuItemId: string, li: LineItemDTO, raw: number) => {
     const base = snap(Number.isFinite(raw) ? raw : 0);
     if (base === li.baseHours) return;
@@ -353,6 +379,7 @@ export function LedgerProvider({
     onDeleteItem,
     onAddLineItem,
     onEditLineTitle,
+    onSetLineSide,
     onEditLineHours,
     onDeleteLineItem,
     onMoveItem,

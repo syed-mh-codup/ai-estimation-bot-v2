@@ -338,6 +338,17 @@ model RoleLineItem {
   taxedHours Float
   notes      String?
   edited     Boolean  @default(false)
+  /// Which side of the stack this unit of work touches. Only meaningful for
+  /// role = DEV; the hours stay a SINGLE combined number — these say what the
+  /// number covers, they do not split it.
+  ///
+  /// Both false = not yet tagged (every row predating this column, plus
+  /// hand-entered ones). Both true = genuinely full-stack. Presets carry
+  /// beHours/feHours separately, so summing DEV rows by these flags is what
+  /// lets writeback map an estimate onto a preset exactly instead of
+  /// fabricating the frontend share.
+  touchesFrontend Boolean @default(false)
+  touchesBackend  Boolean @default(false)
   /// Extra envelope structure: id (DEV-REQ003-04), requirementId, complexity
   /// tier, aiAssistApplied, dependsOn, anchorPresetIds.
   meta       Json?
