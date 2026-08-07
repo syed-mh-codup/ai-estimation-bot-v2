@@ -6,12 +6,21 @@ import { TEST_USERS, PROFILE_NEW_PASSWORD } from './global-setup';
  * in as. Specs run in parallel, so changing a shared user's credentials
  * mid-run would break whichever spec happened to be logging in at the time.
  *
- * They run serially within this file because the password test invalidates the
- * password the others sign in with.
+ * Order matters — the last test invalidates the password the others sign in
+ * with — and Playwright already gives it: `fullyParallel: false` runs a file's
+ * tests sequentially in declaration order. Deliberately NOT `mode: 'serial'`,
+ * which would also skip every later test when an early one fails, turning a
+ * single slow cold-compile into four phantom failures.
  */
-test.describe.configure({ mode: 'serial' });
 
 const USER = TEST_USERS.profile;
+
+/**
+ * /profile's first compile under `next dev` can take well over the 5s default
+ * an assertion allows (see playwright.config's note on cold compile). The
+ * 60s per-test budget covers it; the individual wait has to be told.
+ */
+const COLD_COMPILE = 30_000;
 
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -30,7 +39,7 @@ test.describe('profile: see your own name, change your own password', () => {
     await expect(page.getByTestId('nav-user-name')).toHaveText(USER.email);
 
     await page.getByTestId('nav-profile').click();
-    await expect(page).toHaveURL(/\/profile/);
+    await page.waitForURL(/\/profile/, { timeout: COLD_COMPILE });
     await expect(page.getByTestId('profile-email')).toHaveText(USER.email);
   });
 
