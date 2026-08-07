@@ -5,7 +5,7 @@ import type {
   ISearchProvider,
   IMcpProvider,
 } from '@repo/providers';
-import { StubSearchProvider, StubMcpProvider } from '@repo/providers';
+import { createSearchProvider, StubMcpProvider } from '@repo/providers';
 import type { ArchivistMatch, MenuItem, RiskFinding, SpecialistOutput } from '@repo/shared';
 import { hashSOW, normaliseSOW } from './sow-utils';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
@@ -83,7 +83,11 @@ export async function runEstimate(
   deps: RunEstimateDeps,
 ): Promise<RunEstimateResult> {
   const { db, modelProvider } = deps;
-  const searchProvider = deps.searchProvider ?? new StubSearchProvider();
+  // `createSearchProvider` returns the real Tavily adapter when TAVILY_API_KEY
+  // is set and the stub otherwise, so the Detective is grounded in production
+  // without callers having to know which. An explicit dep still wins (tests
+  // pass a stub deliberately).
+  const searchProvider = deps.searchProvider ?? createSearchProvider();
   const mcpProvider = deps.mcpProvider ?? new StubMcpProvider();
   // Progress is awaited so ticks can't interleave; pct weights are coarse but
   // monotonic so the UI bar only ever moves forward.

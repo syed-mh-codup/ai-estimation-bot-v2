@@ -8,6 +8,7 @@ export const REQUIRED_SERVER_ENV = ['DATABASE_URL', 'AUTH_SECRET'] as const;
 
 export const OPTIONAL_SERVER_ENV = [
   'OPENROUTER_API_KEY', // agent runs (chat) + embeddings
+  'TAVILY_API_KEY', // Detective search grounding — without it findings are model-only
   'GOOGLE_SERVICE_ACCOUNT_JSON', // Sheets export
   'GOOGLE_DRIVE_FOLDER_ID', // Sheets export
   'ENCRYPTION_KEY', // MCP connector secret storage
