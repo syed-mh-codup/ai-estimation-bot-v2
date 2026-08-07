@@ -8,7 +8,10 @@ export const authConfig: NextAuthConfig = {
   // Derive the origin from each request's Host header instead of a hardcoded
   // AUTH_URL, so the same build works on any port (manual dev 3000, e2e 3001).
   trustHost: true,
-  pages: { signIn: '/login' },
+  // Both are ours. Without `signOut`, next-auth renders its own built-in page
+  // at /api/auth/signout — a dark unstyled card that looks like a different
+  // product, reachable whenever anything GETs that URL.
+  pages: { signIn: '/login', signOut: '/signout' },
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
