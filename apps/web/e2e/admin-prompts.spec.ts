@@ -1,6 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS } from './global-setup';
 
+/** Budget for a route's first compile under `next dev`. */
+const COLD_COMPILE = 30_000;
+
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.fill('#email', email);
@@ -19,7 +22,10 @@ test.describe('WS24-05: prompts admin — edit creates a new active version', ()
 
     // Open the LIBRARIAN prompt editor.
     await page.getByTestId('prompt-link-LIBRARIAN').click();
-    await expect(page).toHaveURL(/\/admin\/prompts\/LIBRARIAN/);
+    // These routes' cold first compile under `next dev` can outlast the 5s an
+    // assertion allows by default (playwright.config's 60s per-test budget
+    // covers it, but the individual wait has to be told).
+    await page.waitForURL(/\/admin\/prompts\/LIBRARIAN/, { timeout: COLD_COMPILE });
     await expect(page.getByTestId('admin-prompt-editor')).toBeVisible();
 
     const versionBadge = page.getByTestId('prompt-active-version');
@@ -57,7 +63,7 @@ test.describe('View a prompt version\'s details and activate an older one', () =
 
     // Open the detail view for v1 (guaranteed to exist and, once activeBefore > 1, inactive).
     await page.getByTestId('prompt-version-link-1').click();
-    await expect(page).toHaveURL(/\/admin\/prompts\/LIBRARIAN\/1$/);
+    await page.waitForURL(/\/admin\/prompts\/LIBRARIAN\/1$/, { timeout: COLD_COMPILE });
     await expect(page.getByTestId('admin-prompt-version-detail')).toBeVisible();
     await expect(page.getByTestId('version-body')).not.toHaveValue('');
     await expect(page.getByTestId('version-model')).not.toBeEmpty();
@@ -72,7 +78,7 @@ test.describe('View a prompt version\'s details and activate an older one', () =
     await page.getByTestId('activate-version').click();
 
     // Activating redirects back to the editor with v1 now active.
-    await expect(page).toHaveURL(/\/admin\/prompts\/LIBRARIAN$/);
+    await page.waitForURL(/\/admin\/prompts\/LIBRARIAN$/, { timeout: COLD_COMPILE });
     await expect(versionBadge).toHaveText('v1');
     await expect(page.getByTestId('prompt-version-1')).toContainText('active');
     await expect(page.getByTestId(`prompt-version-${activeBefore}`)).toContainText('inactive');
