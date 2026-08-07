@@ -122,7 +122,22 @@ model TaxonomyNodeVersion {
 // ─── Preset Library ───────────────────────────────────────────────────────────
 
 model Preset {
-  id       String          @id
+  /// cuid, generated. Nothing should ever have to allocate a preset number:
+  /// the creation UI shouldn't ask an operator to pick "the next one", and in a
+  /// shared library there is no safe way for them to know it.
+  ///
+  /// The seeded 45 keep the ids they were imported under (P01–P45) because
+  /// those strings are load-bearing *today*: `requires`/`blocks` form a real
+  /// dependency graph between presets (40 distinct ids referenced, 0 dangling),
+  /// existing MenuItem.sourcePresetId rows point at them, and six live agent
+  /// prompts name the P01–P45 range explicitly. Remapping them would mean
+  /// rewriting all of that in lockstep. New presets are cuids from here on.
+  id       String          @id @default(cuid())
+  /// The code this preset was imported under (P01–P45 from
+  /// `docs/Estimate Presets (ISM).xlsx`). Provenance and display only — NOT
+  /// identity, and null for anything created in the app. The seed keys on this
+  /// so re-importing stays idempotent without the number becoming the id.
+  code     String?         @unique
   versions PresetVersion[]
 }
 

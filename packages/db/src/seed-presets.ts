@@ -144,12 +144,21 @@ async function main() {
         notes: str(r[COL.notes]),
       };
 
-      await prisma.preset.upsert({ where: { id }, update: {}, create: { id } });
+      // Keyed on `code`, not id — the xlsx number is provenance, not identity.
+      // Presets created in the app get a cuid and no code, and re-importing
+      // stays idempotent because this matches on the code the row was imported
+      // under. Rows imported before `code` existed keep id === code, so the
+      // create branch below preserves that and never duplicates them.
+      const preset = await prisma.preset.upsert({
+        where: { code: id },
+        update: {},
+        create: { id, code: id },
+      });
       await prisma.presetVersion.upsert({
-        where: { presetId_version: { presetId: id, version: 1 } },
+        where: { presetId_version: { presetId: preset.id, version: 1 } },
         update: { ...data, active: true },
         create: {
-          presetId: id,
+          presetId: preset.id,
           version: 1,
           active: true,
           ...data,
