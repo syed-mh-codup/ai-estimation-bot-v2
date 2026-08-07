@@ -5,9 +5,71 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-07-08 — `feat/honor-prompts-4h-decomposition` DONE (all 10 phases) + a second live-verify pass against a preset-adjacent SOW that found and fixed 2 more real bugs (envelope robustness on cap violations, Archivist match not surfacing on menu cards). 137/137 agents tests pass. Not yet merged to master. See below._
+_Last updated: 2026-08-07 — worked the prioritised WORKLOG: items #1 (delete authz), #2 (preset embedding lifecycle) and #3 (profile screen) are DONE and on `master`. See the section directly below. Awaiting a decision on the DEV frontend/backend flag before #6 (finalise → preset library)._
 
-## 2026-07-08 — honor-prompts-4h-decomposition: COMPLETE + second live-verify pass
+## 2026-08-07 — WORKLOG #1–#3 landed on master
+
+`feat/honor-prompts-4h-decomposition` and `design/warm-ledger` are both merged
+(`git branch --no-merged master` is empty); the note further down about the
+former being unmerged is stale.
+
+**#1 — estimate deletion was unauthenticated in effect** (`209f6cc`).
+`deleteEstimate` only called `requireSession()`, so any signed-in user could
+destroy any estimate. There was also a *second* delete path
+(`dashboard/page.tsx`) calling prisma directly, which is how it stayed
+invisible. Both now go through one owner-or-admin chokepoint; new
+`requireUser()` in `lib/rbac.ts`. **Editing stays open on purpose** — the
+dashboard shows every estimate to everyone and that shared ledger is the
+product; only destruction needs an accountable actor.
+
+**#2 — the preset library could silently vanish from the Archivist** (`694a056`).
+Retrieval filters `embedding IS NOT NULL`, so an un-embedded preset never
+matches and never errors. `savePreset` created each new version with a null
+embedding, deferring to a backfill that **did not exist anywhere in the repo** —
+so a routine admin edit permanently de-indexed that preset.
+- New `PresetVersion.embeddingText` records the exact string a vector came
+  from, making staleness decidable.
+- `savePreset` carries the old vector forward *inside* an interactive
+  transaction (no window where the new version lacks one), then queues a
+  refresh via a new `preset-embed` Inngest function.
+- `backfillPresetEmbeddings()` + `pnpm db:embed:presets` (with `--dry-run`,
+  `--force`, per-id filtering) is the recovery path that was missing.
+- **Verified against Neon: 45/45 active presets embedded and tracked**, second
+  run a clean no-op. Note the pre-existing 45/45 was a one-off nothing in the
+  repo could reproduce — that's now fixed, not just documented.
+- Latency bug found and fixed en route: the Inngest SDK retries a failed send
+  with backoff, so awaiting it inline froze an admin save for ~20s whenever
+  the event bus was down. Moved into `next/server` `after()`.
+
+**#3 — no user could see their own name or change their own password**
+(`fe68a60`). The admin create-user dialog promised both in writing and neither
+existed; every account was stuck forever on the temp password an admin typed.
+New `/profile` (details, editable name, change-password requiring the current
+password). `MIN_PASSWORD_LENGTH` moved to `lib/password.ts` so self-set and
+admin-set passwords share one rule. The DB-backed `jwt` callback now carries
+`name` alongside `role`, so a rename lands live. Nav shows the name and links
+to the page.
+- **Known limitation, deliberately not built:** `strategy: 'jwt'` means there
+  is no session table to revoke, so changing a password does not invalidate
+  that user's other live sessions until their token expires. The natural fix
+  is a `passwordChangedAt` comparison in the same jwt callback — it should
+  ride along with WORKLOG #5's user-disable check, which needs the identical
+  hook.
+
+**Test state:** 250/250 unit (up from 236), **e2e 25 passed / 3 failed** — the
+3 are the documented pre-existing failures (see the e2e-preexisting-failures
+memory), unchanged. Two *other* specs (`admin-prompts`, and `profile` on its
+first run) were flaking purely on cold route compile under `next dev`; both now
+wait with an explicit budget (`ed72952`, `95ca525`). Lint unchanged at its
+18-error baseline; `apps/web` typecheck clean.
+
+**Next:** WORKLOG #4 is scoped down — DEV stays a single combined number, with
+a frontend/backend *flag* on line items instead of a split. That decision gates
+#6 (finalise → preset library), because the flag is what makes the writeback
+FE/BE math exact instead of fabricated. Then #5 (disable + optional reassign)
+and #7 (preset creation). #8 (steering input) is explicitly not started.
+
+## 2026-07-08 — honor-prompts-4h-decomposition: COMPLETE + second live-verify pass (MERGED to master)
 
 **Outcome:** every phase (1–10) landed as its own commit on this branch, all
 133 agents tests + 19/19 e2e pass, apps/web typecheck is clean (only the 5
