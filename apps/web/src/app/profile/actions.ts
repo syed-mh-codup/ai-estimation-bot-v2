@@ -62,11 +62,13 @@ export async function changePassword(
     return { error: 'The new password must be different from the current one.' };
   }
 
-  await prisma.user.update({ where: { id }, data: { hash: await hashPassword(next) } });
+  // `passwordChangedAt` is what signs the account's OTHER devices out: the
+  // DB-backed jwt callback rejects any token issued before this moment. Without
+  // it, changing your password would leave every other session working.
+  await prisma.user.update({
+    where: { id },
+    data: { hash: await hashPassword(next), passwordChangedAt: new Date() },
+  });
 
-  // Note: `session: { strategy: 'jwt' }` means there is no session table to
-  // revoke, so any other signed-in session for this user keeps working until
-  // its token expires. Invalidating those needs a `passwordChangedAt` check in
-  // the jwt callback — deliberately not built here.
   return { ok: true };
 }

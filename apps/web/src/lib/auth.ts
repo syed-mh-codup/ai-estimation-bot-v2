@@ -4,6 +4,7 @@ import { prisma } from '@repo/db';
 import { verifyPassword } from './password';
 import type { Role } from '@repo/db';
 import { authConfig } from './auth.config';
+import { sessionSurvives } from './session-rules';
 
 declare module 'next-auth' {
   interface User {
@@ -40,6 +41,9 @@ const nextAuth = NextAuth({
         });
 
         if (!user) return null;
+        // Blocks NEW logins. Ending sessions already in flight is the jwt
+        // callback's job below — see the comment there.
+        if (user.disabledAt) return null;
 
         const valid = await verifyPassword(credentials.password as string, user.hash);
         if (!valid) return null;
@@ -65,17 +69,28 @@ const nextAuth = NextAuth({
         token['role'] = (user as { role: Role }).role;
         token['id'] = user.id;
         token['name'] = user.name ?? null;
+        // Stamped so a later password change can invalidate this token: any
+        // token issued before passwordChangedAt is no longer trusted.
+        token['issuedAt'] = Date.now();
         return token;
       }
       if (token['id']) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token['id'] as string },
-          select: { role: true, name: true },
+          select: { role: true, name: true, disabledAt: true, passwordChangedAt: true },
         });
-        if (dbUser) {
-          token['role'] = dbUser.role;
-          token['name'] = dbUser.name;
+
+        // Gone, disabled, or the password changed after this token was issued.
+        // Returning null invalidates the session — see sessionSurvives for why
+        // this callback is the only place that can end a live one.
+        if (!sessionSurvives({ id: token['id'], issuedAt: token['issuedAt'] }, dbUser)) {
+          return null;
         }
+        // Narrowing for TS: sessionSurvives already rejected the null case.
+        if (!dbUser) return null;
+
+        token['role'] = dbUser.role;
+        token['name'] = dbUser.name;
       }
       return token;
     },

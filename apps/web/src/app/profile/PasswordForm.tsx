@@ -75,7 +75,7 @@ export function PasswordForm({
           className="rounded-md border border-green-line bg-green-tint px-3 py-2 text-[12.5px] font-medium text-green"
           data-testid="password-changed"
         >
-          Password changed. Use it the next time you sign in.
+          Password changed. Every device is signed out — use the new password to sign back in.
         </p>
       )}
 

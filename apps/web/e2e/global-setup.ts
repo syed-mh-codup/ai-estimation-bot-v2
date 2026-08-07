@@ -53,6 +53,20 @@ export const TEST_USERS = {
     password: 'e2e-nonowner-pw',
     role: 'ESTIMATOR' as const,
   },
+  // Disabled/re-enabled by the admin spec, and signed in during it to prove a
+  // LIVE session is ended (not merely the next login). Its own user so nothing
+  // else races the disable. global-setup clears disabledAt each run.
+  disableTarget: {
+    email: 'e2e-disabletarget@example.com',
+    password: 'e2e-disabletarget-pw',
+    role: 'ESTIMATOR' as const,
+  },
+  // Receives estimates in the reassignment spec.
+  reassignTarget: {
+    email: 'e2e-reassigntarget@example.com',
+    password: 'e2e-reassigntarget-pw',
+    role: 'ESTIMATOR' as const,
+  },
   // The profile spec changes this user's password and name, so it must be one
   // no other spec logs in as — specs run in parallel and would race a
   // mid-flight credential change. global-setup resets both each run.
@@ -93,7 +107,7 @@ export default async function globalSetup() {
       // user, and the next run must start from a known value.
       users[key] = await prisma.user.upsert({
         where: { email: user.email },
-        update: { hash, role: user.role, name: user.email },
+        update: { hash, role: user.role, name: user.email, disabledAt: null, passwordChangedAt: null },
         create: { email: user.email, hash, role: user.role, name: user.email },
       });
     }

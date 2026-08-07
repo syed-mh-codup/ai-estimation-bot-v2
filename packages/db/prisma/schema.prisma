@@ -101,6 +101,20 @@ model User {
   name      String?
   role      Role       @default(ESTIMATOR)
   createdAt DateTime   @default(now())
+  /// When set, this account can no longer sign in AND its live sessions stop
+  /// working. Blocking `authorize()` alone would only stop NEW logins — with
+  /// `session: { strategy: 'jwt' }` there is no session table to revoke, so an
+  /// already-signed-in user would keep working until their token expired. The
+  /// DB-backed jwt callback (auth.ts) re-reads this every request, which is what
+  /// actually ends a session.
+  ///
+  /// Disabling is the answer when ownership history should be preserved;
+  /// delete-and-reassign is the answer when it shouldn't. Both exist.
+  disabledAt DateTime?
+  /// Set when the password changes, so live sessions issued before that can be
+  /// rejected by the same DB-backed jwt callback. Without it, changing a
+  /// password does not sign other devices out.
+  passwordChangedAt DateTime?
   estimates Estimate[]
 }
 
