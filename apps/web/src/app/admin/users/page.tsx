@@ -2,7 +2,7 @@ import { revalidatePath } from 'next/cache';
 import { Prisma, prisma } from '@repo/db';
 import { auth } from '@/lib/auth';
 import { requireAdmin } from '@/lib/rbac';
-import { hashPassword } from '@/lib/password';
+import { hashPassword, MIN_PASSWORD_LENGTH } from '@/lib/password';
 import { sendWelcomeEmail } from '@/lib/email';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, Heading } from '@/components/ui/card';
@@ -10,7 +10,6 @@ import { Pill } from '@/components/ui/pill';
 import { Button } from '@/components/ui/button';
 import { CreateUserDialog, type CreateUserState } from './CreateUserDialog';
 
-const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function setUserRole(formData: FormData) {

@@ -23,8 +23,6 @@ import { PrismaClient } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import { backfillPresetEmbeddings, presetEmbeddingText } from '../writeback';
 
-/* eslint-disable no-console */
-
 /**
  * The two secrets this needs live in different files (DATABASE_URL in
  * packages/db/.env, OPENROUTER_API_KEY in apps/web/.env.local), and tsx loads

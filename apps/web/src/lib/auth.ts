@@ -53,22 +53,28 @@ const nextAuth = NextAuth({
     ...authConfig.callbacks,
     // Override the lightweight (edge) jwt callback with a DB-backed one. This
     // runs in the Node runtime (prisma available; middleware keeps using the
-    // edge config). Re-reading the role on every request makes role changes
-    // take effect live — e.g. an admin promoting/demoting another user — without
-    // requiring that user to log out and back in.
+    // edge config). Re-reading the user on every request makes changes take
+    // effect live — an admin promoting/demoting someone, or a user renaming
+    // themselves on /profile — without requiring a log out and back in.
+    //
+    // `name` rides the standard JWT claim, which Auth.js copies onto
+    // session.user before the session callback runs, so it needs no mapping in
+    // auth.config's session callback the way the custom `role`/`id` do.
     async jwt({ token, user }) {
       if (user) {
         token['role'] = (user as { role: Role }).role;
         token['id'] = user.id;
+        token['name'] = user.name ?? null;
         return token;
       }
       if (token['id']) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token['id'] as string },
-          select: { role: true },
+          select: { role: true, name: true },
         });
         if (dbUser) {
           token['role'] = dbUser.role;
+          token['name'] = dbUser.name;
         }
       }
       return token;

@@ -60,25 +60,51 @@ export async function Nav() {
         </nav>
       )}
 
+      {/* Who you are, and the one page where you can change it. The name is
+          read from the session, which the DB-backed jwt callback refreshes
+          every request — so renaming yourself shows up on the next load. */}
       <div className="mt-auto border-t border-line px-2 pt-3 max-md:mt-0 max-md:ml-auto max-md:border-0 max-md:pt-0">
-        <div className="text-xs break-words text-ink-2 max-md:hidden">{session.user.email}</div>
-        <div className="mt-0.5 text-[10.5px] text-ink-3 max-md:hidden">
-          {session.user.role === 'ADMIN' ? 'Admin' : 'Estimator'}
-        </div>
-        <form
-          action={async () => {
-            'use server';
-            await signOut({ redirectTo: '/login' });
-          }}
+        <Link
+          href="/profile"
+          className="block max-md:hidden"
+          data-testid="nav-profile"
         >
-          <button
-            type="submit"
-            className="mt-1.5 whitespace-nowrap text-xs text-ink-3 underline underline-offset-2 hover:text-ink max-md:mt-0"
-            data-testid="nav-signout"
+          {session.user.name && (
+            <div className="text-xs font-semibold break-words text-ink hover:text-green" data-testid="nav-user-name">
+              {session.user.name}
+            </div>
+          )}
+          <div className="text-xs break-words text-ink-2 hover:text-green">{session.user.email}</div>
+          <div className="mt-0.5 text-[10.5px] text-ink-3">
+            {session.user.role === 'ADMIN' ? 'Admin' : 'Estimator'}
+          </div>
+        </Link>
+
+        <div className="flex items-center gap-3 max-md:gap-2.5">
+          {/* The identity block above is the desktop way in; the collapsed
+              strip has no room for it, so mobile gets a plain link. */}
+          <Link
+            href="/profile"
+            className="mt-1.5 whitespace-nowrap text-xs text-ink-3 underline underline-offset-2 hover:text-ink max-md:mt-0 md:hidden"
+            data-testid="nav-profile-compact"
           >
-            Sign out
-          </button>
-        </form>
+            Account
+          </Link>
+          <form
+            action={async () => {
+              'use server';
+              await signOut({ redirectTo: '/login' });
+            }}
+          >
+            <button
+              type="submit"
+              className="mt-1.5 whitespace-nowrap text-xs text-ink-3 underline underline-offset-2 hover:text-ink max-md:mt-0"
+              data-testid="nav-signout"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
       </div>
     </aside>
   );

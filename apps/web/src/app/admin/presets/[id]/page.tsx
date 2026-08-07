@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { notFound } from 'next/navigation';
 import { prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
@@ -104,18 +105,25 @@ async function savePreset(formData: FormData) {
     );
   });
 
-  // Refresh the (now stale) vector out of band. Best-effort on purpose: the
-  // save has already succeeded and the preset is still indexed on its previous
-  // vector, so a missing event bus must not fail the edit. `pnpm db:embed:presets`
-  // is the recovery path, and it finds exactly these rows.
-  try {
-    await inngest.send({ name: EVENT_EMBED_PRESETS, data: { presetIds: [presetId] } });
-  } catch (err) {
-    console.error(`[presets] could not queue re-embed for ${presetId}:`, err);
-  }
-
   revalidatePath(`/admin/presets/${presetId}`);
   revalidatePath('/admin/presets');
+
+  // Refresh the (now stale) vector out of band, *after* the response — the
+  // Inngest SDK retries a failed send with backoff, which held the whole save
+  // for ~20s whenever the event bus was unreachable (no `pnpm dev:inngest`
+  // locally, for one). `after()` keeps the invocation alive for it on
+  // serverless without making the admin wait.
+  //
+  // Best-effort by design: the save has already committed and the preset is
+  // still indexed on its previous vector, so a dead event bus costs freshness,
+  // not availability. `pnpm db:embed:presets` finds exactly these rows.
+  after(async () => {
+    try {
+      await inngest.send({ name: EVENT_EMBED_PRESETS, data: { presetIds: [presetId] } });
+    } catch (err) {
+      console.error(`[presets] could not queue re-embed for ${presetId}:`, err);
+    }
+  });
 }
 
 type VersionRow = {

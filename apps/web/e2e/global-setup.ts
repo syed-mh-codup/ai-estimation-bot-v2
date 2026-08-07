@@ -53,7 +53,18 @@ export const TEST_USERS = {
     password: 'e2e-nonowner-pw',
     role: 'ESTIMATOR' as const,
   },
+  // The profile spec changes this user's password and name, so it must be one
+  // no other spec logs in as — specs run in parallel and would race a
+  // mid-flight credential change. global-setup resets both each run.
+  profile: {
+    email: 'e2e-profile@example.com',
+    password: 'e2e-profile-pw',
+    role: 'ESTIMATOR' as const,
+  },
 };
+
+/** What the profile spec changes the password to. Reset by global-setup. */
+export const PROFILE_NEW_PASSWORD = 'e2e-profile-changed-pw';
 
 // A deterministic, pre-seeded estimate so list/detail tests (WS21-02) don't
 // depend on the create flow (WS22-01).
@@ -78,9 +89,11 @@ export default async function globalSetup() {
     const users: Record<string, { id: string }> = {};
     for (const [key, user] of Object.entries(TEST_USERS)) {
       const hash = await bcrypt.hash(user.password, 12);
+      // `name` is reset too, not just on create — the profile spec renames its
+      // user, and the next run must start from a known value.
       users[key] = await prisma.user.upsert({
         where: { email: user.email },
-        update: { hash, role: user.role },
+        update: { hash, role: user.role, name: user.email },
         create: { email: user.email, hash, role: user.role, name: user.email },
       });
     }
