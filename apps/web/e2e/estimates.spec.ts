@@ -27,7 +27,9 @@ test.describe('WS21-02: dashboard list + estimate detail', () => {
     await page.getByTestId(`estimate-row-${SEED_ESTIMATE.id}`).click();
     await expect(page).toHaveURL(new RegExp(`/estimates/${SEED_ESTIMATE.id}`));
     await expect(page.getByTestId('estimate-detail')).toBeVisible();
-    await expect(page.getByTestId('estimate-detail')).toContainText(SEED_ESTIMATE.title);
+    // The title is an editable <input>, and toContainText reads textContent,
+    // which never includes an input's value — assert the value instead.
+    await expect(page.getByTestId('estimate-title-input')).toHaveValue(SEED_ESTIMATE.title);
     await expect(page.getByTestId('estimate-detail')).toContainText(SEED_ESTIMATE.sowText);
   });
 });

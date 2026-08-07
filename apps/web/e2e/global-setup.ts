@@ -223,6 +223,20 @@ export default async function globalSetup() {
       },
     });
 
+    // The refine spec finalises this estimate, which now feeds the preset
+    // library. Promotion is idempotent per (estimate, menu item), so it can't
+    // duplicate — but the presets it minted last run would linger, so clear them
+    // and start from a clean library each time.
+    const promoted = await prisma.presetVersion.findMany({
+      where: { sourceEstimateId: COSTED_ESTIMATE.id },
+      select: { presetId: true },
+    });
+    if (promoted.length > 0) {
+      const ids = [...new Set(promoted.map((p) => p.presetId))];
+      await prisma.presetVersion.deleteMany({ where: { presetId: { in: ids } } });
+      await prisma.preset.deleteMany({ where: { id: { in: ids } } });
+    }
+
     // Pre-costed estimate for WS23. Full reset each run (the test mutates it).
     await prisma.roleLineItem.deleteMany({
       where: { menuItemId: { in: COSTED_ESTIMATE.itemIds } },

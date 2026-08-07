@@ -39,6 +39,19 @@ export default defineConfig({
     timeout: 60_000,
     // Point the app-under-test at the isolated test DB. Next does not override
     // env vars already present in process.env, so this wins over .env.local.
-    env: { ...process.env, DATABASE_URL: TEST_DB_URL, DIRECT_URL: TEST_DB_URL } as Record<string, string>,
+    //
+    // Google credentials are blanked deliberately. createSheetsProvider() falls
+    // back to StubSheetsProvider when either var is empty, which is what the
+    // refinement spec means by "export to Sheets (stub)". With the real creds
+    // from .env.local the export hits the live API and fails with "The caller
+    // does not have permission" — a test making a real third-party call against
+    // someone's Drive folder, which it should never do.
+    env: {
+      ...process.env,
+      DATABASE_URL: TEST_DB_URL,
+      DIRECT_URL: TEST_DB_URL,
+      GOOGLE_SERVICE_ACCOUNT_JSON: '',
+      GOOGLE_DRIVE_FOLDER_ID: '',
+    } as Record<string, string>,
   },
 });

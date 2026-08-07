@@ -274,6 +274,13 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
             editorBody
           ) : (
             <DndContext
+              // Stable id, deliberately. Without one, dnd-kit derives its
+              // internal ids from a module-level counter, so the accessibility
+              // node it renders gets `aria-describedby="DndDescribedBy-0"` on the
+              // server and "-1" on the client — a hydration mismatch. React only
+              // warns in production, but in dev it raises a blocking error
+              // overlay, which is enough to make the ledger untestable.
+              id="menu-card-dnd"
               sensors={sensors}
               collisionDetection={closestCorners}
               onDragStart={onDragStart}

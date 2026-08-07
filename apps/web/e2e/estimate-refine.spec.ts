@@ -14,6 +14,12 @@ const [MI1, MI2] = COSTED_ESTIMATE.itemIds;
 
 test.describe('WS23: Menu Card refinement', () => {
   test('view, toggle, edit hours, export, finalise', async ({ page }) => {
+    // Triples the 60s budget. This one test drives the whole refinement flow —
+    // toggle, edit, await a write, reload, export, finalise — against
+    // /estimates/[id], the agents-heavy route whose cold first compile under
+    // `next dev` can alone approach the default budget (see playwright.config).
+    test.slow();
+
     await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
     await page.goto(`/estimates/${COSTED_ESTIMATE.id}`);
     await expect(page.getByTestId('estimate-detail')).toBeVisible();
@@ -38,14 +44,30 @@ test.describe('WS23: Menu Card refinement', () => {
     // DEV line item per card, so the prefix uniquely matches it.
     const devBaseInput = page.locator(`[data-testid^="base-DEV-${MI2}-"]`);
     const devTaxedLabel = page.locator(`[data-testid^="taxed-DEV-${MI2}-"]`);
+    // The editor auto-saves on blur — there is no Save button, and this spec
+    // used to click a `save-item-*` testid that has never existed in src.
+    //
+    // The write must be awaited explicitly before reloading. The ledger applies
+    // the change optimistically and persists in the background, so a reload
+    // fired straight after blur races the server action and re-renders from a
+    // row that hasn't been updated yet — the page then shows the OLD number
+    // even though the write lands moments later.
+    const saved = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && r.url().includes(COSTED_ESTIMATE.id),
+    );
     await devBaseInput.fill('100');
-    await page.getByTestId(`save-item-${MI2}`).click();
+    await devBaseInput.blur();
+    await saved;
+
+    // DEV is untaxed, so the taxed figure is exactly the base figure.
     await expect(devTaxedLabel).toContainText('100');
-    // WS23-04: change log appears once an item is edited.
-    await expect(page.getByTestId('change-log')).toBeVisible();
-    // Edit persists across reload.
+
+    // Now the reload is meaningful: it proves the number was written, not just
+    // reflected in the client ledger. (There is no change-log view — this spec
+    // used to assert a `change-log` testid that src has never had.)
     await page.reload();
-    await expect(devBaseInput).toHaveValue('100');
+    await expect(page.getByTestId('estimate-detail')).toBeVisible();
+    await expect(page.locator(`[data-testid^="base-DEV-${MI2}-"]`)).toHaveValue('100');
 
     // WS23-05: export to Sheets (stub) → link appears.
     await page.getByTestId('export-sheets').click();

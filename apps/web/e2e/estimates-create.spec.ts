@@ -1,6 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS } from './global-setup';
 
+/** Budget for a route's first compile under `next dev`. */
+const COLD_COMPILE = 30_000;
+
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.fill('#email', email);
@@ -22,9 +25,15 @@ test.describe('WS22-01: create estimate from SOW', () => {
     await page.fill('#sowText', 'A statement of work entered through the create form.');
     await page.getByTestId('create-estimate-submit').click();
 
-    // Lands on the new estimate's detail page.
-    await expect(page).toHaveURL(/\/estimates\/[a-z0-9]+$/);
-    await expect(page.getByTestId('estimate-detail')).toContainText(title);
+    // Lands on the new estimate's detail page. `(?!new$)` matters: the old
+    // pattern /estimates/[a-z0-9]+$/ also matches /estimates/**new**, so it
+    // passed while still sitting on the form and the failure surfaced a line
+    // later. /estimates/[id] is agents-heavy and its cold first compile under
+    // `next dev` runs well past the 5s an assertion allows by default.
+    await page.waitForURL(/\/estimates\/(?!new$)[a-z0-9]+$/, { timeout: COLD_COMPILE });
+    await expect(page.getByTestId('estimate-detail')).toBeVisible({ timeout: COLD_COMPILE });
+    // Title is an <input>; toContainText would never see its value.
+    await expect(page.getByTestId('estimate-title-input')).toHaveValue(title);
     await expect(page.getByTestId('estimate-status')).toContainText('DRAFT');
 
     // And it shows up back on the dashboard list.
