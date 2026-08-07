@@ -2,6 +2,13 @@ import { test, expect, type Page } from '@playwright/test';
 import { PrismaClient } from '../../../packages/db/src/generated/client/index.js';
 import { TEST_USERS } from './global-setup';
 
+/**
+ * Budget for a route's first compile under `next dev`. The preset editor is a
+ * heavy route and its save round-trip lands well past the 5s an assertion allows
+ * by default; playwright.config's 60s per-test timeout already covers it.
+ */
+const COLD_COMPILE = 30_000;
+
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.fill('#email', email);
@@ -19,7 +26,7 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
     await expect(page.getByTestId('presets-table')).toBeVisible();
 
     await page.getByTestId('preset-link-E2E-PRESET').click();
-    await expect(page).toHaveURL(/\/admin\/presets\/E2E-PRESET/);
+    await page.waitForURL(/\/admin\/presets\/E2E-PRESET/, { timeout: COLD_COMPILE });
     await expect(page.getByTestId('admin-preset-editor')).toBeVisible();
 
     const versionBadge = page.getByTestId('preset-active-version');
@@ -30,7 +37,7 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
     await page.fill('#devHours', '99');
     await page.getByTestId('save-preset').click();
 
-    await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);
+    await expect(versionBadge).toHaveText(`v${beforeNum + 1}`, { timeout: COLD_COMPILE });
     await expect(page.locator('#devHours')).toHaveValue('99');
 
     // History retains the previous version; diff shows the change.
@@ -64,9 +71,6 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
 });
 
 test.describe('preset creation', () => {
-  /** Budget for a route's first compile under `next dev`. */
-  const COLD_COMPILE = 30_000;
-
   test('an admin creates a preset without ever supplying a number', async ({ page }) => {
     await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
 
