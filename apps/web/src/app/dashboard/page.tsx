@@ -3,18 +3,20 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
 import { auth } from '@/lib/auth';
+import { deleteEstimate } from '@/app/estimates/[id]/actions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/card';
 import { Pill, STATUS_TONE } from '@/components/ui/pill';
 
+// Routed through the shared `deleteEstimate` rather than calling prisma here:
+// the owner-or-admin check lives in that one place, and a second delete path
+// that skipped it is exactly how this row grew an authorization hole.
 async function deleteEstimateAction(formData: FormData) {
   'use server';
-  const session = await auth();
-  if (!session?.user) return;
   const id = formData.get('id');
   if (typeof id !== 'string') return;
-  await prisma.estimate.delete({ where: { id } });
+  await deleteEstimate(id);
   revalidatePath('/dashboard');
 }
 
@@ -43,6 +45,11 @@ export default async function DashboardPage() {
     orderBy: { createdAt: 'desc' },
     include: { owner: { select: { email: true } } },
   });
+
+  // Everyone sees every estimate — that's the shared ledger. Only the owner or
+  // an admin may destroy one, so only they get the control.
+  const isAdmin = session.user.role === 'ADMIN';
+  const canDelete = (ownerId: string) => isAdmin || ownerId === session.user.id;
 
   return (
     <div data-testid="dashboard">
@@ -132,6 +139,7 @@ export default async function DashboardPage() {
                   <td className="px-3 py-3 text-right">
                     {/* Destruction stays quiet: it surfaces on hover/focus and never
                         competes with "New estimate". */}
+                    {canDelete(e.ownerId) && (
                     <ConfirmDialog
                       action={deleteEstimateAction}
                       hidden={{ id: e.id }}
@@ -155,6 +163,7 @@ export default async function DashboardPage() {
                         </Button>
                       }
                     />
+                    )}
                   </td>
                 </tr>
               ))}

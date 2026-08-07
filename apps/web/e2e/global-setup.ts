@@ -45,6 +45,14 @@ export const TEST_USERS = {
     password: 'e2e-liveinvalidation-pw',
     role: 'ESTIMATOR' as const,
   },
+  // Owns nothing, and no other spec touches its role — so it stays a reliable
+  // stand-in for "a signed-in user who is not the owner" in the delete-guard
+  // test. Reusing `roleTarget` there would race the admin role-flip spec.
+  nonOwner: {
+    email: 'e2e-nonowner@example.com',
+    password: 'e2e-nonowner-pw',
+    role: 'ESTIMATOR' as const,
+  },
 };
 
 // A deterministic, pre-seeded estimate so list/detail tests (WS21-02) don't

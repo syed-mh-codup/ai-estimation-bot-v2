@@ -26,6 +26,7 @@ type Role = 'DEV' | 'QA' | 'PM' | 'BA';
 async function requireSession() {
   const session = await auth();
   if (!session?.user) redirect('/login');
+  return session.user;
 }
 
 /** Tax % per role from the active config (DEV is untaxed). */
@@ -106,7 +107,7 @@ export default async function EstimateDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireSession();
+  const viewer = await requireSession();
   const { id } = await params;
   const estimate = await prisma.estimate.findUnique({
     where: { id },
@@ -124,6 +125,8 @@ export default async function EstimateDetailPage({
   const isFinalised = estimate.status === 'FINALISED';
   const pct = await taxPercents();
   const hasMenu = estimate.menuItems.length > 0;
+  // Anyone may open and edit; only the owner or an admin may destroy.
+  const canDelete = viewer.role === 'ADMIN' || viewer.id === estimate.ownerId;
 
   const sectionDTOs: SectionDTO[] = estimate.sections.map((s) => ({
     id: s.id,
@@ -269,6 +272,7 @@ export default async function EstimateDetailPage({
               </div>
 
               {/* Destructive and rare: it shouldn't carry Export's weight. */}
+              {canDelete && (
               <ConfirmDialog
                 action={deleteEstimateAction}
                 hidden={{ id: estimate.id }}
@@ -291,6 +295,7 @@ export default async function EstimateDetailPage({
                   </button>
                 }
               />
+              )}
             </div>
 
             {hasMenu && <ContentsCard />}

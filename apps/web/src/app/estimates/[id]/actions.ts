@@ -2,6 +2,7 @@
 
 import { prisma, type RoleKind } from '@repo/db';
 import { auth } from '@/lib/auth';
+import { requireUser } from '@/lib/rbac';
 
 /**
  * Server actions backing the Menu Card editor. The client owns the optimistic
@@ -284,8 +285,27 @@ function cleanList(items: string[]): string[] {
  * Delete an estimate and everything under it (sections, menu items, line items,
  * uploaded files all cascade). Allowed regardless of status — the owner may
  * remove a finalised estimate.
+ *
+ * Unlike the edit actions above, this is restricted to the owner or an admin.
+ * Every signed-in user can *see* and edit every estimate — that's the shared
+ * workspace this tool is — but destruction is not recoverable, so it needs an
+ * accountable actor rather than merely an authenticated one.
  */
 export async function deleteEstimate(id: string): Promise<void> {
-  await requireSession();
+  await requireEstimateOwnerOrAdmin(id);
   await prisma.estimate.delete({ where: { id } });
+}
+
+/** Throws unless the caller owns this estimate or is an admin. */
+async function requireEstimateOwnerOrAdmin(estimateId: string): Promise<void> {
+  const user = await requireUser();
+  if (user.role === 'ADMIN') return;
+  const est = await prisma.estimate.findUnique({
+    where: { id: estimateId },
+    select: { ownerId: true },
+  });
+  if (!est) throw new Error('Estimate not found');
+  if (est.ownerId !== user.id) {
+    throw new Error('Only the owner or an admin can delete this estimate');
+  }
 }
