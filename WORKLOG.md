@@ -1,5 +1,11 @@
 # WORKLOG — feature backlog / ideas not yet started
 
+> **STATUS 2026-08-07: items 1–7 below are all DONE and on `master`.** Only
+> "Steering input for estimates" remains unstarted. Each entry's original
+> analysis is left intact for context, but the "Status: not started" lines are
+> stale — see PROGRESS.md for what shipped, the commits, and the decisions taken
+> (dev effort consolidated to one figure; preset codes auto-allocated).
+
 > Distinct from PROGRESS.md (which tracks live, in-progress work). This file
 > captures requested features and ideas that haven't been scoped or started
 > yet, so they aren't lost between sessions.

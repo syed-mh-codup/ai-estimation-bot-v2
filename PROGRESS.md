@@ -5,7 +5,83 @@
 > it as work progresses. To pick up after a crash: read this file top-to-bottom,
 > then run `git status` and `git log --oneline -5`.
 
-_Last updated: 2026-08-07 — worked the prioritised WORKLOG: items #1 (delete authz), #2 (preset embedding lifecycle) and #3 (profile screen) are DONE and on `master`. See the section directly below. Awaiting a decision on the DEV frontend/backend flag before #6 (finalise → preset library)._
+_Last updated: 2026-08-07 — the whole prioritised WORKLOG except #8 is DONE and on `master`: #1 delete authz, #2 preset embedding lifecycle, #3 profile, #4 FE/BE flags, #5 disable+reassign, #6 finalise→preset library, #7 preset creation. Plus Tavily grounding, preset consolidation to one dev figure, and sequence-allocated preset codes. 284 unit tests. See the two sections below._
+
+## 2026-08-07 (later) — preset model overhaul + remaining WORKLOG items
+
+**Decisions taken this session (company-level, worth knowing before changing any of it):**
+- **Dev effort is ONE number.** Frontend/backend are no longer estimated
+  separately — delivery is full-stack, and the split only ever existed to
+  allocate work across separate FE/BE resources. Flags record which sides work
+  covers, for if that changes.
+- **Preset codes are uniform `P###`, auto-allocated**, with provenance in a
+  column (`Preset.origin`: SEEDED | FINALISED | MANUAL) rather than in the code
+  prefix. Numbers are free-flowing (no padding, no fixed width).
+
+**The bug that drove most of this** — `writeback.ts` wrote
+`beHours = Σ DEV; feHours = round(beHours * 0.4)`: all of DEV to backend *plus
+another 40% on top*, so a promoted preset stored **1.4× the estimate it came
+from**. Since `specialist.ts` feeds a preset's hours back as the next estimate's
+anchor, it compounded (100h → 140 → 196 → 274). `recordActuals` did the same to
+*measured delivered hours* — the calibration path made the library worse than
+not calibrating. Note the trap: the library's real FE share is 32% and
+0.4-as-markup implies 28.6%, so the **ratio was nearly right** and fixing only
+the ratio would have left the 1.4× untouched. The defect was that FE was
+*additive*, not that the constant was wrong. Consolidating to one figure removed
+the need for any ratio at all — `LIBRARY_FE_SHARE`, the 50/50 halving of
+full-stack items and `splitDevHours` are all deleted.
+
+**Landed (each its own commit):**
+- `bd5b5fb` **Tavily wired in.** `runEstimate` hard-defaulted to
+  `StubSearchProvider`, so Detective findings were model-only with no citations.
+  Now `createSearchProvider()`. Key in git-ignored `apps/web/.env.local`.
+- `eceb937` **#4 FE/BE flags on `RoleLineItem`.** `RoleKind` untouched, so none
+  of the traps in the worklog entry applied (no gate denominators, no taxation,
+  no ROLES tuple, no new AgentKinds). Specialist tags each atomic DEV item;
+  non-DEV roles forced untagged.
+- `f0b1c07` **#6 finalise → preset library.** `promoteMenuItemsToPresets` had
+  ZERO callers outside tests. Now hooked via `after()` → `estimate/finalised` →
+  a `estimate-promote` Inngest fn (promote, then embed, separately retried).
+  **Hybrid promotion:** match ≥ **0.75** versions the matched preset (carrying
+  its metadata forward); below that mints a new one. 0.75 is deliberately
+  strict — live scores run 0.46–0.62 on ordinary SOWs.
+- `5cdd883` **Presets consolidated to `devHours`** + `touchesFrontend/Backend`.
+  `beHours`/`feHours` KEPT but nullable — the decision may be revisited and the
+  ISM xlsx split can't be reconstructed. NULL means "not tracked". Backfill was
+  exact (45/45, 964h preserved).
+- `875a21f`, `ea10878` **Preset codes.** `Preset.id` → cuid; `code` allocated
+  from a **Postgres sequence** (`nextval`), not `max()+1` — allocation is
+  concurrent and max+1 races. `syncPresetCodeSequence` clears codes arriving
+  another way and is idempotent. The seeded 45 keep their ids: `requires`/`blocks`
+  form a real dependency graph (43 rows, 40 ids, 0 dangling), 10 MenuItems point
+  at them, and 6 live prompts name the P01–P45 range.
+- `71d5f2f` **#7 preset creation.** `/admin/presets/new`; never asks for a
+  number. Rejects a thin description because name+description+keywords ARE the
+  embedding text — a vague preset never matches. Queues embedding on create.
+- `63344b0` **#5 disable + reassign.** `disabledAt` and `passwordChangedAt`, both
+  read by the DB-backed jwt callback (rule extracted to `lib/session-rules.ts`
+  so its tests exercise the real function). **This is what ends a LIVE session** —
+  `strategy: 'jwt'` means there's no session table to revoke, so refusing in
+  `authorize()` would only block new logins. Reassignment is standalone, not
+  buried in deletion.
+
+**Consequence to know:** changing a password now signs out *every* device
+including the one you changed it on. Copy updated to say so.
+
+**Still open:** #8 steering input (not started, per instruction). From the
+inventory: `detective.ts:102` hardcodes `"spikePresetId": "P01".."P06"` — should
+derive from presets flagged `spikeNeeded`. Whether to renumber the seeded 45 is
+still an open call (cost: rewrite 43 requires/blocks arrays, 10 MenuItem refs,
+6 prompt bodies, in lockstep).
+
+**Local-environment traps that cost real time this session:**
+- **Restart `pnpm dev` after any `prisma generate`.** A running server holds the
+  old client and new columns silently read `undefined`.
+- **Never run `pnpm dev` and `pnpm test:e2e` together**, or two `test:e2e` runs
+  at once — they share `apps/web/.next` and corrupt each other's build cache.
+  Symptom: `net::ERR_ABORTED` or `Cannot find module './vendor-chunks/...'`.
+- Neon's direct endpoint degraded to ~4.4s/query mid-session, which made the
+  90-round-trip preset seed look like a hang.
 
 ## 2026-08-07 — WORKLOG #1–#3 landed on master
 
