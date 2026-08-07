@@ -157,6 +157,11 @@ model PresetVersion {
   taxonomyKey      String?
   /// pgvector embedding for Archivist similarity search
   embedding        Unsupported("vector(1536)")?
+  /// The exact text `embedding` was generated from. Present so staleness is
+  /// decidable: an admin edit carries the old vector forward (never
+  /// de-indexing the preset) and the backfill re-embeds any row whose current
+  /// text no longer matches this. Null means "never embedded".
+  embeddingText    String?
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)

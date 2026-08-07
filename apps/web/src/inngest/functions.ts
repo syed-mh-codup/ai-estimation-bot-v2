@@ -2,8 +2,15 @@ import { createHash } from 'node:crypto';
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, type IngestFile } from '@repo/agents';
-import { inngest, EVENT_RUN, EVENT_INGEST, type EstimateEventData } from '@/lib/inngest';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, type IngestFile } from '@repo/agents';
+import {
+  inngest,
+  EVENT_RUN,
+  EVENT_INGEST,
+  EVENT_EMBED_PRESETS,
+  type EstimateEventData,
+  type EmbedPresetsEventData,
+} from '@/lib/inngest';
 import { sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -75,9 +82,9 @@ const runEstimateFn = inngest.createFunction(
       db: prisma,
       modelProvider,
       step: (id, fn) => step.run(id, fn) as ReturnType<typeof fn>,
-      // Archivist RAG activates once presets have embeddings — the run
-      // itself tolerates all-empty matches (coverage:none everywhere) so
-      // this is safe to wire ahead of the embedding backfill completing.
+      // Archivist RAG needs the preset library embedded (`pnpm db:embed:presets`,
+      // or the preset-embed function below). The run tolerates all-empty
+      // matches (coverage:none everywhere), so this is safe either way.
       embeddingProvider: new EmbeddingProvider(modelProvider),
       onProgress: async ({ stage, pct }) => {
         await prisma.estimate.update({
@@ -197,4 +204,29 @@ const ingestFn = inngest.createFunction(
   },
 );
 
-export const inngestFunctions: InngestFunction.Any[] = [runEstimateFn, ingestFn];
+/**
+ * Keep the preset library visible to the Archivist.
+ *
+ * Retrieval filters on `embedding IS NOT NULL`, so an un-embedded preset never
+ * matches anything — silently, with no error. Admin edits carry the previous
+ * vector forward and fire this to refresh it; the same function with no
+ * `presetIds` sweeps the whole library. `backfillPresetEmbeddings` is
+ * idempotent and skips rows already in sync, so a retry costs nothing.
+ */
+const embedPresetsFn = inngest.createFunction(
+  { id: 'preset-embed', name: 'Embed presets', retries: 2, triggers: [{ event: EVENT_EMBED_PRESETS }] },
+  async ({ event, step }) => {
+    const { presetIds } = (event.data ?? {}) as EmbedPresetsEventData;
+    return step.run('embed', async () => {
+      const result = await backfillPresetEmbeddings(prisma, new EmbeddingProvider(createModelProvider()), {
+        ...(presetIds ? { presetIds } : {}),
+      });
+      if (result.failed.length) {
+        console.error('[presets] some embeddings failed:', result.failed);
+      }
+      return result;
+    });
+  },
+);
+
+export const inngestFunctions: InngestFunction.Any[] = [runEstimateFn, ingestFn, embedPresetsFn];

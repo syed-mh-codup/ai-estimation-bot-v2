@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { PrismaClient } from '../../../packages/db/src/generated/client/index.js';
 import { TEST_USERS } from './global-setup';
 
 async function login(page: Page, email: string, password: string) {
@@ -41,5 +42,23 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
     await page.reload();
     await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);
     await expect(page.locator('#beHours')).toHaveValue('99');
+
+    // The new active version must still carry a vector. Saving used to leave
+    // `embedding` null, which silently removed the preset from Archivist
+    // retrieval for good — no error, it just stopped ever matching.
+    const db = new PrismaClient({
+      datasources: { db: { url: process.env['TEST_DATABASE_URL']! } },
+    });
+    try {
+      const rows = await db.$queryRawUnsafe<Array<{ version: number; has: boolean }>>(
+        `SELECT version, embedding IS NOT NULL AS has
+           FROM "PresetVersion" WHERE "presetId" = 'E2E-PRESET' AND active = true`,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.version).toBe(beforeNum + 1);
+      expect(rows[0]?.has).toBe(true);
+    } finally {
+      await db.$disconnect();
+    }
   });
 });

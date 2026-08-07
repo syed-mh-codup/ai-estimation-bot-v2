@@ -10,5 +10,13 @@ export const inngest = new Inngest({ id: 'codup-ai-estimation' });
 
 export const EVENT_RUN = 'estimate/run.requested' as const;
 export const EVENT_INGEST = 'estimate/ingest.requested' as const;
+export const EVENT_EMBED_PRESETS = 'preset/embed.requested' as const;
 
 export type EstimateEventData = { estimateId: string };
+
+/**
+ * Refresh preset embeddings. Omit `presetIds` to sweep the whole library.
+ * Embedding is a paid network call, so it never runs inline with the admin
+ * save that triggers it.
+ */
+export type EmbedPresetsEventData = { presetIds?: string[] };

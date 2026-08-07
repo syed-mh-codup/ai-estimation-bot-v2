@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { notFound } from 'next/navigation';
 import { prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
+import { inngest, EVENT_EMBED_PRESETS } from '@/lib/inngest';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
@@ -43,11 +44,23 @@ async function savePreset(formData: FormData) {
   const nextVersion = last.version + 1;
 
   // Editable fields from the form; fields not exposed in the form are carried
-  // forward from the current active version. (embedding is intentionally left
-  // null — it's regenerated when embeddings are backfilled.)
-  await prisma.$transaction([
-    prisma.presetVersion.updateMany({ where: { presetId, active: true }, data: { active: false } }),
-    prisma.presetVersion.create({
+  // forward from the current active version.
+  //
+  // The embedding is carried forward too, inside the same transaction. It used
+  // to be left null, which meant every admin edit silently dropped the preset
+  // out of Archivist retrieval — `queryPresetsByVector` filters on
+  // `embedding IS NOT NULL`, so the preset simply stopped ever matching, with
+  // no error and no way back. An interactive transaction (not the array form)
+  // is what closes the window: the new version is never visible without a
+  // vector. The old `embeddingText` rides along unchanged, which is what marks
+  // the vector as stale so the refresh below — or the backfill script — knows
+  // to regenerate it.
+  await prisma.$transaction(async (tx) => {
+    await tx.presetVersion.updateMany({
+      where: { presetId, active: true },
+      data: { active: false },
+    });
+    const created = await tx.presetVersion.create({
       data: {
         presetId,
         version: nextVersion,
@@ -76,8 +89,30 @@ async function savePreset(formData: FormData) {
         taxonomyKey: active.taxonomyKey,
         changeReason: (formData.get('changeReason') as string) || 'edited via admin',
       },
-    }),
-  ]);
+      select: { id: true },
+    });
+
+    // Raw SQL because Prisma's typed client cannot read or write an
+    // Unsupported("vector") column.
+    await tx.$executeRawUnsafe(
+      `UPDATE "PresetVersion" AS target
+          SET embedding = source.embedding, "embeddingText" = source."embeddingText"
+         FROM "PresetVersion" AS source
+        WHERE target.id = $1 AND source.id = $2`,
+      created.id,
+      active.id,
+    );
+  });
+
+  // Refresh the (now stale) vector out of band. Best-effort on purpose: the
+  // save has already succeeded and the preset is still indexed on its previous
+  // vector, so a missing event bus must not fail the edit. `pnpm db:embed:presets`
+  // is the recovery path, and it finds exactly these rows.
+  try {
+    await inngest.send({ name: EVENT_EMBED_PRESETS, data: { presetIds: [presetId] } });
+  } catch (err) {
+    console.error(`[presets] could not queue re-embed for ${presetId}:`, err);
+  }
 
   revalidatePath(`/admin/presets/${presetId}`);
   revalidatePath('/admin/presets');

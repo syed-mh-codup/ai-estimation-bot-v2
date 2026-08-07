@@ -6,9 +6,13 @@
  * Run: pnpm --filter @repo/db db:seed:presets   (idempotent — upserts by id)
  *
  * NOT part of the fast bootstrap seed or the e2e global-setup (45 rows nobody's
- * test needs). Embeddings (the `embedding` column) and taxonomy linking
- * (`taxonomyKey`) are deliberately left for follow-up steps — both are optional
- * and the second needs OpenRouter embedding credits.
+ * test needs). Taxonomy linking (`taxonomyKey`) is a follow-up step
+ * (`db:seed:taxonomy`).
+ *
+ * Embeddings are NOT written here — they're a paid OpenRouter call. Run
+ * `pnpm db:embed:presets` afterwards. Until you do, the Archivist cannot see
+ * these presets at all: `queryPresetsByVector` filters on
+ * `embedding IS NOT NULL`, so an un-embedded preset silently never matches.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

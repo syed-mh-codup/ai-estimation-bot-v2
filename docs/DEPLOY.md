@@ -79,9 +79,12 @@ NODE_ENV=production DATABASE_URL=<direct> \
 dev and e2e. It refuses to create those accounts when `NODE_ENV=production` —
 **do not** set `ALLOW_DEV_USERS=1` on a public deployment.
 
-Preset **embeddings** are a separate backfill and need OpenRouter embedding
-credits. Until they exist, Archivist RAG returns `coverage: none` everywhere.
-The run tolerates that, but estimates are meaningfully worse.
+Preset **embeddings** are a separate step and need OpenRouter embedding
+credits. Run `pnpm db:embed:presets` after seeding (idempotent; `--dry-run`
+reports without spending). Until they exist, Archivist RAG returns
+`coverage: none` everywhere — `queryPresetsByVector` filters on
+`embedding IS NOT NULL`, so un-embedded presets never match. The run tolerates
+that, but estimates are meaningfully worse.
 
 ## 4. Register the Inngest app
 

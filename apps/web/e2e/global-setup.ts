@@ -112,7 +112,7 @@ export default async function globalSetup() {
     // never touches the real 45-preset library in the shared DB.
     await prisma.presetVersion.deleteMany({ where: { presetId: 'E2E-PRESET' } });
     await prisma.preset.upsert({ where: { id: 'E2E-PRESET' }, update: {}, create: { id: 'E2E-PRESET' } });
-    await prisma.presetVersion.create({
+    const e2ePreset = await prisma.presetVersion.create({
       data: {
         presetId: 'E2E-PRESET',
         version: 1,
@@ -140,6 +140,18 @@ export default async function globalSetup() {
         changeReason: 'e2e bootstrap',
       },
     });
+
+    // Give it a vector so the edit test can prove saving doesn't de-index the
+    // preset. `queryPresetsByVector` filters on `embedding IS NOT NULL`, so a
+    // preset that loses its vector silently stops matching anything — which is
+    // exactly what savePreset used to do on every edit. Raw SQL because Prisma
+    // can't write an Unsupported("vector") column.
+    await prisma.$executeRawUnsafe(
+      `UPDATE "PresetVersion" SET embedding = $1::vector, "embeddingText" = $2 WHERE id = $3`,
+      `[${new Array(1536).fill(0).map((_, i) => (i === 3 ? 1 : 0)).join(',')}]`,
+      'e2e seeded embedding text',
+      e2ePreset.id,
+    );
 
     // Prompts: reset to a clean active v1 each run. The WS24-05 prompt editor
     // test creates new versions, so delete+recreate keeps the version

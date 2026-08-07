@@ -111,6 +111,41 @@ export async function promoteMenuItemsToPresets(
 // ─── WS20-02: Generate + store embeddings for promoted rows ───────────────────
 
 /**
+ * The one definition of what a preset "means" to the Archivist. Every writer
+ * of `embedding` must go through this, so `embeddingText` is always literally
+ * the string that produced the vector sitting next to it.
+ */
+export function presetEmbeddingText(v: {
+  name: string;
+  description: string;
+  keywords: string[];
+}): string {
+  return [v.name, v.description, ...v.keywords].join(' ');
+}
+
+/** Embed one active version and store the vector alongside its source text. */
+async function embedVersionRow(
+  db: PrismaClient,
+  row: { id: string; name: string; description: string; keywords: string[] },
+  embeddingProvider: IEmbeddingProvider,
+): Promise<boolean> {
+  const text = presetEmbeddingText(row);
+  const [vector] = await embeddingProvider.embed(text);
+  if (!vector) return false;
+
+  // Prisma's typed client can't write an Unsupported("vector") column, so the
+  // cast has to happen in raw SQL. embeddingText rides the same statement —
+  // the two must never disagree.
+  await db.$executeRawUnsafe(
+    `UPDATE "PresetVersion" SET embedding = $1::vector, "embeddingText" = $2 WHERE id = $3`,
+    `[${vector.join(',')}]`,
+    text,
+    row.id,
+  );
+  return true;
+}
+
+/**
  * Generate and store embeddings for promoted PresetVersions.
  * After this, Archivist can match previously promoted items.
  */
@@ -124,20 +159,91 @@ export async function embedPromotedPresets(
       where: { presetId, active: true },
       select: { id: true, name: true, description: true, keywords: true },
     });
-
     if (!version) continue;
-
-    const text = [version.name, version.description, ...version.keywords].join(' ');
-    const [vector] = await embeddingProvider.embed(text);
-
-    if (!vector) continue;
-
-    await db.$executeRawUnsafe(
-      `UPDATE "PresetVersion" SET embedding = $1::vector WHERE id = $2`,
-      `[${vector.join(',')}]`,
-      version.id,
-    );
+    await embedVersionRow(db, version, embeddingProvider);
   }
+}
+
+export type BackfillResult = {
+  /** Rows that had no vector at all — invisible to the Archivist until now. */
+  missing: number;
+  /** Rows whose vector no longer matched their text (edited since embedding). */
+  stale: number;
+  embedded: number;
+  failed: Array<{ presetId: string; error: string }>;
+};
+
+/**
+ * Bring every active preset version's embedding up to date.
+ *
+ * `queryPresetsByVector` filters on `embedding IS NOT NULL AND active = true`,
+ * so a preset without a vector is simply invisible to retrieval — it does not
+ * error, it silently never matches. This is the routine that guarantees that
+ * doesn't happen, and it is idempotent: run it as often as you like.
+ *
+ * Re-embeds a row when it has no vector, or when its current text differs from
+ * the `embeddingText` recorded beside the vector (an admin edit, or a row
+ * predating that column).
+ */
+export async function backfillPresetEmbeddings(
+  db: PrismaClient,
+  embeddingProvider: IEmbeddingProvider,
+  opts: {
+    presetIds?: string[];
+    /** Re-embed everything, ignoring the staleness check. */
+    force?: boolean;
+    onProgress?: (done: number, total: number, presetId: string) => void;
+  } = {},
+): Promise<BackfillResult> {
+  // `embeddingText` is compared against a value computed per row in JS, which
+  // SQL can't express — so select the candidates and decide here.
+  const rows = await db.presetVersion.findMany({
+    where: { active: true, ...(opts.presetIds ? { presetId: { in: opts.presetIds } } : {}) },
+    select: {
+      id: true,
+      presetId: true,
+      name: true,
+      description: true,
+      keywords: true,
+      embeddingText: true,
+    },
+    orderBy: { presetId: 'asc' },
+  });
+
+  // Whether the vector column is populated can't come back through the typed
+  // client either (Unsupported columns are omitted from the select), so ask
+  // for it separately and join in memory.
+  const populated = await db.$queryRawUnsafe<Array<{ id: string }>>(
+    `SELECT id FROM "PresetVersion" WHERE embedding IS NOT NULL AND active = true`,
+  );
+  const hasVector = new Set(populated.map((r) => r.id));
+
+  const result: BackfillResult = { missing: 0, stale: 0, embedded: 0, failed: [] };
+  const todo: typeof rows = [];
+
+  for (const row of rows) {
+    if (!hasVector.has(row.id)) {
+      result.missing++;
+      todo.push(row);
+    } else if (opts.force || row.embeddingText !== presetEmbeddingText(row)) {
+      result.stale++;
+      todo.push(row);
+    }
+  }
+
+  let done = 0;
+  for (const row of todo) {
+    try {
+      if (await embedVersionRow(db, row, embeddingProvider)) result.embedded++;
+    } catch (err) {
+      // One bad row must not abort the sweep — record it and keep going, so a
+      // partial failure still leaves the rest of the library indexed.
+      result.failed.push({ presetId: row.presetId, error: String((err as Error)?.message ?? err) });
+    }
+    opts.onProgress?.(++done, todo.length, row.presetId);
+  }
+
+  return result;
 }
 
 // ─── WS20-03: Post-delivery actuals entry ────────────────────────────────────
