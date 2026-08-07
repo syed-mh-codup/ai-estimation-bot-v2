@@ -15,13 +15,21 @@ const DB_URL =
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
 const created: string[] = [];
+let sequenceBefore = '';
 
 beforeAll(async () => {
   await db.$connect();
+  // A sequence is shared, mutable state that does NOT roll back with a
+  // transaction or a row delete. These tests consume codes (and one deliberately
+  // jumps to P99999), so without restoring it afterwards every run would leave
+  // the environment allocating from a higher number than it should — a test
+  // permanently changing the data it ran against.
+  sequenceBefore = await peekNext();
 });
 
 afterAll(async () => {
   await db.preset.deleteMany({ where: { id: { in: created } } });
+  await db.$executeRawUnsafe(`SELECT setval('preset_code_seq', ${sequenceBefore}, false)`);
   await db.$disconnect();
 });
 
@@ -65,8 +73,11 @@ describe('syncPresetCodeSequence', () => {
   });
 
   it('moves past a code that arrived some other way (e.g. an xlsx import)', async () => {
+    // Sits above anything the other tests allocate, but nowhere near a number a
+    // real library would reach — the sequence is restored in afterAll either way.
+    const IMPORTED = 4242;
     const p = await db.preset.create({
-      data: { code: 'P99999', origin: 'SEEDED' },
+      data: { code: `P${IMPORTED}`, origin: 'SEEDED' },
       select: { id: true },
     });
     created.push(p.id);
@@ -76,7 +87,7 @@ describe('syncPresetCodeSequence', () => {
     // The next allocated code must clear the imported one, or the unique
     // constraint would reject it later.
     const next = await allocatePresetCode(db);
-    expect(Number(next.slice(1))).toBeGreaterThan(99999);
+    expect(Number(next.slice(1))).toBeGreaterThan(IMPORTED);
   });
 });
 
