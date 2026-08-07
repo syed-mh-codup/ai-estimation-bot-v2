@@ -29,7 +29,7 @@ beforeAll(async () => {
     INSERT INTO "PresetVersion" (
       id, "presetId", version, active,
       category, name, description,
-      "beHours", "feHours",
+      "devHours",
       platforms, "reqType", keywords,
       "userStoryTags", "projectSizeFit",
       "integrationCount", "dataVolume", phase,
@@ -39,7 +39,7 @@ beforeAll(async () => {
     ) VALUES (
       gen_random_uuid(), ${PRESET_ID}, 1, true,
       'Test', 'Vector Test Preset', 'desc',
-      10, 5,
+      15,
       ARRAY[]::text[], 'functional', ARRAY['vector'],
       ARRAY[]::text[], ARRAY[]::text[],
       1, 'NONE'::"DataVolume", 'CORE'::"PresetPhase",

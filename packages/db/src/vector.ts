@@ -5,8 +5,9 @@ export type PresetMatch = {
   presetId: string;
   version: number;
   name: string;
-  beHours: number;
-  feHours: number;
+  devHours: number;
+  touchesFrontend: boolean;
+  touchesBackend: boolean;
   distance: number;
 };
 
@@ -21,7 +22,7 @@ export async function findNearestPresets(
 ): Promise<PresetMatch[]> {
   const vectorLiteral = `[${queryVector.join(',')}]`;
   const rows = await db.$queryRawUnsafe<PresetMatch[]>(
-    `SELECT id, "presetId", version, name, "beHours", "feHours",
+    `SELECT id, "presetId", version, name, "devHours", "touchesFrontend", "touchesBackend",
             embedding <=> $1::vector AS distance
      FROM "PresetVersion"
      WHERE embedding IS NOT NULL AND active = true

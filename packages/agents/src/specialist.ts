@@ -45,7 +45,12 @@ function describeCoverage(input: SpecialistInput): string {
   if (!m || m.coverage === 'none') {
     return 'Coverage: none — no historical preset analogue. Build this up from first principles, item by item, and note the absence of an anchor in assumptions.';
   }
-  const anchor = `BE=${m.beHours ?? 0}h, FE=${m.feHours ?? 0}h`;
+  // ONE dev figure. The preset's side flags are passed through as context only —
+  // they say what the historical work covered, never how to divide the hours.
+  const sides = [m.touchesBackend ? 'backend' : null, m.touchesFrontend ? 'frontend' : null]
+    .filter(Boolean)
+    .join(' + ');
+  const anchor = `DEV=${m.devHours ?? 0}h${sides ? ` (historically ${sides})` : ''}`;
   const adj = m.adjustments;
   return [
     `Coverage: ${m.coverage} (preset ${m.presetId ?? 'n/a'} v${m.presetVersion ?? '?'}, match score ${m.score?.toFixed(2) ?? 'n/a'}).`,

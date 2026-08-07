@@ -101,8 +101,9 @@ describe('shared schemas — round-trip parse', () => {
           presetId: 'P01',
           presetVersion: 1,
           score: 0.85,
-          beHours: 40,
-          feHours: 20,
+          devHours: 60,
+          touchesBackend: true,
+          touchesFrontend: true,
           adjustments: {
             projectSizeDelta: 'fits Mid-market',
             dataVolume: 'Low',

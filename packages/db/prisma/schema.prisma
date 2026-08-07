@@ -136,8 +136,21 @@ model PresetVersion {
   category         String
   name             String
   description      String
-  beHours          Int
-  feHours          Int
+  /// The preset's dev effort as ONE number. Frontend and backend are estimated
+  /// together because delivery is full-stack — the split used to exist to
+  /// allocate work across separate FE/BE resources, and that need is gone.
+  devHours         Int
+  /// Which sides of the stack this preset's work covers. Reference only: they
+  /// describe `devHours`, they never divide it.
+  touchesFrontend  Boolean @default(false)
+  touchesBackend   Boolean @default(false)
+  /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
+  /// in `docs/Estimate Presets (ISM).xlsx`, retained because the decision to
+  /// estimate as one figure may be revisited and this data can't be recovered.
+  /// NULL on every version created after consolidation — meaning "not tracked",
+  /// which is why these are nullable rather than 0.
+  beHours          Int?
+  feHours          Int?
   platforms        String[]
   reqType          String
   keywords         String[]

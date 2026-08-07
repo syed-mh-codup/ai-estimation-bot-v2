@@ -2,14 +2,7 @@ import type { PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
 import type { MenuItem, RoleLineItem } from '@repo/shared';
 
-// ─── Dev hours → a preset's beHours / feHours ─────────────────────────────────
-
-/**
- * Frontend's share of dev effort across the seeded library (P01–P45),
- * hours-weighted: 310 FE of 964 total. Used ONLY to apportion line items that
- * carry no side tag — never to manufacture hours that don't exist.
- */
-const LIBRARY_FE_SHARE = 0.32;
+// ─── Dev hours → a preset's single devHours figure ────────────────────────────
 
 /**
  * Minimum Archivist match score at which a finalised card is written back onto
@@ -22,76 +15,44 @@ const LIBRARY_FE_SHARE = 0.32;
  */
 export const PROMOTION_MATCH_THRESHOLD = 0.75;
 
-export type DevSplit = {
-  beHours: number;
-  feHours: number;
-  /** How the split was arrived at — recorded on the version for auditability. */
-  basis: 'tagged' | 'mixed' | 'estimated';
-  /** Dev hours that carried no side tag and had to be apportioned. */
-  untaggedHours: number;
+export type DevEffort = {
+  /** The card's dev effort as one figure — never divided. */
+  devHours: number;
+  touchesFrontend: boolean;
+  touchesBackend: boolean;
+  /** False when no DEV row carried a side tag, so flags can't be trusted. */
+  tagged: boolean;
 };
 
-const round2 = (n: number): number => Math.round(n * 100) / 100;
-
 /**
- * Partition a card's DEV hours into backend and frontend.
+ * A card's DEV effort, as one number plus which sides it covered.
  *
- * This replaces the old `feHours = round(beHours * 0.4)`, which assigned 100%
- * of DEV to backend and then ADDED 40% on top — storing 1.4x the estimate it
- * came from. Because a promoted preset becomes the anchor for the next
- * estimate (specialist.ts feeds beHours+feHours back in), that error compounded
- * every cycle.
+ * There is no ratio here and no arithmetic beyond a sum. That is the point:
+ * frontend and backend are estimated together because delivery is full-stack,
+ * so the flags are reference metadata rather than a basis for dividing hours.
  *
- * The partition here always sums to the card's actual DEV total:
- *   - tagged backend-only / frontend-only → counted whole to that side
- *   - tagged both (genuinely inseparable) → halved
- *   - untagged → apportioned by the library ratio, and reported via `basis`
- *     so the caller can say so rather than implying precision it doesn't have
+ * What this replaced: `beHours = Σ DEV; feHours = round(beHours * 0.4)` — which
+ * assigned all of DEV to backend and then ADDED 40% on top, storing 1.4x the
+ * estimate. Promoted presets become the next estimate's anchor, so that
+ * compounded (100h → 140 → 196 → 274). The interim fix partitioned the total
+ * using a library ratio; consolidating to one figure removes even that
+ * approximation.
  */
-export function splitDevHours(lineItems: RoleLineItem[]): DevSplit {
+export function devEffortOf(lineItems: RoleLineItem[]): DevEffort {
   const dev = lineItems.filter((l) => l.role === 'DEV');
-
-  let be = 0;
-  let fe = 0;
-  let untagged = 0;
-
-  for (const li of dev) {
-    const h = li.taxedHours;
-    const f = li.touchesFrontend;
-    const b = li.touchesBackend;
-    if (f && b) {
-      // Inseparable full-stack unit: nothing better than an even hand, but the
-      // total is still right, which is what the preset library depends on.
-      be += h / 2;
-      fe += h / 2;
-    } else if (b) {
-      be += h;
-    } else if (f) {
-      fe += h;
-    } else {
-      untagged += h;
-    }
-  }
-
-  if (untagged > 0) {
-    fe += untagged * LIBRARY_FE_SHARE;
-    be += untagged * (1 - LIBRARY_FE_SHARE);
-  }
-
-  const taggedHours = dev.reduce((s, l) => s + l.taxedHours, 0) - untagged;
-  const basis: DevSplit['basis'] =
-    untagged === 0 ? 'tagged' : taggedHours === 0 ? 'estimated' : 'mixed';
-
-  return { beHours: round2(be), feHours: round2(fe), basis, untaggedHours: round2(untagged) };
+  return {
+    devHours: Math.round(dev.reduce((s, l) => s + l.taxedHours, 0)),
+    touchesFrontend: dev.some((l) => l.touchesFrontend),
+    touchesBackend: dev.some((l) => l.touchesBackend),
+    tagged: dev.some((l) => l.touchesFrontend || l.touchesBackend),
+  };
 }
 
-/** Human-readable provenance for the split, for `changeReason`. */
-function describeSplit(s: DevSplit): string {
-  if (s.basis === 'tagged') return 'BE/FE from line-item side tags (exact)';
-  const pct = Math.round(LIBRARY_FE_SHARE * 100);
-  return s.basis === 'estimated'
-    ? `BE/FE apportioned from untagged dev hours at the library ratio (${100 - pct}/${pct})`
-    : `BE/FE from side tags, with ${s.untaggedHours}h untagged apportioned at the library ratio (${100 - pct}/${pct})`;
+/** Human-readable provenance for the flags, for `changeReason`. */
+function describeSides(e: DevEffort): string {
+  if (!e.tagged) return 'no side tags on the dev items — flags left as-is';
+  if (e.touchesFrontend && e.touchesBackend) return 'covers frontend and backend';
+  return e.touchesBackend ? 'backend only' : 'frontend only';
 }
 
 // ─── WS20-01: Promote enabled menu items to PresetVersions ────────────────────
@@ -172,9 +133,7 @@ export async function promoteMenuItemsToPresets(
       await db.preset.create({ data: { id: presetId } });
     }
 
-    // Dev hours partitioned by side tag, always summing to the card's real DEV
-    // total (see splitDevHours — this is what replaced the 1.4x inflation).
-    const split = splitDevHours(item.lineItems);
+    const effort = devEffortOf(item.lineItems);
 
     // Versioning a real preset: keep its taxonomy/metadata and change only what
     // this estimate actually evidences. Minting one: derive what we can.
@@ -188,8 +147,17 @@ export async function promoteMenuItemsToPresets(
         category: carry?.category ?? item.taxonomyKey.split('.')[0] ?? 'general',
         name: carry?.name ?? item.title,
         description: carry?.description ?? `Promoted from estimate ${estimateId}`,
-        beHours: Math.round(split.beHours),
-        feHours: Math.round(split.feHours),
+        devHours: effort.devHours,
+        // Flags come from this estimate only when it actually tagged something.
+        // Otherwise carry the prior version's — same rule as keywords and risk:
+        // change only what this estimate evidences. Without this, promoting an
+        // untagged card onto a matched preset would erase its flags.
+        touchesFrontend: effort.tagged ? effort.touchesFrontend : (carry?.touchesFrontend ?? false),
+        touchesBackend: effort.tagged ? effort.touchesBackend : (carry?.touchesBackend ?? false),
+        // Legacy split: never written going forward. NULL means "not tracked",
+        // which is the truth — 0 would claim there was no work on that side.
+        beHours: null,
+        feHours: null,
         platforms: carry?.platforms ?? [],
         reqType: carry?.reqType ?? 'FEATURE',
         keywords: carry?.keywords ?? [item.taxonomyKey],
@@ -209,8 +177,8 @@ export async function promoteMenuItemsToPresets(
         changeMotivation: 'POST_DELIVERY_VALIDATION',
         sourceEstimateId: estimateId,
         changeReason: strongMatch
-          ? `Recalibrated from finalised estimate ${estimateId} (match ${(item.matchScore ?? 0).toFixed(2)}) — ${describeSplit(split)}`
-          : `Promoted from finalised estimate ${estimateId} — ${describeSplit(split)}`,
+          ? `Recalibrated from finalised estimate ${estimateId} (match ${(item.matchScore ?? 0).toFixed(2)}) — ${describeSides(effort)}`
+          : `Promoted from finalised estimate ${estimateId} — ${describeSides(effort)}`,
       },
     });
 
@@ -393,22 +361,12 @@ export async function recordActuals(
 
   const newVersion = current.version + 1;
 
-  // Post-delivery dev actuals: we know the real TOTAL but not how it divided,
-  // so keep the proportion this preset already records and rescale it to the
-  // measured total. Falls back to the library ratio if the preset somehow has
-  // no hours to take a proportion from.
-  //
-  // This used to be `beHours = actual; feHours = round(actual * 0.4)`, which
-  // inflated measured, delivered hours by 40% — the calibration path made
-  // things worse than not calibrating at all.
-  let beActual = current.beHours;
-  let feActual = current.feHours;
-  if (entry.role === 'DEV') {
-    const prior = current.beHours + current.feHours;
-    const feShare = prior > 0 ? current.feHours / prior : LIBRARY_FE_SHARE;
-    feActual = Math.round(entry.actualHours * feShare);
-    beActual = Math.round(entry.actualHours - feActual);
-  }
+  // Post-delivery dev actuals go in whole. There is no split to reconstruct
+  // any more, which is what made this path dangerous before: it used to store
+  // `beHours = actual; feHours = round(actual * 0.4)`, inflating *measured*
+  // delivered hours by 40% — the calibration path made the library worse than
+  // not calibrating at all.
+  const devActual = entry.role === 'DEV' ? Math.round(entry.actualHours) : current.devHours;
 
   await db.presetVersion.create({
     data: {
@@ -418,8 +376,11 @@ export async function recordActuals(
       category: current.category,
       name: current.name,
       description: current.description,
-      beHours: beActual,
-      feHours: feActual,
+      devHours: devActual,
+      touchesFrontend: current.touchesFrontend,
+      touchesBackend: current.touchesBackend,
+      beHours: null,
+      feHours: null,
       platforms: current.platforms,
       reqType: current.reqType,
       keywords: current.keywords,

@@ -36,8 +36,9 @@ describe('WS1-02: Preset + PresetVersion CRUD', () => {
         category: 'Shopify/Ecommerce',
         name: 'Test Preset',
         description: 'A test preset',
-        beHours: 40,
-        feHours: 20,
+        devHours: 60,
+        touchesBackend: true,
+        touchesFrontend: true,
         platforms: ['Shopify'],
         reqType: 'functional',
         keywords: ['checkout'],
@@ -62,6 +63,6 @@ describe('WS1-02: Preset + PresetVersion CRUD', () => {
 
     const read = await db.presetVersion.findFirst({ where: { presetId: 'TEST_P01' } });
     expect(read?.name).toBe('Test Preset');
-    expect(read?.beHours).toBe(40);
+    expect(read?.devHours).toBe(60);
   });
 });

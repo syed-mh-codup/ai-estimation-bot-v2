@@ -26,22 +26,22 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
     const before = (await versionBadge.textContent()) ?? 'v0';
     const beforeNum = Number(before.replace(/[^0-9]/g, ''));
 
-    // Edit BE hours and save → new active version.
-    await page.fill('#beHours', '99');
+    // Edit dev hours and save → new active version.
+    await page.fill('#devHours', '99');
     await page.getByTestId('save-preset').click();
 
     await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);
-    await expect(page.locator('#beHours')).toHaveValue('99');
+    await expect(page.locator('#devHours')).toHaveValue('99');
 
     // History retains the previous version; diff shows the change.
     await expect(page.getByTestId(`preset-version-${beforeNum + 1}`)).toContainText('active');
     await expect(page.getByTestId(`preset-version-${beforeNum}`)).toContainText('inactive');
-    await expect(page.getByTestId('preset-diff')).toContainText('beHours');
+    await expect(page.getByTestId('preset-diff')).toContainText('devHours');
 
     // Durable across reload.
     await page.reload();
     await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);
-    await expect(page.locator('#beHours')).toHaveValue('99');
+    await expect(page.locator('#devHours')).toHaveValue('99');
 
     // The new active version must still carry a vector. Saving used to leave
     // `embedding` null, which silently removed the preset from Archivist

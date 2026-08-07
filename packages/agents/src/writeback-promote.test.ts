@@ -94,8 +94,9 @@ beforeEach(async () => {
       category: 'Storefront',
       name: 'Established checkout preset',
       description: 'Seeded by the promotion test.',
-      beHours: 40,
-      feHours: 18,
+      devHours: 58,
+      touchesBackend: true,
+      touchesFrontend: false,
       platforms: ['shopify'],
       reqType: 'FEATURE',
       keywords: ['checkout', 'b2b'],
@@ -133,15 +134,19 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
 
     const v = await activeVersion(MATCHED);
     expect(v?.version).toBe(2);
-    // Hours come from THIS estimate, exactly: 20 backend + 10 frontend.
-    expect(v?.beHours).toBe(20);
-    expect(v?.feHours).toBe(10);
+    // Hours come from THIS estimate, as one figure: 20 + 10 = 30.
+    expect(v?.devHours).toBe(30);
+    // Flags reflect what this estimate tagged, and the legacy split is not rewritten.
+    expect(v?.touchesBackend).toBe(true);
+    expect(v?.touchesFrontend).toBe(true);
+    expect(v?.beHours).toBeNull();
+    expect(v?.feHours).toBeNull();
     // Metadata the estimate has no opinion about is carried forward, not reset.
     expect(v?.keywords).toEqual(['checkout', 'b2b']);
     expect(v?.risk).toBe('HIGH');
     expect(v?.spikeNeeded).toBe(true);
     expect(v?.changeMotivation).toBe('POST_DELIVERY_VALIDATION');
-    expect(v?.changeReason).toMatch(/exact/);
+    expect(v?.changeReason).toMatch(/frontend and backend/);
     // v1 is retained, deactivated.
     const all = await db.presetVersion.findMany({ where: { presetId: MATCHED } });
     expect(all).toHaveLength(2);
@@ -162,8 +167,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     // The established preset is untouched — still v1, still its own hours.
     const v = await activeVersion(MATCHED);
     expect(v?.version).toBe(1);
-    expect(v?.beHours).toBe(40);
-    expect(v?.feHours).toBe(18);
+    expect(v?.devHours).toBe(58);
   });
 
   it('mints a new preset when there was no match at all', async () => {
@@ -178,10 +182,26 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
     const v = await activeVersion(result.created[0]!);
-    // Card DEV total is 30 (20 be + 10 fe). The old code stored be=30, fe=12.
-    expect(v!.beHours + v!.feHours).toBe(30);
-    expect(v!.beHours).toBe(20);
-    expect(v!.feHours).toBe(10);
+    // Card DEV total is 30. The old code stored be=30 + fe=12 = 42.
+    expect(v!.devHours).toBe(30);
+  });
+
+  it('carries prior flags forward when the estimate tagged nothing', async () => {
+    // Otherwise promoting an untagged card onto a matched preset would erase
+    // the flag information that preset already held.
+    const untagged = card({
+      sourcePresetId: MATCHED,
+      matchScore: 0.9,
+      lineItems: [li('DEV', 40)],
+    });
+
+    await promoteMenuItemsToPresets(db, estimateId, [untagged]);
+
+    const v = await activeVersion(MATCHED);
+    expect(v?.devHours).toBe(40);
+    expect(v?.touchesBackend).toBe(true); // preserved from v1, not overwritten
+    expect(v?.touchesFrontend).toBe(false);
+    expect(v?.changeReason).toMatch(/no side tags/);
   });
 
   it('is idempotent — re-finalising the same estimate adds no versions', async () => {
@@ -209,13 +229,16 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     expect(result.promoted).toEqual([]);
   });
 
-  it('marks the split as apportioned when the dev rows carry no tags', async () => {
-    const untagged = card({ lineItems: [li('DEV', 50)] });
-    const result = await promoteMenuItemsToPresets(db, estimateId, [untagged]);
+  it('records untagged dev work honestly rather than guessing a split', async () => {
+    const result = await promoteMenuItemsToPresets(db, estimateId, [
+      card({ lineItems: [li('DEV', 50)] }),
+    ]);
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
     const v = await activeVersion(result.created[0]!);
-    expect(v!.beHours + v!.feHours).toBe(50);
-    expect(v!.changeReason).toMatch(/apportioned/);
+    expect(v!.devHours).toBe(50);
+    expect(v!.touchesBackend).toBe(false);
+    expect(v!.touchesFrontend).toBe(false);
+    expect(v!.changeReason).toMatch(/no side tags/);
   });
 });

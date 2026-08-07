@@ -96,8 +96,9 @@ export async function runArchivist(
         version: true,
         risk: true,
         aiAssist: true,
-        beHours: true,
-        feHours: true,
+        devHours: true,
+        touchesFrontend: true,
+        touchesBackend: true,
         taxonomyKey: true,
         requires: true,
         blocks: true,
@@ -118,8 +119,9 @@ export async function runArchivist(
       presetId: meta.presetId,
       presetVersion: meta.version,
       score: best.score,
-      beHours: meta.beHours,
-      feHours: meta.feHours,
+      devHours: meta.devHours,
+      touchesFrontend: meta.touchesFrontend,
+      touchesBackend: meta.touchesBackend,
       adjustments: {
         projectSizeDelta: `preset "${meta.name}" matched at ${(best.score * 100).toFixed(0)}%`,
         dataVolume: req.dataVolume,
@@ -151,7 +153,7 @@ async function rerankCandidatesForRequirement(
 ): Promise<RankedPreset[]> {
   try {
     const candidateList = candidates
-      .map((c, i) => `${i}: ${c.name} (${c.presetId}) score=${c.score.toFixed(3)} BE=${c.beHours}h FE=${c.feHours}h`)
+      .map((c, i) => `${i}: ${c.name} (${c.presetId}) score=${c.score.toFixed(3)} DEV=${c.devHours}h`)
       .join('\n');
 
     const rawResponse = await modelProvider.chat({

@@ -20,7 +20,7 @@ beforeAll(async () => {
     data: {
       presetId: CL_PRESET_ID, version: 1, active: false,
       category: 'Test', name: 'CL Test', description: 'cl test',
-      beHours: 1, feHours: 1, platforms: [], reqType: 'test', keywords: [],
+      devHours: 2, touchesBackend: true, touchesFrontend: true, platforms: [], reqType: 'test', keywords: [],
       userStoryTags: [], projectSizeFit: [], integrationCount: 0,
       dataVolume: 'NONE', phase: 'CORE', requires: [], blocks: [],
       canParallel: false, aiAssist: 'LOW', risk: 'LOW', spikeNeeded: false,

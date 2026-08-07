@@ -62,8 +62,9 @@ beforeAll(async () => {
             category: 'ecommerce',
             name,
             description: `${name} description`,
-            beHours: 40,
-            feHours: 20,
+            devHours: 60,
+            touchesBackend: true,
+            touchesFrontend: true,
             platforms: [],
             reqType: 'FEATURE',
             keywords: [],
@@ -155,7 +156,7 @@ describe('WS11-01: Embed each requirement + ANN match against PresetVersion.embe
 // ─── WS11-02: Match payload is schema-valid and version-pinned ────────────────
 
 describe('WS11-02: Match payload schema-valid, version-pinned, carries adjustment signals', () => {
-  it('a full-coverage match carries presetId, presetVersion, beHours, feHours, and adjustments', async () => {
+  it('a full-coverage match carries presetId, presetVersion, devHours, and adjustments', async () => {
     vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
 
     const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 2 };
@@ -165,8 +166,7 @@ describe('WS11-02: Match payload schema-valid, version-pinned, carries adjustmen
     expect(match.presetId).toBeTruthy();
     expect(typeof match.presetVersion).toBe('number');
     expect(match.presetVersion).toBeGreaterThan(0);
-    expect(typeof match.beHours).toBe('number');
-    expect(typeof match.feHours).toBe('number');
+    expect(typeof match.devHours).toBe('number');
     expect(['Low', 'Medium', 'High']).toContain(match.adjustments.risk);
     expect(['Low', 'Medium', 'High']).toContain(match.adjustments.aiAssist);
     expect(match.sequencing).toBeDefined();

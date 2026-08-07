@@ -69,8 +69,13 @@ async function savePreset(formData: FormData) {
         name: (formData.get('name') as string) ?? active.name,
         category: (formData.get('category') as string) ?? active.category,
         description: (formData.get('description') as string) ?? active.description,
-        beHours: num(formData.get('beHours')),
-        feHours: num(formData.get('feHours')),
+        devHours: num(formData.get('devHours')),
+        touchesFrontend: formData.get('touchesFrontend') === 'on',
+        touchesBackend: formData.get('touchesBackend') === 'on',
+        // Legacy split is never rewritten — the historical values on older
+        // versions stay readable, but new versions record "not tracked".
+        beHours: null,
+        feHours: null,
         reqType: (formData.get('reqType') as string) ?? active.reqType,
         platforms: csv(formData.get('platforms')),
         keywords: csv(formData.get('keywords')),
@@ -126,13 +131,22 @@ async function savePreset(formData: FormData) {
   });
 }
 
+/** Compact "be · fe" summary for the history table. */
+function sidesLabel(be: boolean, fe: boolean): string {
+  if (be && fe) return 'be · fe';
+  if (be) return 'be';
+  if (fe) return 'fe';
+  return '—';
+}
+
 type VersionRow = {
   version: number;
   name: string;
   category: string;
   reqType: string;
-  beHours: number;
-  feHours: number;
+  devHours: number;
+  touchesFrontend: boolean;
+  touchesBackend: boolean;
   risk: string;
   aiAssist: string;
   dataVolume: string;
@@ -143,7 +157,7 @@ type VersionRow = {
 
 function diffVersions(curr: VersionRow, prev: VersionRow): Array<{ field: string; from: string; to: string }> {
   const fields: Array<keyof VersionRow> = [
-    'name', 'category', 'reqType', 'beHours', 'feHours', 'risk', 'aiAssist',
+    'name', 'category', 'reqType', 'devHours', 'touchesFrontend', 'touchesBackend', 'risk', 'aiAssist',
     'dataVolume', 'phase', 'platforms', 'keywords',
   ];
   const out: Array<{ field: string; from: string; to: string }> = [];
@@ -208,8 +222,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                 name="integrationCount"
                 defaultValue={active.integrationCount}
               />
-              <NumField label="BE hours" name="beHours" defaultValue={active.beHours} />
-              <NumField label="FE hours" name="feHours" defaultValue={active.feHours} />
+              <NumField label="Dev hours" name="devHours" defaultValue={active.devHours} />
               <SelectField label="Risk" name="risk" options={LEVELS} defaultValue={active.risk} />
               <SelectField
                 label="AI assist"
@@ -262,6 +275,37 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                 defaultValue={active.notes}
                 className="font-mono text-[12.5px] leading-relaxed"
               />
+            </div>
+
+            {/* Reference metadata: these say what the preset's dev work covers.
+                They never divide `devHours` — estimating is full-stack now. */}
+            <div className="border-t border-line-soft pt-4">
+              <Eyebrow>Stack coverage</Eyebrow>
+              <p className="mt-1 text-[11.5px] text-ink-4">
+                For reference only — dev hours are estimated as one figure.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    name="touchesBackend"
+                    defaultChecked={active.touchesBackend}
+                    className="h-3.5 w-3.5 accent-[var(--color-green)]"
+                    data-testid="preset-touches-backend"
+                  />
+                  Backend
+                </label>
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    name="touchesFrontend"
+                    defaultChecked={active.touchesFrontend}
+                    className="h-3.5 w-3.5 accent-[var(--color-green)]"
+                    data-testid="preset-touches-frontend"
+                  />
+                  Frontend
+                </label>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-x-6 gap-y-2 border-t border-line-soft pt-4">
@@ -341,7 +385,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
               <thead>
                 <tr className="border-b border-line bg-surface-2 text-left">
                   <th className="eyebrow px-4 py-2.5 font-bold">Version</th>
-                  <th className="eyebrow px-4 py-2.5 text-right font-bold">BE/FE</th>
+                  <th className="eyebrow px-4 py-2.5 text-right font-bold">Dev</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Status</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Reason</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Created</th>
@@ -356,7 +400,10 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                   >
                     <td className="num px-4 py-2.5 whitespace-nowrap text-ink">v{v.version}</td>
                     <td className="num px-4 py-2.5 text-right whitespace-nowrap text-ink-2">
-                      {v.beHours}/{v.feHours}h
+                      {v.devHours}h
+                      <span className="ml-1.5 text-[10.5px] text-ink-4">
+                        {sidesLabel(v.touchesBackend, v.touchesFrontend)}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5">
                       {v.active ? (

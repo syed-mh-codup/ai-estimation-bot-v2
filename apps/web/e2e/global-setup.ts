@@ -133,8 +133,11 @@ export default async function globalSetup() {
         category: 'E2E',
         name: 'E2E Seeded Preset',
         description: 'A preset used by the WS24-03 admin test.',
-        beHours: 20,
-        feHours: 10,
+        // One dev figure; the flags are reference metadata. Legacy be/fe left
+        // unset (nullable) exactly as the pipeline now writes them.
+        devHours: 30,
+        touchesBackend: true,
+        touchesFrontend: true,
         platforms: ['web'],
         reqType: 'Integration',
         keywords: ['e2e'],

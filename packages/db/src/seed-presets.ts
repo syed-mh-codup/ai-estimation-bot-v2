@@ -117,6 +117,14 @@ async function main() {
         category: str(r[COL.category]),
         name: str(r[COL.name]),
         description: str(r[COL.description]),
+        // The spreadsheet genuinely records a frontend/backend split, so we keep
+        // it in the legacy columns — the rule is "never fabricate a split", not
+        // "never record one the source actually has". `devHours` is the working
+        // figure (their sum, which is the xlsx's own derived total), and the
+        // flags come straight from whether each side had any hours.
+        devHours: toInt(r[COL.beHours]) + toInt(r[COL.feHours]),
+        touchesBackend: toInt(r[COL.beHours]) > 0,
+        touchesFrontend: toInt(r[COL.feHours]) > 0,
         beHours: toInt(r[COL.beHours]),
         feHours: toInt(r[COL.feHours]),
         platforms: splitList(r[COL.platforms]),

@@ -68,7 +68,7 @@ export default async function PresetsAdminPage() {
                       <td className="px-4 py-2.5 text-ink-2">{active?.category ?? '—'}</td>
                       <td className="px-4 py-2.5 text-ink-2">{active?.reqType ?? '—'}</td>
                       <td className="num px-4 py-2.5 text-right whitespace-nowrap text-ink-2">
-                        {active ? `${active.beHours}/${active.feHours}h` : '—'}
+                        {active ? `${active.devHours}h` : '—'}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {active ? (

@@ -252,8 +252,11 @@ export const ArchivistMatchSchema = z.object({
   presetId: z.string().optional(),
   presetVersion: z.number().optional(),
   score: z.number().min(0).max(1).optional(),
-  beHours: z.number().optional(),
-  feHours: z.number().optional(),
+  /** The matched preset's dev effort as one figure (never divided). */
+  devHours: z.number().optional(),
+  /** Which sides that preset's work covered — reference only. */
+  touchesFrontend: z.boolean().optional(),
+  touchesBackend: z.boolean().optional(),
   adjustments: ArchivistAdjustmentsSchema,
   /** Specific rationale, e.g. "matches B2B contextual pricing via @inContext, but adds volume tiers not in P28". */
   rationale: z.string(),

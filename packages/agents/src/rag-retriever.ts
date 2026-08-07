@@ -12,8 +12,9 @@ export type RankedPreset = {
   presetId: string;
   presetVersion: number;
   name: string;
-  beHours: number;
-  feHours: number;
+  devHours: number;
+  touchesFrontend: boolean;
+  touchesBackend: boolean;
   score: number;
 };
 
@@ -61,8 +62,9 @@ export async function queryPresetsByVector(
     presetId: r.presetId,
     presetVersion: r.version,
     name: r.name,
-    beHours: r.beHours,
-    feHours: r.feHours,
+    devHours: r.devHours,
+    touchesFrontend: r.touchesFrontend,
+    touchesBackend: r.touchesBackend,
     // findNearestPresets returns cosine distance; convert to similarity
     score: Math.max(0, Math.min(1, 1 - r.distance)),
   }));
