@@ -52,12 +52,15 @@ test.describe('WS23: Menu Card refinement', () => {
     // fired straight after blur races the server action and re-renders from a
     // row that hasn't been updated yet — the page then shows the OLD number
     // even though the write lands moments later.
-    const saved = page.waitForResponse(
-      (r) => r.request().method() === 'POST' && r.url().includes(COSTED_ESTIMATE.id),
-    );
     await devBaseInput.fill('100');
     await devBaseInput.blur();
-    await saved;
+    // Wait for EVERY pending write, not one matched response. A predicate on
+    // "POST to this estimate" is not specific enough: the two toggles above are
+    // also server actions posting to the same URL, and one of theirs can still
+    // be in flight — so the wait resolves on the toggle and the reload races the
+    // hours write after all. That failed only in the full suite, where the
+    // toggles are slower, which is exactly how a race presents.
+    await page.waitForLoadState('networkidle');
 
     // DEV is untaxed, so the taxed figure is exactly the base figure.
     await expect(devTaxedLabel).toContainText('100');
