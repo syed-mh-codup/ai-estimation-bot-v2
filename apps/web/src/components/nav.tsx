@@ -74,7 +74,13 @@ export async function Nav() {
               {session.user.name}
             </div>
           )}
-          <div className="text-xs break-words text-ink-2 hover:text-green">{session.user.email}</div>
+          {/* Don't print the same string twice when someone's display name is
+              their email address (which is what the seeds do). */}
+          {session.user.name !== session.user.email && (
+            <div className="text-xs break-words text-ink-2 hover:text-green">
+              {session.user.email}
+            </div>
+          )}
           <div className="mt-0.5 text-[10.5px] text-ink-3">
             {session.user.role === 'ADMIN' ? 'Admin' : 'Estimator'}
           </div>
