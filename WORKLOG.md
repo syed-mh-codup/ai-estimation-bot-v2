@@ -1,14 +1,13 @@
 # WORKLOG — feature backlog / ideas not yet started
 
-> **STATUS 2026-08-07: items 1–7 below are all DONE and on `master`.** Only
-> "Steering input for estimates" remains unstarted. Each entry's original
-> analysis is left intact for context, but the "Status: not started" lines are
-> stale — see PROGRESS.md for what shipped, the commits, and the decisions taken
-> (dev effort consolidated to one figure; preset codes auto-allocated).
-
-> Distinct from PROGRESS.md (which tracks live, in-progress work). This file
-> captures requested features and ideas that haven't been scoped or started
-> yet, so they aren't lost between sessions.
+> **STATUS 2026-08-07 — only "Steering input" below is still open.** Everything
+> else here shipped; each entry now carries a DONE line naming the commit. The
+> original analysis is left intact because it's still the best write-up of *why*
+> each thing mattered, and several entries diagnosed bugs the fix then confirmed.
+>
+> One entry did NOT ship as written: "Split DEV into separate Frontend and
+> Backend estimates". The decision went the other way — dev effort is ONE figure
+> with side flags for reference, because delivery is full-stack. See PROGRESS.md.
 
 ## Steering input for estimates (requested 2026-07-08)
 
@@ -56,7 +55,8 @@ the prompt/context for any other requirement. This would likely mean:
   rest of the project — i.e. avoid the same over-generalization failure mode
   as the closed-vocabulary bug.
 
-**Status:** not started. No code changes made. Recorded here per request.
+**Status:** NOT STARTED — the one open item in this file. Still needs the
+Librarian-review pause step that doesn't exist yet; see the design risk above.
 
 ---
 
@@ -102,7 +102,11 @@ temporary password an admin typed for them, forever.
   (`auth.ts:59-75`) already re-reads the user every request for `role` — extend
   its `select` to carry `name` too.
 
-**Status:** not started. No code changes made.
+**Status: DONE** — `fe68a60`. `/profile` with name + change-password (requires
+the current password). `MIN_PASSWORD_LENGTH` moved to `lib/password.ts`; the
+jwt callback carries `name` so a rename lands without re-login. The session
+caveat noted above was later closed too: `passwordChangedAt` (`63344b0`) now
+signs other devices out.
 
 ---
 
@@ -191,7 +195,13 @@ because the real contract rides in the user message (`:76-90`). The system
 prompt is drifted and mentions neither FE nor BE — this is the
 prompt-code drift class of bug the estimate-quality memory already tracks.
 
-**Status:** not started. No code changes made.
+**Status: SUPERSEDED — deliberately not built as written.** Dev effort is one
+combined figure; `touchesFrontend`/`touchesBackend` flags on line items
+(`eceb937`) and on presets (`5cdd883`) record which sides work covers without
+dividing the hours. Because `RoleKind` never changed, none of the ~20 touch
+points in the table above applied — no gate denominators, no taxation change,
+no ROLES tuple, no new AgentKinds. The `nonDev` naming bug flagged above is
+still unfixed (it's real, just unrelated).
 
 ---
 
@@ -256,7 +266,13 @@ script, or a manually-run routine). Confirm the actual state of
 `PresetVersion.embedding` in the Neon DB before acting on this; the reproducible
 gap is that nothing in the repo re-creates that state.
 
-**Status:** not started. No code changes made.
+**Status: DONE** — both halves. (b) the write-back is wired: `f0b1c07` hooks
+`finaliseAction` via Inngest with hybrid promotion (version the matched preset
+at >=0.75, else mint a new one), and fixes the `beHours * 0.4` fabrication this
+entry correctly identified as blocking. (a) creation is `71d5f2f` —
+`/admin/presets/new`, no number to invent (`ea10878` allocates codes from a
+sequence). The 🔴 embedding finding was real and is fixed in `694a056`:
+`savePreset` no longer de-indexes a preset, and `pnpm db:embed:presets` exists.
 
 ---
 
@@ -326,4 +342,7 @@ own:** `deleteEstimate` (`estimates/[id]/actions.ts:288-291`) only calls
 owner or admin check. Today it's also the *only* way to unblock a user
 deletion, which is how it surfaced.
 
-**Status:** not started. No code changes made.
+**Status: DONE** — `63344b0`. `disabledAt` blocks sign-in AND ends live sessions
+via the DB-backed jwt callback (the second hook this entry correctly identified
+as the one that matters). Reassignment is standalone, not only inside deletion.
+The 🔴 `deleteEstimate` authz hole found here was fixed first, in `209f6cc`.
