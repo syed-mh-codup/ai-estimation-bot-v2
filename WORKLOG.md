@@ -1,19 +1,68 @@
-# WORKLOG — feature backlog / ideas not yet started
+# WORKLOG — feature backlog
 
-> **STATUS 2026-08-20.** The five original entries are resolved (four shipped,
-> one superseded) and each carries a line naming the commit. Still open:
-> **Steering input** below, three items carried over from the 2026-08-07 session,
-> and the **2026-08-20 requests** — nine features, then a second pass covering the
-> preset-model rework, the WBS↔preset anti-drift guarantee, and a systemic
-> "no orphaned backend work" rule.
+> **Last groomed 2026-08-20.** The five original entries are resolved (four
+> shipped, one superseded) and each carries a line naming the commit. Everything
+> after them is open.
 >
-> On the resolved five: the
-> original analysis is left intact because it's still the best write-up of *why*
-> each thing mattered, and several entries diagnosed bugs the fix then confirmed.
->
-> One entry did NOT ship as written: "Split DEV into separate Frontend and
-> Backend estimates". The decision went the other way — dev effort is ONE figure
-> with side flags for reference, because delivery is full-stack. See PROGRESS.md.
+> On the resolved five: the original analysis is left intact because it's still
+> the best write-up of *why* each thing mattered, and several entries diagnosed
+> bugs the fix then confirmed. One did NOT ship as written — "Split DEV into
+> separate Frontend and Backend estimates". The decision went the other way: dev
+> effort is ONE figure with side flags for reference, because delivery is
+> full-stack. See PROGRESS.md.
+
+## Sequencing (agreed 2026-08-20)
+
+Not a strict order — but this is the reasoning, so nobody has to reconstruct it.
+Full prioritisation is being done separately.
+
+**Do first — these protect everything after them, and they're cheap:**
+1. **Round-trip test** (WBS → promote → retrieve → assert). Would have caught the
+   1.4× inflation on day one. See *Never let the WBS and the preset library
+   drift apart again*.
+2. **Shared costed-work type — FOCUSED.** Kills the twelve-files-per-field
+   mechanism that produces drift.
+3. **No orphaned backend work** — orphan-field audit + zero-caller check. Every
+   failure this backlog records was *silent*; this is the general fix.
+
+**Then, whichever is more urgent commercially:**
+- **Dependency edges** (in *Preset model rework* §2) — the hard prerequisite for
+  the configurable-estimate menu card. Do this if presales is the priority.
+- **The comparison-delta fix** (§3) — the item most likely to improve estimate
+  quality on its own, and a plausible contributor to the calibration gap. Do this
+  if accuracy is the priority.
+
+**Deliberately deferred:** *Shared costed-work type — FULL*. It should be
+answered by the preset rework, not decided ahead of it.
+
+## Index
+
+**Open — infrastructure / correctness**
+- Never let the WBS and the preset library drift apart again
+- Shared costed-work type — FOCUSED
+- Shared costed-work type — FULL unification *(deferred)*
+- No orphaned backend work
+- Detective's spike-preset range is hardcoded
+- `nonDev` in supervisor-gates includes DEV
+- Fix the Google Sheets export *(never run live)*
+- Review and revise the agent prompts *(live prompts have drifted from the repo)*
+
+**Open — product**
+- Configurable estimate — a menu card the client picks from
+- Estimate lineage — successors and branches
+- Multi-level approval on estimates
+- AI-assisted WBS editing
+- Artifact generation alongside the WBS *(ERD / user flow / wireframes, UI-extensible)*
+- Custodian on estimates, with deadlines and reminders
+- Preset model rework
+- Steering input for estimates
+
+**Decisions recorded (not work)**
+- The seeded 45 keep their original ids
+
+**Resolved** — the five 2026-07 entries below; see each entry's status line.
+
+---
 
 ## Steering input for estimates (requested 2026-07-08)
 
@@ -779,18 +828,99 @@ and stop. That is exactly the gap `beHours = Σ DEV; feHours = round(BE * 0.4)`
 lived in for months: a 1.4× inflation on every promoted preset, invisible because
 nothing ever read one back.
 
-**Decided — both guards:**
-1. **A shared type for a costed unit of work**, used by both the WBS and the
-   preset library, so a mapping mismatch cannot compile. Today the mapping is
-   hand-written in `writeback.ts` and again in each DTO builder; every copy is a
-   drift opportunity.
-2. **A CI-blocking round-trip test:** estimate → promote → retrieve as an anchor
-   → assert the anchor equals what was estimated. Types can't express arithmetic,
-   units or rounding; this catches what they miss, and would have caught the 1.4×
-   on day one.
+**Decided — both guards, because they catch different classes of failure:**
 
-**Status:** not started. Do this before, or alongside, the preset rework — not
-after.
+1. **Structural drift** → a shared costed-work type so a mapping mismatch cannot
+   compile. Split into two separately-sized items below ("focused" and "full").
+2. **Semantic drift** → a **CI-blocking round-trip test**: estimate → promote →
+   retrieve as an anchor → assert the anchor equals what was estimated.
+
+**Why both, stated plainly:** a shared type could not have caught the bug that
+actually hurt. `feHours = round(beHours * 0.4)` was perfectly type-correct — two
+`Int`s, no mismatch anywhere. Types check shape, not meaning. Only a round trip
+notices that the number coming back out is 1.4× the number that went in.
+
+**Status:** not started. Do the round-trip test and the focused refactor before,
+or alongside, the preset rework — not after.
+
+## Shared costed-work type — FOCUSED (do this one)
+
+**What:** collapse the duplicated representations of "a costed unit of work" down
+to one definition, and the duplicated Prisma-row mappings down to one function.
+Deliberately scoped to stop the bleeding, not to redesign the model.
+
+**The problem, measured.** Four separate hand-written types describe the same
+thing, none derived from another:
+
+| Type | Where | Used by |
+|---|---|---|
+| `SpecialistLineItem` | `shared/src/schemas.ts:289` | what a specialist emits |
+| `RoleLineItem` (zod) | `shared/src/schemas.ts:333` | what the pipeline passes around |
+| `RoleLineItem` (Prisma) | `db/prisma/schema.prisma:388` | the database row |
+| `LineItemDTO` | `estimates/[id]/actions.ts:20` | what the editor reads |
+
+Same story one level up: `MenuItemSchema`, the Prisma `MenuItem`, and `ItemDTO`.
+And **at least three near-identical Prisma-row → `MenuItem` mappings**, each
+independently maintained:
+
+- `apps/web/src/app/estimates/[id]/page.tsx:61` (the Sheets export action)
+- `apps/web/src/inngest/functions.ts:256` (the promote function)
+- `packages/agents/src/rollup.ts:85`
+
+**Evidence this is the drift mechanism, not a tidiness complaint.** Adding
+`touchesFrontend`/`touchesBackend` — *two booleans* — required changes in twelve
+files (`eceb937`): schemas, specialist, architect, run-estimate, taxation, audit,
+actions, page, ledger-context, MenuCardEditor, SideTag, migration. The compiler
+caught only some of it: `taxation.ts` and `audit.ts` surfaced only on a full
+typecheck, and the Sheets export DTO in `page.tsx` needed a *separate* fix
+afterwards because it is a second mapping inside the same file. Had I stopped at
+the first green typecheck, the flags would have silently vanished from the export
+path.
+
+Six-plus places to update is not a discipline problem, it is arithmetic: a field
+eventually lands in five of them.
+
+**The work:**
+- One canonical shape for a costed unit of work (and for a card) in
+  `@repo/shared`.
+- DTOs become **derived** types (`Pick`/`Omit`) rather than fresh declarations, so
+  adding a field either propagates or fails to compile.
+- **One** `toMenuItem(prismaRow)` / `toLineItem(prismaRow)` helper; the three
+  existing copies call it.
+
+**Explicitly out of scope:** changing the database model, and deciding whether
+`PresetVersion` should *be* a costed-work record. See the FULL item below.
+
+**Status:** not started. Recommended: do this as part of the anti-drift work —
+most of the protection for a fraction of the cost, and it makes the preset rework
+materially safer to attempt.
+
+## Shared costed-work type — FULL unification (decide later, not now)
+
+**What:** one canonical model of costed work from which the database, the
+pipeline, the DTOs **and the preset library** are all derived — including
+answering whether `PresetVersion` should be a costed-work record rather than a
+parallel schema that happens to hold hours.
+
+**Why it's a genuine question and not just "more of the above":** a preset and a
+menu card are arguably the same object at different lifecycle stages. A card is
+costed work for one client; a preset is costed work generalised for reuse.
+Today they are unrelated schemas joined by a hand-written mapping in
+`writeback.ts`, which is exactly where the 1.4× inflation lived. Unify them and
+that class of bug becomes unrepresentable.
+
+**Why NOT now:**
+- It touches the pipeline, the DB, every DTO and the preset library at once —
+  much larger blast radius than the focused item, with the same specific
+  protection already achieved by it.
+- It should be **answered by** the preset rework, not bundled ahead of it. The
+  rework splits `PresetVersion` into three concerns (retrieval surface / anchor /
+  composition rules); once that shape is settled, whether the anchor half *is* a
+  costed-work record becomes an obvious yes or an obvious no. Deciding it first
+  means guessing.
+
+**Status:** not started, deliberately deferred. Revisit once the preset rework
+has settled the anchor's shape.
 
 ## No orphaned backend work (requested 2026-08-20)
 
