@@ -3,7 +3,9 @@
 > **STATUS 2026-08-20.** The five original entries are resolved (four shipped,
 > one superseded) and each carries a line naming the commit. Still open:
 > **Steering input** below, three items carried over from the 2026-08-07 session,
-> and **nine new requests** from 2026-08-20 — see the sections after the divider.
+> and the **2026-08-20 requests** — nine features, then a second pass covering the
+> preset-model rework, the WBS↔preset anti-drift guarantee, and a systemic
+> "no orphaned backend work" rule.
 >
 > On the resolved five: the
 > original analysis is left intact because it's still the best write-up of *why*
@@ -647,3 +649,179 @@ That survived the dev-hours consolidation (it reads line items, not preset
 BE/FE), but it has never been eyeballed in a real spreadsheet.
 
 **Status:** not started.
+
+---
+
+# Requested 2026-08-20 (second pass)
+
+## Preset model rework — it's someone else's spreadsheet schema
+
+**Framing:** `PresetVersion` is a direct transcription of
+`docs/Estimate Presets (ISM).xlsx`, designed by someone else for a different
+purpose. Treat it as legacy. ~25 fields, of which the retrieval path selects
+twelve, and only a handful influence an estimate.
+
+### 1. Split three concerns that are currently one flat row
+
+- **Retrieval surface** — what makes a preset findable: `name`, `description`,
+  `keywords`, `embedding`, `embeddingText`. This is the *entire* matching
+  mechanism; the embedding is literally `name + description + keywords`.
+- **Estimate anchor** — what it contributes: dev hours, side flags, and the
+  comparison signals below.
+- **Composition rules** — how it relates to other modules: `requires`, `blocks`,
+  `canParallel`.
+
+They're conflated today, which is why the third silently rotted: nothing
+consumes it, so nothing keeps it honest.
+
+### 2. Dependency edges become first class
+
+`requires: String[]` / `blocks: String[]` of preset codes: no FK, no direction
+beyond convention, no reason attached, no way to say "these two are
+alternatives". Replace with real edges — `(fromPresetId, toPresetId, kind)` where
+kind is `REQUIRES | BLOCKS | ALTERNATIVE_TO`, plus an optional note.
+
+Then a cascade is a graph walk instead of string matching, referential integrity
+is enforced, **and the graph can be visualised** — which is wanted.
+
+This is the prerequisite for the configurable-estimate menu card, not a cleanup.
+
+**Also settles an open question:** nothing in the codebase reads `blocks` at all,
+so whether it means "must not coexist" or "must come after" has never been
+decided *or* validated against the 24 presets that use it. Decide it here.
+
+### 3. The comparison signals are not inert — they're unused as deltas
+
+**Correction to an earlier reading of this file.** `integrationCount`,
+`dataVolume`, `projectSizeFit`, `aiAssist`, `risk` are genuine signals — they are
+exactly what lets a model judge between two presets matching similar
+requirements. They should NOT be dropped.
+
+The real defect is that the comparison never happens. `archivist.ts:127-128`:
+
+```ts
+dataVolume:       req.dataVolume,        // from the REQUIREMENT
+integrationCount: req.integrationCount,  // from the REQUIREMENT
+aiAssist:         toImpactLevel(meta.aiAssist),  // from the preset
+risk:             toImpactLevel(meta.risk),      // from the preset
+```
+
+The field is called `adjustments` and the prompt calls them "Adjustment signals"
+(`specialist.ts:58`) — but two of the five are the requirement's own values handed
+straight back. **Nothing is adjusted, because nothing is compared.** The preset's
+`integrationCount` and `dataVolume` are selected out of the database and dropped.
+
+So the model is told "integration_count: 4" with no baseline to judge it against.
+The intended meaning — *this preset was built at 1, your requirement is 4, scale
+up* — was never implemented. Fix: compute and pass the delta. Plausibly a
+contributor to the calibration gap PROGRESS.md tracks, since every run has been
+handing the model reference-free numbers.
+
+### 3b. Controlled vocabulary that can grow without a deploy
+
+`category` / `reqType` / `platform` are free strings. They were deliberately
+opened up from enums (see the long comment in `packages/shared/src/schemas.ts`)
+because a closed **ecommerce-specific** enum forced every requirement into the
+nearest wrong label. That diagnosis was right; the remedy overshot.
+
+What's wanted is closed-but-curated: a vocabulary you own, extensible without a
+migration. A Prisma enum can't do that. **The pattern already exists here twice**
+— `TaxonomyNode`/`TaxonomyNodeVersion` and `Prompt`/`PromptVersion`: DB-backed,
+admin-editable, single-active, loaded at run time.
+
+So: a `VocabularyTerm` table keyed by kind (`CATEGORY`, `REQ_TYPE`, `PLATFORM`),
+the active list injected into the Librarian's prompt at run time (prompts already
+load at run time — same seam), and validation against the DB rather than a zod
+enum.
+
+**Decided:** when the Librarian wants a term that isn't in the list, **accept it
+and queue it as `pending`** for admin review — approve, merge into an existing
+term, or reject. The vocabulary grows out of real work instead of guesses, and a
+bad fit is visible rather than silently absorbed. Needs a review surface in
+`/admin`.
+
+### 4. `notes` — two fields, kept separate
+
+**Decided.** Split into:
+- a pipeline-owned field populated at promotion from the estimate's relevant
+  `assumptions[]`, so "last time we assumed X" comes back as an anchor
+- a human-authored field an estimator writes and a promotion never overwrites
+
+Today `notes` is editable in the admin form
+(`admin/presets/[id]/page.tsx:280`) but **nothing populates it and nothing reads
+it** — the most useful column in the original spreadsheet is inert in both
+directions. Whichever field it becomes must reach the specialist prompt.
+
+### 5. Separate estimated from actual hours
+
+`devHours` is one number doing two jobs: the original estimate, and — after
+`recordActuals` — the delivered figure. Recording actuals **overwrites** the
+estimate, so the comparison is destroyed by the act of recording it.
+
+**Confirmed this feeds all three of:** calibration/accuracy tracking (per preset
+and per estimator), ingestion of actuals from an external system (Jira,
+timesheets) rather than manual entry, and commercial margin/pricing analysis.
+All three need estimate and actual side by side, with attribution and a date —
+so this is a related-records problem, not an extra column.
+
+**Status:** not started. Item 2 is the prerequisite for configurable estimates;
+item 3 is the one most likely to improve estimate quality on its own.
+
+## Never let the WBS and the preset library drift apart again
+
+**Hard requirement.** The WBS promotes to presets and presets populate the WBS.
+That loop has drifted before and must not again.
+
+**Why it drifted, precisely:** promotion was tested, retrieval was tested, and
+the **round trip** was not. Neither `ws20.test.ts` nor `writeback-promote.test.ts`
+mentions `runArchivist` or `ArchivistMatch` — they assert what promotion writes
+and stop. That is exactly the gap `beHours = Σ DEV; feHours = round(BE * 0.4)`
+lived in for months: a 1.4× inflation on every promoted preset, invisible because
+nothing ever read one back.
+
+**Decided — both guards:**
+1. **A shared type for a costed unit of work**, used by both the WBS and the
+   preset library, so a mapping mismatch cannot compile. Today the mapping is
+   hand-written in `writeback.ts` and again in each DTO builder; every copy is a
+   drift opportunity.
+2. **A CI-blocking round-trip test:** estimate → promote → retrieve as an anchor
+   → assert the anchor equals what was estimated. Types can't express arithmetic,
+   units or rounding; this catches what they miss, and would have caught the 1.4×
+   on day one.
+
+**Status:** not started. Do this before, or alongside, the preset rework — not
+after.
+
+## No orphaned backend work (requested 2026-08-20)
+
+**The rule:** a field or capability that exists on the backend must have a
+frontend implementation, unless it is *explicitly* recorded as backend-only.
+CRUD on the backend is not CRUD on the frontend. A column is not a feature.
+
+**This is a systemic pattern here, not a one-off.** Found in a single session:
+
+| Orphan | Where |
+|---|---|
+`toggleable`, `notSafelyRemovable`, `thinSlice` | Architect computes them, `run-estimate.ts:288-290` persists them into `MenuItem.meta`, the editor DTO never reads `meta`. The UI lets a BA switch off a foundation card the pipeline knows is unsafe to remove. |
+`requires`, `blocks`, `canParallel` | Selected by the Archivist, carried into `ArchivistMatch.sequencing`, then only `requires` is used — flattened to one boolean. `blocks` and `canParallel`: zero consumers. |
+`SupervisorInput.mode`, `changedMenuItemIds` | Declared in the schema; appear nowhere else in the codebase. The intended seam for partial re-runs, never wired. |
+`promoteMenuItemsToPresets` | A complete, unit-tested feedback loop with **zero callers** outside tests, for months. |
+`preset.notes` | Editable in admin, read by nothing. |
+`userStoryTags`, `projectSizeFit` | Only ever copied forward in `writeback.ts`; never read for a decision. |
+"reassign or remove them first" | A tooltip promising a feature that did not exist anywhere in the codebase. |
+Preset embeddings | `seed-presets` wrote none and no backfill existed, so retrieval silently matched nothing. |
+
+**Proposed mechanism — make orphans loud instead of relying on discipline:**
+- **Orphan-field audit**, CI-blocking: for every persisted column, assert it is
+  referenced somewhere in `apps/web/src`, with an explicit allowlist for
+  deliberate backend-only fields. A new unallowlisted orphan fails the build; the
+  allowlist is where "purposely not on the frontend" gets *recorded* rather than
+  assumed.
+- **Zero-caller export check**: exported functions in `packages/*` with no
+  non-test caller. Would have caught `promoteMenuItemsToPresets` immediately.
+- Same idea as `embeddingText` and the round-trip test above: the failures that
+  hurt here are all **silent**, so the fix is always to make the invisible
+  visible.
+
+**Status:** not started. Applies far beyond presets — worth doing early, since
+every item in this file adds surface where this can happen again.
