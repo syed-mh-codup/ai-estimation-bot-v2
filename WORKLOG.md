@@ -1,7 +1,11 @@
 # WORKLOG — feature backlog / ideas not yet started
 
-> **STATUS 2026-08-07 — only "Steering input" below is still open.** Everything
-> else here shipped; each entry now carries a DONE line naming the commit. The
+> **STATUS 2026-08-20.** The five original entries are resolved (four shipped,
+> one superseded) and each carries a line naming the commit. Still open:
+> **Steering input** below, three items carried over from the 2026-08-07 session,
+> and **nine new requests** from 2026-08-20 — see the sections after the divider.
+>
+> On the resolved five: the
 > original analysis is left intact because it's still the best write-up of *why*
 > each thing mattered, and several entries diagnosed bugs the fix then confirmed.
 >
@@ -346,3 +350,266 @@ deletion, which is how it surfaced.
 via the DB-backed jwt callback (the second hook this entry correctly identified
 as the one that matters). Reassignment is standalone, not only inside deletion.
 The 🔴 `deleteEstimate` authz hole found here was fixed first, in `209f6cc`.
+
+---
+
+# Carried over from the 2026-08-07 session
+
+Three known-but-unfixed things, recorded so they don't die with the entries that
+raised them.
+
+## Detective's spike-preset range is hardcoded (found 2026-08-07)
+
+`packages/agents/src/detective.ts:102` shows the model this JSON contract:
+
+```
+"spikePresetId": "P01".."P06" | omit
+```
+
+A literal range in a prompt string. Nothing validates that P01–P06 *are* the
+spike presets — PROGRESS.md has flagged that mapping as never cross-checked
+since 2026-07-08 — and it silently rots the moment the library is re-imported or
+a spike preset is added. `PresetVersion.spikeNeeded` already exists and is the
+real source of truth, so this should be derived (query the spike presets, list
+their codes in the prompt) rather than written by hand.
+
+Related: `packages/shared/src/schemas.ts:199` repeats the range in a doc comment,
+and six live DB prompts name "P01–P45" in prose. The prose is descriptive and
+harmless; this one is functional.
+
+**Status:** not started.
+
+## Decision: the seeded 45 keep their original ids (decided 2026-08-07)
+
+Not a task — a decision record, so nobody re-opens it without the cost in front
+of them.
+
+Preset ids are now cuids and `Preset.code` carries the readable handle, so the
+xlsx number is no longer identity. The 45 seeded presets were **deliberately not
+renumbered**, because their id strings are load-bearing today:
+
+- `requires`/`blocks` form a real dependency graph — 43 version rows, 40 distinct
+  ids referenced, 0 dangling
+- 10 `MenuItem.sourcePresetId` rows point at them
+- 6 active agent prompts name the P01–P45 range
+
+Renumbering means rewriting all three in one transaction with a verification pass
+proving 0 dangling refs before and after. The arrays have no FK protection, so a
+partial job rots silently. Assessment at the time: little upside now that `code`
+exists, real downside if it goes wrong.
+
+**Status:** decided, not doing. Revisit only with a scripted migration.
+
+## `nonDev` in supervisor-gates includes DEV (found 2026-07-17, still unfixed)
+
+`packages/agents/src/supervisor-gates.ts`:
+
+```ts
+const nonDev = totalsByRole.DEV + totalsByRole.QA + totalsByRole.BA;
+```
+
+The name says non-DEV; the arithmetic includes DEV. The *behaviour* is correct —
+the warning text says "% of DEV+QA+BA" and the ratio below recomputes the same
+sum inline, so nothing is miscalculated. It's a misnomer plus a duplicated
+expression, and it reads as a bug every time someone opens the file. Worth
+renaming to `pmDenominator` and using the variable in the ratio.
+
+**Status:** not started. Cosmetic, but it's cost reading time twice already.
+
+---
+
+# Requested 2026-08-20
+
+Nine new items. Grounding below is real where it's stated as fact; anything that
+still needs a decision says so rather than guessing.
+
+## Review and revise the agent prompts
+
+**What:** a proper pass over all 9 agent prompts.
+
+**Why now, with evidence:**
+- **The live prompts have drifted from the repo.** Active versions in Neon are
+  v3/v4, and strings that exist in the DB (e.g. "Anchor preset IDs (P01–P45)…")
+  appear **nowhere** in `packages/db/src/seed-prompts.ts` or
+  `scripts/prompts-export.json`. So the prompts actually running are not the
+  prompts in version control. Re-seeding would silently revert them.
+- **A known drift bug**: PROGRESS.md records the live SPECIALIST_DEV body still
+  asking for `{baseHours, rationale, assumptions}` — a shape `specialist.ts` no
+  longer parses. It only works because the real contract rides in the user
+  message.
+- **The calibration gap.** QA/PM/BA have been out of the proportionality band on
+  *every* live run so far (BA 52–95% of DEV, PM 30–44%), and `sow-simple`
+  produced ~160–190h for a ~30–60h job. PROGRESS.md attributes this to prompt
+  adherence, not a code bug — so this is the item that would actually fix it.
+- Prompts are DB-versioned (`Prompt`/`PromptVersion`) and editable at
+  `/admin/prompts`, so revising them needs no deploy. **But** there is no way to
+  export the live set back into the repo, which is why they drifted. Worth
+  fixing as part of this.
+
+**Status:** not started.
+
+## Multi-level approval on estimates
+
+**What:** a sequential approval chain of named roles — e.g. estimator submits →
+lead approves → director signs off — each step recorded with who and when, and
+the estimate locked at the end.
+
+**Current state:** `Estimate.status` is a flat `DRAFT | REVIEW | FINALISED`, and
+`finaliseAction` flips it with no record of who did it. `Role` is only
+`ADMIN | ESTIMATOR`, so there is no "lead" or "director" to approve as — the
+role model has to grow first, or approval steps reference users directly.
+
+**Shape of the work:** an ordered approval-step table (estimate, step index, role
+or user, decision, actor, timestamp, comment), a configurable chain definition
+(so the sequence isn't hardcoded), and a guard making FINALISED reachable only
+when every step has passed. Note `deleteEstimate` and the editing actions already
+refuse to touch a FINALISED estimate, so the lock has somewhere to hook.
+
+**Status:** not started.
+
+## AI-assisted WBS editing
+
+**What:** everything to do with revising the menu card with the model's help, not
+just regenerating it. Specifically requested:
+- natural-language revision ("make QA lighter", "assume auth already exists")
+- re-run part of it — one card, one role — in place, keeping the rest
+- explain and challenge a number, without editing
+- **structural edits**: add a section the crew missed, restructure a section,
+  split one into several, merge several into one
+- revise hours, revise descriptions
+
+**Current state:** the run is all-or-nothing. `runEstimate` regenerates the whole
+menu card and `run-estimate.ts` deletes and recreates every `RoleLineItem` in a
+transaction, so there is no way to touch part of an estimate with the model.
+Manual editing exists and is good (inline titles, hours, sections, drag-and-drop
+via `MenuCardEditor` + `ledger-context`) — this item is about giving the model the
+same reach a human already has.
+
+**The hard part** isn't the prompting, it's scoping: the pipeline is
+requirement-driven (Librarian → Specialists → Architect), so "re-do this one
+card" needs a way to run a slice of it against existing state rather than from
+the SOW. `SupervisorInput` already has `mode: 'full' | 'refine'` and
+`changedMenuItemIds` — declared but never used. That's the intended seam.
+
+**Status:** not started. Biggest item in this file.
+
+## Versioned estimates
+
+**What:** an estimate should have a version history, not just a current state.
+
+**Current state:** none. `Estimate` has no version field; edits overwrite in
+place. Everything *else* versioned in this system follows one pattern —
+`PresetVersion`, `PromptVersion`, `EstimationConfig` — single-active + immutable
+history + `changeReason`/`changeMotivation`, with the invariants tested in
+`packages/core/versioning.test.ts`. An estimate should reuse it.
+
+**Open decision:** snapshot on every edit (noisy, but complete) or on explicit
+events only — finalise, approval, and a manual "save version"? The ledger
+auto-saves on blur, so per-edit versioning would produce a version per keystroke
+group. Explicit snapshots look right; confirm before building.
+
+**Status:** not started. Prerequisite for branching, below.
+
+## Branching estimates
+
+**What:** fork an estimate to explore an alternative — different scope, different
+assumptions — without losing the original.
+
+**Current state:** none. Nothing references an estimate from another estimate.
+
+**Notes:** cheap structurally — a `parentEstimateId` plus a deep copy of
+sections/menu items/line items — but the questions are product ones: does a
+branch inherit approvals (surely not), can branches be compared side by side, and
+can one be promoted back to replace the trunk? Also interacts with the preset
+write-back: two branches of the same job finalising would both promote, so
+`sourceEstimateId` idempotency needs a think.
+
+**Status:** not started. Best done after versioned estimates.
+
+## Artifact generation alongside the WBS
+
+**What:** produce supporting artifacts from an estimate, not just numbers.
+Confirmed wanted: **ERD, user-flow diagram, low-fidelity wireframes** — and more
+later.
+
+**Hard requirement from the request:** artifact types must be **addable through
+the UI**, without a code change. "I shouldn't have to come back to the code to
+add support for a new artifact." So an artifact type is *data*, not a switch
+statement.
+
+**The pattern to reuse is already here.** Agent prompts are exactly this: a
+DB-versioned record (`Prompt`/`PromptVersion`) with an admin editor at
+`/admin/prompts`, loaded at run time by `loadActivePrompt`. An artifact type
+wants the same — name, the prompt that generates it, expected output format,
+active version — plus a renderer chosen by format rather than by type. Note
+`AgentKind` is a Prisma **enum**, so artifact types must NOT be modelled that
+way; adding an enum value is a migration, which is the thing being ruled out.
+
+**Open:** what does an artifact render as (Mermaid text, SVG, image, markdown),
+and is it generated on demand or as part of a run?
+
+**Status:** not started.
+
+## Configurable estimate
+
+**What:** not yet scoped — flagging two readings rather than guessing.
+
+`EstimationConfig` is global and versioned, and `Estimate.configVersion` pins
+which version an estimate used, so per-estimate configuration is a short step
+from what exists.
+
+Two plausible meanings:
+1. **Per-estimate overrides** of the active config — this job's QA buffer is 30%,
+   not the house 20% — recorded on the estimate so the pinned version still
+   reproduces.
+2. **Configurable structure** — which roles exist, what the taxation model is,
+   what the gates check — i.e. making the estimate's shape itself a setting.
+
+These are very different amounts of work. Needs a decision before scoping.
+
+**Status:** not started, not scoped.
+
+## Custodian on estimates, with deadlines and reminders
+
+**What:** a named custodian responsible for an estimate, a deadline, and
+reminders as it approaches.
+
+**Current state:** `Estimate.ownerId` is the only person on an estimate, and it
+means "who created it" — it's set once at
+`api/estimates/ingest-create/route.ts` and never changes except through the new
+admin reassignment. There is no deadline field and no due-date concept anywhere.
+
+**Notes:** custodian and owner should probably be separate — reassigning
+ownership when someone leaves is a different act from handing over day-to-day
+responsibility. Email infrastructure exists and works (`lib/email.ts`:
+`sendEmail`, `estimateUrl`, and the existing run/ingest notifications), so
+reminder content is easy. **What's missing is a scheduler**: every Inngest
+function today is event-triggered, there are no cron functions, so a daily
+"what's due" sweep is genuinely new plumbing (Inngest supports crons; it just
+isn't used here).
+
+**Status:** not started.
+
+## Fix the Google Sheets export
+
+**What:** the live export path has **never actually worked** — it has only ever
+run against the stub.
+
+**Evidence:** `createSheetsProvider()` returns `StubSheetsProvider` unless both
+`GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_DRIVE_FOLDER_ID` are set. Every test
+and every documented run has taken that path. When the e2e suite *did* pick up
+real credentials from `.env.local` on 2026-08-07, the live provider failed
+immediately with **"The caller does not have permission"** — the first time the
+live path had been exercised at all. (The suite now blanks those vars
+deliberately; e2e should not call a third party's Drive.)
+
+**So the work is a first live verification, not a regression fix:** confirm the
+service account can write to the target folder, that the folder id is right, and
+that `LiveSheetsProvider.createSpreadsheet` produces what's expected end to end.
+
+**Also check while in there:** `sheets-export.ts` builds one tab per `RoleKind`
+with columns `Item | Line Item | Taxonomy Key | Base Hours | Taxed Hours | Notes`.
+That survived the dev-hours consolidation (it reads line items, not preset
+BE/FE), but it has never been eyeballed in a real spreadsheet.
+
+**Status:** not started.
