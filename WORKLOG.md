@@ -493,38 +493,44 @@ the SOW. `SupervisorInput` already has `mode: 'full' | 'refine'` and
 
 **Status:** not started. Biggest item in this file.
 
-## Versioned estimates
+## Estimate lineage — successors and branches (clarified 2026-08-20)
 
-**What:** an estimate should have a version history, not just a current state.
+**One feature, not two.** Versioning and branching are the same idea: start a new
+estimate *with an existing estimate as its reference*, instead of from a blank
+SOW. An estimate is either a **successor** of another (the client came back with
+revised requirements) or a **branch** of it (explore a different scope, outcome,
+or subset in parallel).
 
-**Current state:** none. `Estimate` has no version field; edits overwrite in
-place. Everything *else* versioned in this system follows one pattern —
-`PresetVersion`, `PromptVersion`, `EstimationConfig` — single-active + immutable
-history + `changeReason`/`changeMotivation`, with the invariants tested in
-`packages/core/versioning.test.ts`. An estimate should reuse it.
+**The load-bearing requirement:** the earlier estimate stays valid. It is still
+good as a set of work items — just not for this client, or not for this round.
+Both remain live and independently usable; nothing is archived or superseded.
 
-**Open decision:** snapshot on every edit (noisy, but complete) or on explicit
-events only — finalise, approval, and a manual "save version"? The ledger
-auto-saves on blur, so per-edit versioning would produce a version per keystroke
-group. Explicit snapshots look right; confirm before building.
+That rules out the pattern used everywhere else in this system.
+`PresetVersion`/`PromptVersion`/`EstimationConfig` are single-active + immutable
+history, which assumes one current truth. Here there is no single truth — two
+estimates from one ancestor are both current. So this is a **lineage graph**, not
+a version chain: a parent pointer, a relationship kind (SUCCESSOR | BRANCH), and
+a deep copy of sections/menu items/line items at fork time.
 
-**Status:** not started. Prerequisite for branching, below.
+Typical deltas the fork has to survive, per the request: a complete system
+overhaul, a smaller subset of requirements, a few extra modules, or a different
+business outcome. So the copy must be fully editable afterwards with no link back
+to the parent's numbers — reference means provenance, not inheritance.
 
-## Branching estimates
+**Current state:** nothing. `Estimate` has no parent pointer and nothing
+references an estimate from another estimate.
 
-**What:** fork an estimate to explore an alternative — different scope, different
-assumptions — without losing the original.
+**Two things that need deciding:**
+- **Approvals must not be inherited** by a fork (see the approval entry) — a copy
+  of an approved estimate is not itself approved.
+- **Preset write-back.** Promotion is keyed on `(sourceEstimateId,
+  sourceMenuItemId)`, so two branches of one ancestor would each promote their
+  copy of the same card as separate presets. Probably wrong — the library would
+  fill with near-duplicates of the same work. Needs a rule: promote only from one
+  designated lineage member, or dedupe on lineage.
 
-**Current state:** none. Nothing references an estimate from another estimate.
-
-**Notes:** cheap structurally — a `parentEstimateId` plus a deep copy of
-sections/menu items/line items — but the questions are product ones: does a
-branch inherit approvals (surely not), can branches be compared side by side, and
-can one be promoted back to replace the trunk? Also interacts with the preset
-write-back: two branches of the same job finalising would both promote, so
-`sourceEstimateId` idempotency needs a think.
-
-**Status:** not started. Best done after versioned estimates.
+**Status:** not started. This supersedes the earlier separate "Versioned
+estimates" and "Branching estimates" entries.
 
 ## Artifact generation alongside the WBS
 
@@ -550,24 +556,52 @@ and is it generated on demand or as part of a run?
 
 **Status:** not started.
 
-## Configurable estimate
+## Configurable estimate — a menu card the client picks from (clarified 2026-08-20)
 
-**What:** not yet scoped — flagging two readings rather than guessing.
+**What:** the estimate is presented as a menu of modules the customer chooses
+from. A business analyst toggles menu items on and off at will during presales,
+the total updates live, and because modules genuinely depend on each other,
+switching one ON pulls in whatever it requires. Point of the whole thing: take
+the guesswork out of presales.
 
-`EstimationConfig` is global and versioned, and `Estimate.configVersion` pins
-which version an estimate used, so per-estimate configuration is a short step
-from what exists.
+**Reference:** the requester has a Claude artifact demonstrating the intended
+interaction — get it before designing the UI.
 
-Two plausible meanings:
-1. **Per-estimate overrides** of the active config — this job's QA buffer is 30%,
-   not the house 20% — recorded on the estimate so the pinned version still
-   reproduces.
-2. **Configurable structure** — which roles exist, what the taxation model is,
-   what the gates check — i.e. making the estimate's shape itself a setting.
+**A surprising amount already works.** This is not a build-from-scratch item:
+- `MenuItem.enabled` and `onToggleItem` — toggling exists.
+- **Totals already update live.** `ledger-context.tsx:153` recomputes the rollup
+  on every toggle ("disabled items are priced but never counted"), and
+  `RollupCard.tsx:70` already shows the `excluded` hours.
+- **The pipeline already computes a requires-chain.** `architect.ts:242-255`
+  derives `notSafelyRemovable` from `sequencing.requires` and sets
+  `toggleable: !notSafelyRemovable`.
+- The preset library holds a **real dependency graph**: `PresetVersion.requires`
+  and `.blocks`, 43 version rows, 40 distinct ids referenced, 0 dangling. Every
+  card carries `sourcePresetId`, so cards can be mapped onto it.
 
-These are very different amounts of work. Needs a decision before scoping.
+**The three actual gaps:**
 
-**Status:** not started, not scoped.
+1. **The dependency data is computed, persisted, and then ignored.**
+   `run-estimate.ts:288-290` writes `toggleable`/`notSafelyRemovable`/`thinSlice`
+   into `MenuItem.meta` (a JSON blob) and the editor's `ItemDTO` never reads
+   `meta` at all. So the UI lets a BA switch off a foundation card that three
+   others depend on, with no warning, even though the pipeline knows. Surfacing
+   this is the cheapest first win.
+2. **`notSafelyRemovable` is a boolean, not edges.** It answers "risky to
+   remove?" but not "if I switch this ON, what else must come on?" — which is the
+   behaviour actually wanted. Needs real per-card dependency edges, derivable
+   from the preset graph via `sourcePresetId` plus the Architect's own
+   `sequencing.requires`.
+3. **No cascade.** Enabling an item must enable its dependencies (and probably
+   warn, rather than silently disable dependents, when switching one off).
+
+**Open:** when a cascade adds items the client didn't pick, how is that shown —
+auto-added and flagged, or offered for confirmation? And does `blocks` mean
+mutually exclusive options (pick one of two approaches), which is a different
+interaction from `requires`?
+
+**Status:** not started. Distinct from the earlier reading of this item as
+"per-estimate config overrides", which is not what was meant.
 
 ## Custodian on estimates, with deadlines and reminders
 
