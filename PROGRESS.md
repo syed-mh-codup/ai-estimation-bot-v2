@@ -3,66 +3,26 @@
 _No backlog or completion state here — that lives in Jira. This file is
 just working notes for whatever's in flight right now._
 
-## Current session — AEH-226 (In Progress)
+## Current session
 
-Branch `feat/aeh-226-wbs-preset-round-trip`. Done and verified locally:
+Nothing in flight.
 
-- `packages/agents/src/wbs-preset-round-trip.test.ts` — the round-trip guard.
-  Persisted MenuItem/RoleLineItem rows → `promoteEstimate` → index →
-  pgvector retrieval → the rendered prompt anchor. Mutation-checked against
-  four injected bugs including the historical ×1.4 (all four caught).
-- `promoteEstimate()` in `writeback.ts` — the read-and-map half lifted verbatim
-  out of the Inngest step closure. This is the seam AEH-227's `toMenuItem`
-  slots into; the mapping body is still hand-written on purpose.
-- `describeCoverage` exported from `specialist.ts` — last point where the
-  anchor is still a number.
-- CI: Node 22 (pnpm 11 needs >=22.13 — this is why every run since 2026-07-15
-  died at install), `prisma migrate deploy` + job-level `DIRECT_URL`, and three
-  independent jobs so a lint nit can't stop the suite from running.
-- `packages/core` PresetPayload: `beHours`/`feHours` → `devHours`. Was a fourth
-  PresetVersion writer that couldn't compile.
+Last shipped: AEH-226 (merged to master, CI run 32479730964 — test job green).
+The WBS ⇄ preset round-trip guard lives in
+`packages/agents/src/wbs-preset-round-trip.test.ts`; CI is now three
+independent jobs so that guard reports on its own merits.
 
-Suite: 44 files / 286 tests green, three consecutive runs.
+Two things to know before picking anything up:
 
-### Still red, deliberately not fixed here — filed as AEH-248
+- **lint and typecheck are red on master** — 18 and 47 pre-existing errors,
+  all inventoried in AEH-248. The test job is green and independent. Two of
+  three red is recorded debt, not a regression.
+- **A bare `pnpm --filter @repo/db exec prisma migrate deploy` targets Neon**,
+  not local — `packages/db/.env` points there and Prisma loads it. Root
+  `db:setup` has the same reach. Pass `DATABASE_URL`/`DIRECT_URL` explicitly,
+  the way `scripts/setup-test-db.sh` does.
 
-Pre-existing, surfaced only because CI now runs. Everything below predates
-this branch.
-
-- **lint: 18 errors, 6 warnings.** All trivial: unused imports/vars in
-  `refinement.ts`, `rollup.ts`, `run-estimate.ts`, `taxation.ts`,
-  `ws14.test.ts`, `ws9.test.ts`, `versioning.test.ts`; plus 6 × `no-undef` on
-  `process`/`console` in `scripts/import-prompts.mjs`, which is an eslint
-  config gap (`.mjs` gets no node globals).
-- **typecheck: 47 errors, all in `packages/agents` test files.** Every other
-  package is 0. Two families:
-  - 31 × object literals missing fields added later — and the missing set is
-    literally `touchesFrontend, touchesBackend, aiAssistApplied, dependsOn,
-    anchorPresetIds` (ws14/ws15/ws16), plus `dimension` on `IEmbeddingProvider`
-    (ws11). **This is AEH-227's own evidence, still uncorrected**: that ticket
-    says adding the two side booleans touched twelve files and "the compiler
-    caught only some of it". These are the ones it didn't catch — they have sat
-    here since 2026-08-07 because typecheck never ran.
-  - 8 × vitest-2 `Mock<Args, Return>` generic arity (ws8/ws17/ws18/ws19/ws20).
-
-### Loop asymmetries found while mapping (recorded, not filed)
-
-1. QA/PM/BA hours are discarded on promotion — `PresetVersion` has one effort
-   column, so 48h in → 30h stored. `recordActuals` accepts a QA/PM/BA role and
-   then changes no stored number.
-2. Promotion is per-card, anchoring is per-requirement — a 3-requirement card
-   promoted at 90h can anchor three requirements at 90h each next run. Same
-   compounding family as the original ×1.4. Possibly inside AEH-234.
-3. The `baseline-*`/`hidden-*` promotion guard (`writeback.ts:103`) is inert:
-   items are persisted with cuids so the prefix never survives. Harmless only
-   while nothing calls `injectInfraBaseline`/`runHiddenWorkAudit`.
-4. `perItemMultipliers` (`complexity.ts:176`) has no runtime consumer — the
-   "complexity multiplier already applied" comment in `taxation.ts:47` is stale,
-   as is the `beHours/feHours` paragraph on `RoleLineItem` in `schema.prisma`.
-5. **Footgun, walked into during this session:** a bare
-   `pnpm --filter @repo/db exec prisma migrate deploy` targets **Neon**, because
-   `packages/db/.env` points there and Prisma loads it. Root `db:setup` has the
-   same reach. `scripts/setup-test-db.sh` is the only caller that passes
-   DATABASE_URL/DIRECT_URL explicitly, which is presumably why it does.
-   Nothing happened — Prisma reported "No pending migrations to apply", so no
-   DDL ran — but a pending migration would have gone straight to production.
+The loop asymmetries found while mapping AEH-226 (QA/PM/BA dropped on
+promotion, per-card promote vs per-requirement anchor, the inert
+`baseline-*` guard, orphaned `perItemMultipliers`) are recorded in the
+AEH-226 Jira comment.
