@@ -22,7 +22,7 @@ Two things to know before picking anything up:
   `db:setup` has the same reach. Pass `DATABASE_URL`/`DIRECT_URL` explicitly,
   the way `scripts/setup-test-db.sh` does.
 
-The loop asymmetries found while mapping AEH-226 (QA/PM/BA dropped on
-promotion, per-card promote vs per-requirement anchor, the inert
-`baseline-*` guard, orphaned `perItemMultipliers`) are recorded in the
-AEH-226 Jira comment.
+The loop asymmetries found while mapping AEH-226 are now tickets, not notes:
+AEH-249 (promoted per card, anchored per requirement), AEH-250 (QA/PM/BA hours
+discarded on promotion), AEH-251 (the inert `baseline-*` guard, orphaned
+`perItemMultipliers`, and a stale schema comment).
