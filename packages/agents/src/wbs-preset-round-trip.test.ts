@@ -221,13 +221,14 @@ describe('WBS ⇄ preset library round trip', () => {
     expect(match.touchesFrontend).toBe(true);
 
     // ── The last point at which the anchor is still a number ────────────────
-    const rendered = describeCoverage({
+    const input: SpecialistInput = {
       requirement: makeRequirement(),
       menuCardId: 'MC-B2B-CHECKOUT',
       archivistMatch: match,
       riskFindings: [],
       complexityScore: 3,
-    } as SpecialistInput);
+    };
+    const rendered = describeCoverage(input);
     expect(rendered).toContain(`DEV=${EXPECTED_DEV}h`);
     expect(rendered).toContain('historically backend + frontend');
   });
