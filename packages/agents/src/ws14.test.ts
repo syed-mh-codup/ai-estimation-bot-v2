@@ -6,7 +6,7 @@ import {
   DEFAULT_INFRA_BASELINE,
   type TaxationConfig,
 } from './taxation';
-import type { RoleLineItem, MenuItem } from '@repo/shared';
+import { MenuItemSchema, RoleLineItemSchema, type RoleLineItem, type MenuItem } from '@repo/shared';
 
 const config: TaxationConfig = {
   pmCommunicationTaxPct: 0.15,
@@ -15,17 +15,17 @@ const config: TaxationConfig = {
 };
 
 function makeLineItem(role: 'DEV' | 'QA' | 'PM' | 'BA', baseHours: number): RoleLineItem {
-  return { role, baseHours, taxedHours: baseHours, edited: false };
+  return RoleLineItemSchema.parse({ role, baseHours, taxedHours: baseHours, edited: false });
 }
 
 function makeMenuItem(id: string, lineItems: RoleLineItem[]): MenuItem {
-  return {
+  return MenuItemSchema.parse({
     id,
     taxonomyKey: 'test.item',
     title: 'Test Item',
     enabled: true,
     lineItems,
-  };
+  });
 }
 
 // ─── WS14-01: Taxation engine ─────────────────────────────────────────────────

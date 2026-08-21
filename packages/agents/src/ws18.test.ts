@@ -7,7 +7,7 @@ import {
   recordRevision,
   computeMenuItemDiffs,
 } from './refinement';
-import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { MenuItemSchema, RequirementSchema, type MenuItem, type Requirement } from '@repo/shared';
 import type { TaxationConfig } from './taxation';
 
 const DB_URL =
@@ -59,13 +59,31 @@ afterAll(async () => {
 });
 
 function makeMenuItem(id: string, devH = 40, qaH = 15): MenuItem {
-  const lineItems: RoleLineItem[] = [
+  const lineItems = [
     { role: 'DEV', baseHours: devH, taxedHours: devH, edited: false },
     { role: 'QA', baseHours: qaH, taxedHours: Math.round(qaH * 1.2), edited: false },
     { role: 'PM', baseHours: 8, taxedHours: 9, edited: false },
     { role: 'BA', baseHours: 10, taxedHours: 11, edited: false },
   ];
-  return { id, taxonomyKey: `feature.${id}`, title: id, enabled: true, lineItems };
+  return MenuItemSchema.parse({ id, taxonomyKey: `feature.${id}`, title: id, enabled: true, lineItems });
+}
+
+
+/** A schema-valid Requirement. Only the fields a test varies are worth naming. */
+function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
+  return RequirementSchema.parse({
+    id: 'REQ-001',
+    text: 'Build B2B checkout flow',
+    category: 'B2B',
+    reqType: 'Checkout',
+    projectSize: 'Mid-market',
+    dataVolume: 'Low',
+    integrationCount: 1,
+    candidateMenuCardId: 'MC-B2B-CHECKOUT',
+    taxonomyKey: 'b2b.checkout',
+    sourceRef: 'SOW',
+    ...overrides,
+  });
 }
 
 // ─── WS18-01: Persist + load agentState ──────────────────────────────────────
@@ -73,7 +91,9 @@ function makeMenuItem(id: string, devH = 40, qaH = 15): MenuItem {
 describe('WS18-01: Persist full agentState; load on refine', () => {
   it('persists and loads agentState without re-running agents', async () => {
     const state = {
-      librarianOutput: { requirements: [{ text: 'Build checkout', taxonomyKey: 'b2b.checkout', confidence: 0.9 }] },
+      librarianOutput: {
+        requirements: [makeRequirement({ text: 'Build checkout', taxonomyKey: 'b2b.checkout' })],
+      },
     };
 
     await persistAgentState(db, estimateId, state);
@@ -85,7 +105,9 @@ describe('WS18-01: Persist full agentState; load on refine', () => {
 
   it('refine mode preserves prior state keys', async () => {
     const prior = {
-      librarianOutput: { requirements: [{ text: 'Prior req', taxonomyKey: 'prior', confidence: 0.8 }] },
+      librarianOutput: {
+        requirements: [makeRequirement({ text: 'Prior req', taxonomyKey: 'prior' })],
+      },
       archivistOutput: { matches: [] },
     };
     await persistAgentState(db, estimateId, prior);

@@ -6,16 +6,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildExportTabs, exportToSheets } from './sheets-export';
 import { StubSheetsProvider } from '@repo/providers';
-import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { MenuItemSchema, type MenuItem } from '@repo/shared';
 
 function makeMenuItem(id: string, enabled = true): MenuItem {
-  const lineItems: RoleLineItem[] = [
+  const lineItems = [
     { role: 'DEV', baseHours: 40, taxedHours: 40, edited: false },
     { role: 'QA', baseHours: 15, taxedHours: 18, edited: false },
     { role: 'PM', baseHours: 8, taxedHours: 9, edited: false },
     { role: 'BA', baseHours: 10, taxedHours: 11, edited: false },
   ];
-  return { id, taxonomyKey: `feature.${id}`, title: `Feature ${id}`, enabled, lineItems };
+  return MenuItemSchema.parse({ id, taxonomyKey: `feature.${id}`, title: `Feature ${id}`, enabled, lineItems });
 }
 
 const sampleItems = [makeMenuItem('checkout'), makeMenuItem('auth'), makeMenuItem('disabled', false)];

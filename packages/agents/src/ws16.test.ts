@@ -8,7 +8,14 @@ import {
   type ArchitectDeps,
 } from './architect';
 import type { IModelProvider } from '@repo/providers';
-import type { MenuItem, SpecialistOutput, Requirement, SpecialistLineItem } from '@repo/shared';
+import {
+  MenuItemSchema,
+  SpecialistLineItemSchema,
+  type MenuItem,
+  type SpecialistOutput,
+  type Requirement,
+  type SpecialistLineItem,
+} from '@repo/shared';
 
 const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
 
@@ -38,7 +45,7 @@ function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
 }
 
 function makeLineItem(overrides: Partial<SpecialistLineItem> = {}): SpecialistLineItem {
-  return {
+  return SpecialistLineItemSchema.parse({
     id: 'DEV-REQ-001-01',
     requirementId: 'REQ-001',
     menuCardId: 'MC-B2B-CHECKOUT',
@@ -49,7 +56,7 @@ function makeLineItem(overrides: Partial<SpecialistLineItem> = {}): SpecialistLi
     dependsOn: [],
     anchorPresetIds: [],
     ...overrides,
-  };
+  });
 }
 
 function makeSpecialistOutput(
@@ -133,7 +140,7 @@ describe('collateAssumptions — dedupe + stable ordering', () => {
 
 describe('getAffectedChildren', () => {
   function makeMenuItem(id: string, parentItemId?: string): MenuItem {
-    return { id, taxonomyKey: id, title: id, enabled: true, parentItemId, lineItems: [] };
+    return MenuItemSchema.parse({ id, taxonomyKey: id, title: id, enabled: true, parentItemId, lineItems: [] });
   }
 
   it('returns children of a given parent', () => {

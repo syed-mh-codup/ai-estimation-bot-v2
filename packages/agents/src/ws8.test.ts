@@ -5,7 +5,14 @@ import { bootAgents, AGENT_KINDS, type AgentPromptConfig } from './agent-factory
 import { runSupervisor, type SupervisorDeps } from './supervisor';
 import { StepError, withRetry } from './step-error';
 import { PrismaClient } from '@repo/db';
-import type { LibrarianOutput, ArchivistOutput, ArchitectOutput } from '@repo/shared';
+import {
+  ArchitectOutputSchema,
+  RequirementSchema,
+  type LibrarianOutput,
+  type ArchivistOutput,
+  type ArchitectOutput,
+  type Requirement,
+} from '@repo/shared';
 
 const DB_URL =
   process.env['DATABASE_URL'] ??
@@ -116,16 +123,40 @@ describe('WS8-03: Cache keyed by sowHash + pinnedVersions + modelConfig', () => 
   });
 });
 
+
+/** A schema-valid Requirement. Only the fields a test varies are worth naming. */
+function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
+  return RequirementSchema.parse({
+    id: 'REQ-001',
+    text: 'Build B2B checkout flow',
+    category: 'B2B',
+    reqType: 'Checkout',
+    projectSize: 'Mid-market',
+    dataVolume: 'Low',
+    integrationCount: 1,
+    candidateMenuCardId: 'MC-B2B-CHECKOUT',
+    taxonomyKey: 'b2b.checkout',
+    sourceRef: 'SOW',
+    ...overrides,
+  });
+}
+
 // ─── WS8-04: Supervisor skeleton ─────────────────────────────────────────────
 
 describe('WS8-04: Supervisor lifecycle + state write', () => {
-  const stubLibrarian = vi.fn<Parameters<SupervisorDeps['librarian']>, ReturnType<SupervisorDeps['librarian']>>();
-  const stubArchivist = vi.fn<Parameters<SupervisorDeps['archivist']>, ReturnType<SupervisorDeps['archivist']>>();
-  const stubArchitect = vi.fn<Parameters<SupervisorDeps['architect']>, ReturnType<SupervisorDeps['architect']>>();
+  const stubLibrarian = vi.fn<SupervisorDeps['librarian']>();
+  const stubArchivist = vi.fn<SupervisorDeps['archivist']>();
+  const stubArchitect = vi.fn<SupervisorDeps['architect']>();
 
-  const libOut: LibrarianOutput = { requirements: [{ text: 'checkout', taxonomyKey: 'b2b.checkout', confidence: 0.9 }] };
+  const libOut: LibrarianOutput = {
+    requirements: [makeRequirement({ text: 'checkout', taxonomyKey: 'b2b.checkout' })],
+  };
   const archOut: ArchivistOutput = { matches: [] };
-  const arcOut: ArchitectOutput = { narrative: ['Build B2B checkout'], assumptions: ['Shopify Plus'], menuItems: [] };
+  const arcOut: ArchitectOutput = ArchitectOutputSchema.parse({
+    narrative: ['Build B2B checkout'],
+    assumptions: ['Shopify Plus'],
+    menuItems: [],
+  });
 
   it('runs Librarian→Archivist→Architect stubs end-to-end and writes state', async () => {
     stubLibrarian.mockResolvedValue(libOut);

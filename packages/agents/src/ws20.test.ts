@@ -6,7 +6,7 @@ import {
   recordActuals,
 } from './writeback';
 import type { IEmbeddingProvider } from '@repo/providers';
-import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { MenuItemSchema, type MenuItem } from '@repo/shared';
 
 const DB_URL =
   process.env['DATABASE_URL'] ??
@@ -20,7 +20,7 @@ function makeVec(dim: number): number[] {
   return v;
 }
 
-const mockEmbedding: IEmbeddingProvider = { embed: vi.fn() };
+const mockEmbedding: IEmbeddingProvider = { embed: vi.fn(), dimension: 1536 };
 
 let userId = '';
 let estimateId = '';
@@ -68,13 +68,13 @@ afterAll(async () => {
 });
 
 function makeMenuItem(id: string, title: string): MenuItem {
-  const lineItems: RoleLineItem[] = [
+  const lineItems = [
     { role: 'DEV', baseHours: 40, taxedHours: 40, edited: false },
     { role: 'QA', baseHours: 15, taxedHours: 18, edited: false },
     { role: 'PM', baseHours: 8, taxedHours: 9, edited: false },
     { role: 'BA', baseHours: 10, taxedHours: 11, edited: false },
   ];
-  return { id, taxonomyKey: `b2b.${id}`, title, enabled: true, lineItems };
+  return MenuItemSchema.parse({ id, taxonomyKey: `b2b.${id}`, title, enabled: true, lineItems });
 }
 
 // ─── WS20-01: Promote enabled menu items to PresetVersions ────────────────────

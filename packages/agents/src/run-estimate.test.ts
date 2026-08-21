@@ -14,7 +14,7 @@ const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 // the full pipeline WIRING offline — not the quality of real prompts/responses.
 const stubModelProvider: IModelProvider = {
   async chat({ messages }) {
-    const content = messages.map((m: { content: string }) => m.content).join('\n');
+    const content = messages.map((m) => m.content).join('\n');
     if (content.includes('Decompose this SOW')) {
       return JSON.stringify({
         requirements: [

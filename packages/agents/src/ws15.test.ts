@@ -5,13 +5,11 @@ import {
   acknowledgeUnreconciled,
   type AcknowledgementRecord,
 } from './audit';
-import type { MenuItem, RiskFinding, RoleLineItem } from '@repo/shared';
+import { MenuItemSchema, type MenuItem, type RiskFinding } from '@repo/shared';
 
 function makeMenuItem(id: string, taxonomyKey: string): MenuItem {
-  const lineItems: RoleLineItem[] = [
-    { role: 'DEV', baseHours: 20, taxedHours: 20, edited: false },
-  ];
-  return { id, taxonomyKey, title: id, enabled: true, lineItems };
+  const lineItems = [{ role: 'DEV' as const, baseHours: 20, taxedHours: 20, edited: false }];
+  return MenuItemSchema.parse({ id, taxonomyKey, title: id, enabled: true, lineItems });
 }
 
 const rateRiskFinding: RiskFinding = {

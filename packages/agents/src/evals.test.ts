@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
 import { StubSheetsProvider } from '@repo/providers';
-import { SAMPLE_SOWS } from '@repo/shared';
+import { MenuItemSchema, SAMPLE_SOWS } from '@repo/shared';
 import { runEstimate } from './run-estimate';
 import { exportToSheets } from './sheets-export';
 import { DEFAULT_COMPLEXITY_RULES } from './complexity';
@@ -22,7 +22,7 @@ const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
 const stub: IModelProvider = {
   async chat({ messages }) {
-    const c = messages.map((m: { content: string }) => m.content).join('\n');
+    const c = messages.map((m) => m.content).join('\n');
     if (c.includes('Decompose this SOW'))
       return JSON.stringify({
         requirements: [
@@ -161,7 +161,7 @@ describe('WS26-02: full pipeline → Menu Card → export (stub LLM)', () => {
     await runEstimate(id, { db, modelProvider: stub });
     const items = await db.menuItem.findMany({ where: { estimateId: id }, include: { lineItems: true } });
     expect(items.length).toBeGreaterThan(0);
-    const dto = items.map((m) => ({
+    const dto = items.map((m) => MenuItemSchema.parse({
       id: m.id,
       taxonomyKey: m.taxonomyKey,
       title: m.title,

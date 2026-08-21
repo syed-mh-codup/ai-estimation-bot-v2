@@ -4,7 +4,7 @@ import {
   computeRoleProjections,
   toggleMenuItem,
 } from './rollup';
-import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { MenuItemSchema, type MenuItem } from '@repo/shared';
 
 function makeMenuItem(
   id: string,
@@ -14,13 +14,13 @@ function makeMenuItem(
   pmH = 8,
   baH = 10,
 ): MenuItem {
-  const lineItems: RoleLineItem[] = [
+  const lineItems = [
     { role: 'DEV', baseHours: devH, taxedHours: devH, edited: false },
     { role: 'QA', baseHours: qaH, taxedHours: Math.round(qaH * 1.2), edited: false },
     { role: 'PM', baseHours: pmH, taxedHours: Math.round(pmH * 1.15), edited: false },
     { role: 'BA', baseHours: baH, taxedHours: Math.round(baH * 1.1), edited: false },
   ];
-  return { id, taxonomyKey: `feature.${id}`, title: id, enabled, lineItems };
+  return MenuItemSchema.parse({ id, taxonomyKey: `feature.${id}`, title: id, enabled, lineItems });
 }
 
 // ─── WS17-01: Roll-up calculator ─────────────────────────────────────────────
@@ -103,7 +103,7 @@ describe('WS17-02: Per-role WBS projection — four projections sharing item ide
   });
 
   it('surfaces every line item when a role has multiple <=4h atomic items (FOUR-HOUR RULE decomposition)', () => {
-    const item: MenuItem = {
+    const item = MenuItemSchema.parse({
       id: 'item-decomposed',
       taxonomyKey: 'feature.decomposed',
       title: 'Decomposed Feature',
@@ -113,7 +113,7 @@ describe('WS17-02: Per-role WBS projection — four projections sharing item ide
         { id: 'DEV-REQ001-02', role: 'DEV', title: 'Happy path', baseHours: 4, taxedHours: 4, edited: false },
         { id: 'QA-REQ001-01', role: 'QA', title: 'Test plan', baseHours: 2, taxedHours: 2.4, edited: false },
       ],
-    };
+    });
     const projections = computeRoleProjections([item]);
 
     const devProj = projections.find((p) => p.role === 'DEV')!;
