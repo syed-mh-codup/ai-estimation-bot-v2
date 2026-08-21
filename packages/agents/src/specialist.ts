@@ -40,7 +40,13 @@ const LLMSpecialistSchema = z.object({
   assumptions: z.array(z.string()).default([]),
 });
 
-function describeCoverage(input: SpecialistInput): string {
+/**
+ * Render the Archivist's match as the prompt block the specialist actually
+ * reads. Exported because this is the last point at which the anchor is still
+ * a number the WBS/preset round trip can assert on — past here an LLM
+ * re-derives every figure, so nothing downstream is checkable.
+ */
+export function describeCoverage(input: SpecialistInput): string {
   const m = input.archivistMatch;
   if (!m || m.coverage === 'none') {
     return 'Coverage: none — no historical preset analogue. Build this up from first principles, item by item, and note the absence of an anchor in assumptions.';

@@ -202,6 +202,55 @@ export async function promoteMenuItemsToPresets(
   return { promoted, skipped, versioned, created };
 }
 
+/**
+ * Promote a finalised estimate straight from its persisted rows.
+ *
+ * The read-and-map half of promotion, which used to live inline inside the
+ * Inngest step closure and was therefore unreachable from a test. That is the
+ * seam the WBS/preset round trip has to enter through: the Prisma row to
+ * `MenuItem` mapping below is hand-written, so it is precisely where a renamed
+ * or dropped field goes quietly missing.
+ */
+export async function promoteEstimate(
+  db: PrismaClient,
+  estimateId: string,
+): Promise<PromoteResult> {
+  const est = await db.estimate.findUnique({
+    where: { id: estimateId },
+    include: { menuItems: { include: { lineItems: true } } },
+  });
+  if (!est) return { promoted: [], skipped: [], versioned: [], created: [] };
+
+  const items: MenuItem[] = est.menuItems.map((m) => ({
+    id: m.id,
+    taxonomyKey: m.taxonomyKey,
+    title: m.title,
+    enabled: m.enabled,
+    sourcePresetId: m.sourcePresetId ?? undefined,
+    matchScore: m.matchScore ?? undefined,
+    parentItemId: m.parentItemId ?? undefined,
+    requirementIds: [],
+    toggleable: true,
+    notSafelyRemovable: false,
+    thinSlice: false,
+    lineItems: m.lineItems.map((li) => ({
+      role: li.role,
+      title: li.title ?? undefined,
+      baseHours: li.baseHours,
+      taxedHours: li.taxedHours,
+      notes: li.notes ?? undefined,
+      edited: li.edited,
+      aiAssistApplied: false,
+      dependsOn: [],
+      anchorPresetIds: [],
+      touchesFrontend: li.touchesFrontend,
+      touchesBackend: li.touchesBackend,
+    })),
+  }));
+
+  return promoteMenuItemsToPresets(db, estimateId, items);
+}
+
 // ─── WS20-02: Generate + store embeddings for promoted rows ───────────────────
 
 /**

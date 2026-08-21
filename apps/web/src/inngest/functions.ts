@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteMenuItemsToPresets, type IngestFile } from '@repo/agents';
-import type { MenuItem as MenuItemDTO } from '@repo/shared';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, type IngestFile } from '@repo/agents';
 import {
   inngest,
   EVENT_RUN,
@@ -244,42 +243,7 @@ const promoteFn = inngest.createFunction(
   async ({ event, step }) => {
     const { estimateId } = event.data as PromoteEventData;
 
-    const result = await step.run('promote', async () => {
-      const est = await prisma.estimate.findUnique({
-        where: { id: estimateId },
-        include: { menuItems: { include: { lineItems: true } } },
-      });
-      if (!est) return { promoted: [], skipped: [], versioned: [], created: [] };
-
-      const items: MenuItemDTO[] = est.menuItems.map((m) => ({
-        id: m.id,
-        taxonomyKey: m.taxonomyKey,
-        title: m.title,
-        enabled: m.enabled,
-        sourcePresetId: m.sourcePresetId ?? undefined,
-        matchScore: m.matchScore ?? undefined,
-        parentItemId: m.parentItemId ?? undefined,
-        requirementIds: [],
-        toggleable: true,
-        notSafelyRemovable: false,
-        thinSlice: false,
-        lineItems: m.lineItems.map((li) => ({
-          role: li.role,
-          title: li.title ?? undefined,
-          baseHours: li.baseHours,
-          taxedHours: li.taxedHours,
-          notes: li.notes ?? undefined,
-          edited: li.edited,
-          aiAssistApplied: false,
-          dependsOn: [],
-          anchorPresetIds: [],
-          touchesFrontend: li.touchesFrontend,
-          touchesBackend: li.touchesBackend,
-        })),
-      }));
-
-      return promoteMenuItemsToPresets(prisma, estimateId, items);
-    });
+    const result = await step.run('promote', () => promoteEstimate(prisma, estimateId));
 
     // A preset the Archivist can't see is a preset that never matches, so the
     // embed is part of promoting — just a separately retried part of it.
