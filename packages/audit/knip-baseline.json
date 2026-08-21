@@ -1,0 +1,10 @@
+{
+  "$comment": [
+    "AEH-228 zero-caller export baseline.",
+    "Entries knip reports that are NOT listed here fail the build.",
+    "Entries listed here that knip NO LONGER reports also fail the build — delete them.",
+    "Every entry needs a reason of at least 12 characters; add a ticket (AEH-###) when it is debt rather than intent.",
+    "Deliberately empty: per the AEH-228 decision, known dead exports are NOT given baseline cover. The check is meant to fail on them until the umbrella follow-up ticket lands."
+  ],
+  "entries": []
+}
