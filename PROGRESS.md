@@ -31,6 +31,9 @@ the existing `pnpm test` job with no workflow change.
 - `src/source-set.ts` — ts.Program over apps/web/src + packages/*/src.
 - `src/occurrences.ts` — R1–R7 classifiers + type-based attribution.
 - `src/field-audit.ts` — orchestrator, Json key discovery, findings.
+  All 8 Json columns are covered: those with discoverable keys are audited per
+  key, those written as `{}` or via a variable fall back to a plain column
+  target rather than being skipped.
 - `src/knip-baseline.ts` — knip runner + two-way baseline diff.
 
 ### Three things worth not re-deriving
@@ -56,7 +59,8 @@ row's, so structural attribution cannot tell "read what we stored" from "read
 it before storing". Nothing reads `MenuItem.meta` or `RoleLineItem.meta` at all.
 
 ### Verified, so don't re-test from scratch
-- Acceptance 28/28: all 16 known orphans flagged, none of 12 known-live fields.
+- Acceptance 31/31: all 16 known orphans flagged, none of 15 known-live fields.
+  141 targets audited, 42 orphans.
 - Hard gate: 114 files, 98.7% attribution resolution.
 - Anti-rot, all 9 paths, by deliberate breakage + revert: valid exemption
   suppresses (column + Json key); exemption on a live field -> stale-exemption-

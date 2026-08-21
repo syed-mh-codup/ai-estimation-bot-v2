@@ -179,11 +179,31 @@ function buildTargets(
   for (const jf of jsonFields(schema)) {
     const id = `${jf.model}.${jf.name}`;
     const sources = jsonKeys.get(id);
-    // A Json column with discovered keys is audited PER KEY only, never also as
-    // a column — otherwise MenuItem.meta (zero `.meta` reads anywhere) would be
-    // reported alongside all four of its keys.
-    if (!sources || sources.length === 0) continue;
     interest.add(jf.name);
+
+    // No discoverable keys — the column is written as `{}`, or through a
+    // variable rather than an inline literal. Audit it as a plain column rather
+    // than skipping it: silently dropping a column would be a coverage hole in
+    // the very detector that exists to stop silent failures. Today this covers
+    // Estimate.taxonomyVersionsPinned / promptVersionsPinned / modelConfig, all
+    // written as `{}` at ingest-create and read as property accesses in
+    // packages/agents/src/cache.ts.
+    if (!sources || sources.length === 0) {
+      targets.push({
+        id,
+        attributionId: jf.model,
+        fieldName: jf.name,
+        schemaLine: jf.line,
+        exemptions: jf.exemptions.filter((e) => e.jsonKey === null),
+        isJsonKey: false,
+        jsonColumn: null,
+      });
+      continue;
+    }
+
+    // A column WITH discovered keys is audited per key only, never also as a
+    // column — otherwise MenuItem.meta (zero `.meta` reads anywhere) would be
+    // reported alongside all four of its keys.
     const keys = new Set(sources.flatMap((s) => s.keys));
     for (const key of keys) {
       targets.push({
