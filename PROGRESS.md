@@ -3,15 +3,16 @@
 _No backlog or completion state here — that lives in Jira. This file is
 just working notes for whatever's in flight right now._
 
-## AEH-228 "No orphaned backend work" — checks BUILT
+## AEH-228 "No orphaned backend work" — THREE checks BUILT
 
 Branch `feat/aeh-228-orphan-checks`. Jira AEH-228 In Progress.
 Follow-up work catalogued in **AEH-253** (42 orphaned fields, 60 dead exports).
 
 ### State: both gates intentionally FAIL
 
-Full suite: 324 passed, 2 failed, 1 skipped — the 2 failures are one per gate.
-Nothing pre-existing broke. Per the decision that known debt must not hide
+Full suite (verified under Node 22.13.1, matching CI): 332 passed, 3 failed,
+1 skipped — the 3 failures are one per gate. Nothing pre-existing broke.
+Also verified under Node 24. Lint and typecheck both pass for packages/audit. Per the decision that known debt must not hide
 behind an allowlist, no exemption was seeded, so CI is red until AEH-253 lands.
 
 `master` already had 47 typecheck errors and a failing lint before this branch.
@@ -35,6 +36,16 @@ the existing `pnpm test` job with no workflow change.
   key, those written as `{}` or via a variable fall back to a plain column
   target rather than being skipped.
 - `src/knip-baseline.ts` — knip runner + two-way baseline diff.
+- `src/zod-contracts.ts` — contract-field audit (gate 3). Added because item 3
+  of the ticket (`SupervisorInput.changedMenuItemIds`) has no column behind it,
+  so neither the column audit nor knip could ever see it.
+
+**Gate 3's rule is deliberately much stricter than gate 1's:** a zod field is
+flagged only if the identifier appears NOWHERE outside its own declaration.
+Zod schemas here are LLM I/O contracts and input schemas get serialised whole
+into prompts, so "no property access" does not mean dead — a read-classification
+rule would flag dozens of fields the model genuinely consumes. 195 fields
+audited, 4 flagged. It under-reports on purpose.
 
 ### Three things worth not re-deriving
 
@@ -71,7 +82,6 @@ it before storing". Nothing reads `MenuItem.meta` or `RoleLineItem.meta` at all.
   branch switch pruned the bin symlink).
 
 ### Known limitations (stated in AEH-253, not bugs)
-Zod-only contract fields are invisible (`SupervisorInput.changedMenuItemIds`).
 Transitive orphans out of scope (`requires` will surface once Group 1 lands).
 DB-state orphans invisible (unembedded presets). Read-modify-write reads as
 carry-forward — do NOT weaken R3 to fix it, that reintroduces the

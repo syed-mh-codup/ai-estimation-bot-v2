@@ -17,6 +17,12 @@ import {
   type OccurrenceIndex,
 } from './occurrences.js';
 import { createSourceSet, repoRelative, type SourceSet } from './source-set.js';
+import {
+  auditContractFields,
+  discoverZodFields,
+  type ContractFinding,
+  type ZodField,
+} from './zod-contracts.js';
 
 export type FindingKind =
   | 'orphan'
@@ -46,6 +52,9 @@ export interface FieldAuditReport {
   exempt: number;
   consumed: number;
   findings: Finding[];
+  /** AEH-228 item 3: zod contract fields referenced nowhere. */
+  contractFindings: ContractFinding[];
+  contractFieldsAudited: number;
   diagnostics: {
     unparsedSchemaLines: { line: number; text: string }[];
     filesAnalysed: number;
@@ -296,7 +305,14 @@ export function runFieldAudit(opts: { repoRoot: string }): FieldAuditReport {
   const src = createSourceSet(repoRoot);
   const jsonKeys = discoverJsonKeys(src, schema);
   const { targets, attribution, interest } = buildTargets(schema, jsonKeys);
+
+  // Contract fields ride the same occurrence index — their names must be in
+  // `interest` before it is built, or they would all look unreferenced.
+  const zodFields: ZodField[] = discoverZodFields(src);
+  for (const zf of zodFields) interest.add(zf.field);
+
   const index = indexOccurrences(src, interest, attribution);
+  const contractFindings = auditContractFields(zodFields, index);
 
   const findings: Finding[] = [];
   let exempt = 0;
@@ -398,6 +414,8 @@ export function runFieldAudit(opts: { repoRoot: string }): FieldAuditReport {
     exempt,
     consumed,
     findings,
+    contractFindings,
+    contractFieldsAudited: zodFields.length,
     diagnostics: {
       unparsedSchemaLines: schema.unparsedLines,
       filesAnalysed: index.stats.filesAnalysed,
@@ -421,7 +439,11 @@ export function formatReport(r: FieldAuditReport): string {
     lines.push(`  !! ${r.diagnostics.unparsedSchemaLines.length} unparsed schema line(s)`);
     for (const u of r.diagnostics.unparsedSchemaLines) lines.push(`     ${u.line}: ${u.text}`);
   }
+  lines.push(
+    `contract-field audit: ${r.contractFieldsAudited} zod field(s) audited, ${r.contractFindings.length} finding(s)`,
+  );
   lines.push('');
   for (const f of r.findings) lines.push(f.message, '');
+  for (const f of r.contractFindings) lines.push(f.message, '');
   return lines.join('\n');
 }

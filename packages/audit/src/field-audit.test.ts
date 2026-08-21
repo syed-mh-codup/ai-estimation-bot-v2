@@ -63,8 +63,19 @@ describe('AEH-228 gate 1: orphan-field audit', () => {
     ]);
   });
 
+  it('audited the zod contract surface too', () => {
+    // AEH-228 item 3 (SupervisorInput.changedMenuItemIds) has no column behind
+    // it, so neither the column audit nor knip can see it. Canary: if schema
+    // discovery breaks, this drops to 0 and the check passes vacuously.
+    expect(report.contractFieldsAudited).toBeGreaterThan(150);
+  });
+
   it('has no orphaned persisted fields and no stale exemptions', () => {
     expect(report.findings.map((f) => f.message)).toEqual([]);
+  });
+
+  it('has no orphaned zod contract fields', () => {
+    expect(report.contractFindings.map((f) => f.message)).toEqual([]);
   });
 
   it.skip('full report (unskip locally to read it)', () => {
