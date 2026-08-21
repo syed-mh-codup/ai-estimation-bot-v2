@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyTaxation,
-  applyTaxationToMenuItems,
   injectInfraBaseline,
   parseTaxationConfig,
   DEFAULT_INFRA_BASELINE,

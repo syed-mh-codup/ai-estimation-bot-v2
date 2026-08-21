@@ -1,13 +1,7 @@
 import type { PrismaClient } from '@repo/db';
-import type {
-  MenuItem,
-  LibrarianOutput,
-  ArchivistOutput,
-  ArchitectOutput,
-} from '@repo/shared';
+import type { MenuItem } from '@repo/shared';
 import type { AgentStateSnapshot } from './supervisor';
 import { computeRollup, computeRoleProjections } from './rollup';
-import { applyTaxation } from './taxation';
 import type { TaxationConfig } from './taxation';
 
 // ─── WS18-01: Persist + load agentState ──────────────────────────────────────

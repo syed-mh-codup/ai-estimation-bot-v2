@@ -170,7 +170,6 @@ async function main() {
     }
     // Keep allocated codes clear of anything the spreadsheet just introduced.
     await syncPresetCodeSequence(prisma);
-    // eslint-disable-next-line no-console
     console.log(`Preset seed complete: ${count} presets imported (P01–P${String(count).padStart(2, '0')}).`);
   } finally {
     await prisma.$disconnect();
@@ -178,7 +177,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

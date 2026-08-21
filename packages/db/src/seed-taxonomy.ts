@@ -103,7 +103,6 @@ async function main() {
       await prisma.presetVersion.update({ where: { id }, data: { taxonomyKey: key } });
     }
 
-    // eslint-disable-next-line no-console
     console.log(
       `Taxonomy derived: ${categories.size} categories, ${children.size} leaf nodes, ${presetKeyById.size} presets linked.`,
     );
@@ -113,7 +112,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

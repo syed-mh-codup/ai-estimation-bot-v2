@@ -77,7 +77,11 @@ const BASELINE_ID_PREFIX = 'baseline';
 export function injectInfraBaseline(
   menuItems: MenuItem[],
   infraBaseline: unknown,
-  config: TaxationConfig,
+  // Vestigial: baseline items are never taxed again (see the note on
+  // touchesFrontend below), so nothing here needs a TaxationConfig. Kept only
+  // because the five call sites pass it. AEH-253 owns whether this function
+  // survives at all — it has no production caller.
+  _config: TaxationConfig,
 ): MenuItem[] {
   const baseline = InfraBaselineSchema.parse(infraBaseline);
 

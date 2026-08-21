@@ -1,4 +1,4 @@
-import type { MenuItem, RoleLineItem, RoleKind } from '@repo/shared';
+import type { MenuItem, RoleKind } from '@repo/shared';
 
 // ─── WS17-01: Roll-up calculator ─────────────────────────────────────────────
 

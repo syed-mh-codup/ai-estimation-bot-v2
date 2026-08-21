@@ -4,8 +4,6 @@ import {
   createPresetVersion,
   createTaxonomyVersion,
   createPromptVersion,
-  createConfigVersion,
-  resolveActiveVersions,
   pinVersions,
   diffVersions,
 } from './versioning';
@@ -99,7 +97,7 @@ describe('WS6-01: versionedCreate — increment, single active, immutable priors
   it('creates prompt version with single-active invariant', async () => {
     await db.prompt.upsert({ where: { kind: 'LIBRARIAN' }, update: {}, create: { kind: 'LIBRARIAN' } });
 
-    const v1 = await createPromptVersion(db, {
+    await createPromptVersion(db, {
       kind: 'LIBRARIAN', body: 'v1 prompt', modelString: 'test/model',
     });
     const v2 = await createPromptVersion(db, {

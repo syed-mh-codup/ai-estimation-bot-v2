@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
-import { queryTaxonomyByText, queryPresetsByVector, type RankedTaxonomyNode } from './rag-retriever';
+import { queryTaxonomyByText, queryPresetsByVector } from './rag-retriever';
 import { runLibrarian, type LibrarianContext, type TaxonomyEntry } from './librarian';
 import type { IModelProvider } from '@repo/providers';
 

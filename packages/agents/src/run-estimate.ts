@@ -6,7 +6,7 @@ import type {
   IMcpProvider,
 } from '@repo/providers';
 import { createSearchProvider, StubMcpProvider } from '@repo/providers';
-import type { ArchivistMatch, MenuItem, RiskFinding, SpecialistOutput } from '@repo/shared';
+import type { ArchivistMatch, RiskFinding, SpecialistOutput } from '@repo/shared';
 import { hashSOW, normaliseSOW } from './sow-utils';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
 import { runDetective } from './detective';
@@ -251,7 +251,6 @@ export async function runEstimate(
     consistencyFlags: arch.consistencyFlags,
   });
   if (gateWarnings.length > 0) {
-    // eslint-disable-next-line no-console
     console.warn(`[runEstimate] ${estimateId} gate warnings:\n${gateWarnings.join('\n')}`);
   }
 
