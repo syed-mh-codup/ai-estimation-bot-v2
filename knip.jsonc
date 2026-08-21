@@ -1,0 +1,78 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // ── Why this config looks the way it does (AEH-228) ────────────────────────
+  //
+  // The requirement is "exported symbols in packages/* with no NON-TEST caller".
+  // Two knip behaviours fight that, and both fixes below are load-bearing:
+  //
+  // 1. Test files count as callers by default. Neither a `!src/**/*.test.ts`
+  //    negation in `project` nor an `ignore` entry removes them from the import
+  //    graph — both only suppress REPORTING. Verified:
+  //      knip --trace-export recordActuals
+  //      -> packages/agents/src/writeback.ts:recordActuals
+  //         `-- packages/agents/src/ws20.test.ts:import[recordActuals] OK
+  //    Only PRODUCTION MODE (`--production`) drops test files from the graph,
+  //    and production mode considers only entry patterns suffixed with `!`.
+  //
+  // 2. Every package exposes its API through a src/index.ts barrel of wildcard
+  //    re-exports (packages/agents/src/index.ts is 21 lines, all
+  //    `export * from './x'`). If a barrel is an ENTRY, everything it re-exports
+  //    is public API and therefore "used" — the check reports nothing at all.
+  //    So the barrels are deliberately NOT production entries. They stay
+  //    reachable as imports from apps/web, which is what makes knip resolve
+  //    which barrel exports production code actually consumes.
+  //
+  // Run it as: knip --production
+  // ───────────────────────────────────────────────────────────────────────────
+
+  "includeEntryExports": true,
+  "ignoreExportsUsedInFile": true,
+
+  // Symbol-level issues only. `files`/`dependencies`/`unlisted` would flag the
+  // deliberately-excluded test files plus the playwright/postcss/prisma tooling.
+  "include": ["exports", "types", "nsExports", "nsTypes", "enumMembers"],
+
+  "workspaces": {
+    ".": { "entry": [], "project": [] },
+
+    "apps/web": {
+      "entry": [
+        "src/app/**/{page,layout,template,error,not-found,loading,global-error,default,route}.{ts,tsx}!",
+        "src/app/**/{icon,apple-icon,opengraph-image,twitter-image,sitemap,robots,manifest}.{ts,tsx}!",
+        "src/middleware.ts!",
+        "src/inngest/functions.ts!",
+        "next.config.ts",
+        "postcss.config.mjs",
+        "playwright.config.ts",
+        "vitest.config.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}!"]
+    },
+
+    // Barrels are absent from `entry` on purpose — see note 2 above.
+    // Only genuine standalone production entry points are listed.
+    "packages/agents": {
+      "entry": ["src/scripts/embed-presets.ts!"],
+      "project": ["src/**/*.ts!"]
+    },
+    "packages/db": {
+      "entry": [
+        "src/seed.ts!",
+        "src/seed-admin.ts!",
+        "src/seed-presets.ts!",
+        "src/seed-taxonomy.ts!"
+      ],
+      // generated/ is gitignored but IS produced by postinstall in CI, and
+      // src/index.ts re-exports it wholesale — without this exclusion the
+      // baseline fills with hundreds of Prisma symbols.
+      "project": ["src/**/*.ts!", "!src/generated/**"]
+    },
+    "packages/core": { "entry": [], "project": ["src/**/*.ts!"] },
+    "packages/providers": { "entry": [], "project": ["src/**/*.ts!"] },
+    "packages/shared": { "entry": [], "project": ["src/**/*.ts!"] },
+    "packages/audit": { "entry": ["src/cli.ts!"], "project": ["src/**/*.ts!"] }
+  },
+
+  "ignore": ["packages/db/src/generated/**", "**/dist/**", "**/.next/**"]
+}

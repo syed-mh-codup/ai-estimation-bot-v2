@@ -1,0 +1,21 @@
+{
+  "name": "@repo/audit",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc -b",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "audit": "tsx src/cli.ts all",
+    "audit:fields": "tsx src/cli.ts fields",
+    "audit:exports": "tsx src/cli.ts exports"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
