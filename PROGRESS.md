@@ -3,60 +3,74 @@
 _No backlog or completion state here — that lives in Jira. This file is
 just working notes for whatever's in flight right now._
 
-## Current session — AEH-228 "No orphaned backend work"
+## AEH-228 "No orphaned backend work" — checks BUILT
 
-Branch: `feat/aeh-228-orphan-checks` (from master). Jira: In Progress.
-Plan: two CI-blocking checks. Known orphans get NO exemption (user's call),
-so CI goes red until the umbrella follow-up ticket lands.
+Branch `feat/aeh-228-orphan-checks`. Jira AEH-228 In Progress.
+Follow-up work catalogued in **AEH-253** (42 orphaned fields, 60 dead exports).
 
-### DONE — Check B (knip) config, spike PASSED
+### State: both gates intentionally FAIL
 
-The spike was the highest-risk unknown and it needed three pieces together.
-Any one missing and the check reports nothing:
+Full suite: 324 passed, 2 failed, 1 skipped — the 2 failures are one per gate.
+Nothing pre-existing broke. Per the decision that known debt must not hide
+behind an allowlist, no exemption was seeded, so CI is red until AEH-253 lands.
 
-1. `--production` mode. Test files count as callers otherwise, and NEITHER a
-   `!src/**/*.test.ts` negation in `project` NOR an `ignore` entry removes them
-   from the import graph — both only suppress reporting. Proof:
-   `knip --trace-export recordActuals` -> `ws20.test.ts:import[recordActuals] OK`.
-2. `!`-suffixed entry/project patterns. Production mode only honours those.
-3. Package barrels deliberately NOT entries. Every `packages/*/src/index.ts` is
-   a wall of `export * from './x'`; as an entry, everything it re-exports is
-   public API and thus "used" -> 0 findings.
+`master` already had 47 typecheck errors and a failing lint before this branch.
+Pre-existing, in packages/agents + packages/core test files, unrelated.
+(That is also why ci.yml was split into three jobs.)
 
-Acceptance: flags `runSupervisor`, `recordActuals`, `embedPromotedPresets`;
-does not flag `promoteMenuItemsToPresets`, `backfillPresetEmbeddings`,
-`runEstimate`, `presetEmbeddingText`, `runIngest`, `devEffortOf`,
-`findNearestPresets`. No generated-client leak.
+    pnpm audit:fields     # orphan-field report
+    pnpm audit:exports    # zero-caller export report
 
-**60 dead exports found** — far more than the ticket's one example. Two are
-worth calling out because they are duplicate-implementation smells, not just
-dead code:
-- `packages/core/src/versioning.ts#diffVersions` is dead; `apps/web/src/app/
-  admin/presets/[id]/page.tsx:158` defines its own local `diffVersions`.
-- `packages/core/src/prompt-service.ts#loadActivePrompt` is dead;
-  `packages/agents/src/run-estimate.ts:351` defines its own local one.
-Also 6 dead exports in `versioning.ts` and 3 in `prompt-service.ts` — much of
-`@repo/core`'s public API has no caller.
+### What was built
 
-Run it as: `knip --production`. Plain `knip` is NOT equivalent.
+`packages/audit` + `knip.jsonc`. Gates are vitest tests, so they block through
+the existing `pnpm test` job with no workflow change.
 
-### NEXT — Check A (orphan-field audit)
-`packages/audit` is scaffolded (package.json + tsconfig). Still to build, in
-this order (step 3 is a hard gate):
-1. `src/prisma-schema.ts` — line parser; verify 14 models, 10 enums, no
-   unparsed lines. Confirmed safe: zero `@map`/`@@map` in the schema.
-2. `src/occurrences.ts` — `ts.Program` with `moduleResolution: Bundler`.
-   HARD GATE: if `attributionResolvedRatio < 0.8`, fix module resolution
-   before writing any classifier.
-3. Rules R1-R7 (see plan) — R5 form-echo and R6 where-key are both
-   load-bearing; without R5 ticket item 5 goes unflagged, without R6
-   `sourceMenuItemId` becomes a false orphan.
-4. Attribution, then the gate tests.
+- `src/prisma-schema.ts` — schema line parser. Asserts 0 unparsed lines; a
+  silently-skipped field is an unaudited field.
+- `src/source-set.ts` — ts.Program over apps/web/src + packages/*/src.
+- `src/occurrences.ts` — R1–R7 classifiers + type-based attribution.
+- `src/field-audit.ts` — orchestrator, Json key discovery, findings.
+- `src/knip-baseline.ts` — knip runner + two-way baseline diff.
+
+### Three things worth not re-deriving
+
+**1. knip needs all of: `--production`, `!`-suffixed patterns, and barrels NOT
+as entries.** Any one missing and the check reports nothing.
+- Test files count as callers by default. Neither a `!src/**/*.test.ts`
+  negation in `project` nor an `ignore` entry removes them from the import
+  graph — both only suppress reporting. Only production mode drops them.
+  Proof: `knip --trace-export recordActuals` -> `ws20.test.ts:import[...] OK`.
+- Production mode honours only `!`-suffixed entry/project patterns.
+- Every `packages/*/src/index.ts` is a wall of `export * from './x'`. As an
+  entry file, everything it re-exports is public API = used = 0 findings.
+
+**2. knip's JSON has a preamble containing an unquoted brace**, so "slice from
+the first `{`" fails. Anchor on `{"issues":`:
+`◇ injected env (12) from apps/web/.env.local // tip: … { path: '…/.env' }`
+
+**3. A Json key is consumed only if its COLUMN is read back out of the DB.**
+Key-name reads are not evidence: the pipeline reads `requirementIds` and
+`dependsOn` off in-flight zod objects whose shape is near-identical to the DB
+row's, so structural attribution cannot tell "read what we stored" from "read
+it before storing". Nothing reads `MenuItem.meta` or `RoleLineItem.meta` at all.
+
+### Verified, so don't re-test from scratch
+- Acceptance 28/28: all 16 known orphans flagged, none of 12 known-live fields.
+- Hard gate: 114 files, 98.7% attribution resolution.
+- Anti-rot, all 9 paths, by deliberate breakage + revert: valid exemption
+  suppresses (column + Json key); exemption on a live field -> stale-exemption-
+  consumed; @orphan-todo with no ticket -> malformed; annotation on a relation
+  -> misplaced; @backend-only:key for an unwritten key -> stale-missing-key;
+  knip baseline entry suppresses / vanished -> stale / bad reason -> malformed.
+- The gate THROWS if knip is missing rather than skipping (hit for real when a
+  branch switch pruned the bin symlink).
+
+### Known limitations (stated in AEH-253, not bugs)
+Zod-only contract fields are invisible (`SupervisorInput.changedMenuItemIds`).
+Transitive orphans out of scope (`requires` will surface once Group 1 lands).
+DB-state orphans invisible (unembedded presets). Read-modify-write reads as
+carry-forward — do NOT weaken R3 to fix it, that reintroduces the
+`PresetVersion.notes` miss.
 
 Plan file: `~/.claude/plans/please-start-planning-your-encapsulated-gadget.md`
-
-### Gotcha for the knip JSON parser
-knip prints a preamble line to stdout before the JSON, and that preamble
-itself contains an unquoted `{`:
-`◇ injected env (12) from apps/web/.env.local // tip: ⌘ custom filepath { path: '/custom/path/.env' }`
-So "slice from the first `{`" does NOT work. Anchor on `{"issues":`.

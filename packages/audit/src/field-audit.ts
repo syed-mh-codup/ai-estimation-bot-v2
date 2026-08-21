@@ -7,7 +7,6 @@ import {
   parsePrismaSchema,
   type Exemption,
   type Family,
-  type PrismaField,
   type PrismaSchema,
 } from './prisma-schema.js';
 import {
@@ -406,5 +405,3 @@ export function formatReport(r: FieldAuditReport): string {
   for (const f of r.findings) lines.push(f.message, '');
   return lines.join('\n');
 }
-
-export type { PrismaField };
