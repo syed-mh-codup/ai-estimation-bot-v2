@@ -24,7 +24,7 @@ Branch `feat/aeh-226-wbs-preset-round-trip`. Done and verified locally:
 
 Suite: 44 files / 286 tests green, three consecutive runs.
 
-### Still red, deliberately not fixed here (needs a ticket)
+### Still red, deliberately not fixed here — filed as AEH-248
 
 Pre-existing, surfaced only because CI now runs. Everything below predates
 this branch.
@@ -59,3 +59,10 @@ this branch.
 4. `perItemMultipliers` (`complexity.ts:176`) has no runtime consumer — the
    "complexity multiplier already applied" comment in `taxation.ts:47` is stale,
    as is the `beHours/feHours` paragraph on `RoleLineItem` in `schema.prisma`.
+5. **Footgun, walked into during this session:** a bare
+   `pnpm --filter @repo/db exec prisma migrate deploy` targets **Neon**, because
+   `packages/db/.env` points there and Prisma loads it. Root `db:setup` has the
+   same reach. `scripts/setup-test-db.sh` is the only caller that passes
+   DATABASE_URL/DIRECT_URL explicitly, which is presumably why it does.
+   Nothing happened — Prisma reported "No pending migrations to apply", so no
+   DDL ran — but a pending migration would have gone straight to production.
