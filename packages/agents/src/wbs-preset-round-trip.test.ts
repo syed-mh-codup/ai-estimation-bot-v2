@@ -66,7 +66,7 @@ const EXPECTED_DEV = 30;
 const OTHER_ROLE_HOURS = { QA: 8.25, PM: 5.5, BA: 4.25 };
 const ALL_ROLES_TOTAL = 48;
 
-const mockEmbedding: IEmbeddingProvider = { embed: vi.fn() };
+const mockEmbedding: IEmbeddingProvider = { embed: vi.fn(), dimension: 1536 };
 
 let userId = '';
 let estimateId = '';

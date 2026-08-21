@@ -17,8 +17,17 @@ type PresetPayload = {
   category: string;
   name: string;
   description: string;
-  beHours: number;
-  feHours: number;
+  /**
+   * ONE dev figure, matching PresetVersion.devHours. This type still declared
+   * `beHours`/`feHours` after the model unified to a single number, so
+   * `createPresetVersion` could not compile and would have thrown at runtime on
+   * the now-required `devHours` — a fourth PresetVersion writer left behind by
+   * the unification, invisible while CI was not running typecheck.
+   */
+  devHours: number;
+  /** What that figure covers. Never a basis for dividing it. */
+  touchesFrontend?: boolean;
+  touchesBackend?: boolean;
   platforms: string[];
   reqType: string;
   keywords: string[];

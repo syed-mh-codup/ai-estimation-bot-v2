@@ -6,8 +6,52 @@ on:
   pull_request:
     branches: [main, master]
 
+# Three independent jobs rather than three steps in one.
+#
+# As a single fail-fast job, `lint` and `typecheck` ran ahead of `test`, so one
+# unused import anywhere in the repo was enough to stop the test suite from ever
+# executing. That is not an acceptable arrangement for a suite whose job is to
+# block on semantic drift: the WBS/preset round-trip guard has to be able to go
+# red on its own merits, and to be requireable as its own status check.
 jobs:
-  ci:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      # pnpm 11 requires Node >=22.13. Pinned to 20, `pnpm install` died before
+      # any check ran — which is why CI reported nothing but red from
+      # 2026-07-15 onwards.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install
+      - run: pnpm lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install
+      - run: pnpm typecheck
+
+  test:
     runs-on: ubuntu-latest
 
     services:
@@ -27,6 +71,9 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public
+      # schema.prisma declares directUrl = env("DIRECT_URL"). vitest.setup.ts
+      # derives it for tests, but `prisma migrate deploy` runs outside vitest.
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public
 
     steps:
       - uses: actions/checkout@v4
@@ -37,17 +84,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install
+      - run: pnpm install
 
-      - name: Lint
-        run: pnpm lint
+      # The pgvector service starts empty and nothing else migrates it —
+      # @repo/db's postinstall runs `prisma generate` only. Roughly half the
+      # suite is DB-backed and would meet an empty schema without this.
+      - name: Migrate test database
+        run: pnpm --filter @repo/db exec prisma migrate deploy
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
+      - run: pnpm test
