@@ -121,7 +121,7 @@ Mechanism working as intended. Both now use MenuItemSchema.parse() per the
 4271478 precedent (input-shaped literal annotated with the OUTPUT type is the
 exact z.input vs z.infer trap).
 
-## THREE dead/unwired features found (all out of scope, flag in Jira)
+## TWO dead/unwired features found (both out of scope, flag in Jira)
 - runHiddenWorkAudit    (audit.ts)    no production caller -> hidden- ids
 - injectInfraBaseline   (taxation.ts) no production caller -> baseline- ids
   (its own comment says so; AEH-253 owns it)
@@ -171,3 +171,31 @@ typecheck CLEAN. lint CLEAN. tests 3 failed / 337 passed / 1 skipped.
 All 3 failures pre-existing AEH-228 gates (2 field-audit + 1 knip), all present
 at 4271478. Test count rose 235 -> 337 passed because local docker postgres is
 now running (18 suites could not load before).
+
+
+## Production-data sweep (READ-ONLY, Neon dev/main, 2026-08-24) -- REQUIRED CHECK
+The read maps used to tolerate anything; MenuItemSchema.parse now THROWS. All
+tests used synthetic rows, so real data was the unchecked third input.
+  rows fetched: 77      parsed OK: 77      THREW: 0
+  MenuItem meta=null:     0/77      (so read-back IS exercised on real data)
+  RoleLineItem meta=null: 0/1925
+  distinct phase values: [null, Core, Foundation, Enhancement] -- all valid
+
+BEHAVIOUR CHANGE to know about: the read path is now strict where it was lenient.
+  - CategorySchema is z.string().trim().min(1) -> permissive; all 31 distinct
+    real category values pass. An EMPTY-STRING category would throw (none exist).
+  - PhaseSchema is z.enum([Foundation, Core, Enhancement]) but the DB column is
+    a free-form String?. This is the one field where a hand-edited DB value
+    would now make exportSheetsAction / promoteEstimate throw instead of
+    silently coercing.
+Deliberately NOT given a lenient fallback: silently dropping an invalid phase is
+the same "fabricate a default" pattern this ticket removes. phase is only ever
+written from PhaseSchema-validated pipeline output (the editor never writes it),
+so the only way a bad value gets in is direct DB manipulation, and that SHOULD
+fail loudly.
+
+## Commit hygiene
+An over-broad `git add -A` had bundled the pre-existing working-tree state
+(CLAUDE.md, repo-map.sh, WORKLOG.md deletion) into the migration commit.
+Split out into 99d30e2 via reset --soft + re-commit; resulting tree verified
+BYTE-IDENTICAL to the pre-rewrite tree. Nothing had been pushed.
