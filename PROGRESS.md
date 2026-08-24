@@ -1,6 +1,6 @@
 # AEH-227 — Shared costed-work type (FOCUSED)
 
-Status: In Progress (Jira transitioned 2026-08-24).
+Status: DONE (Jira AEH-227 transitioned to Done 2026-08-24).
 
 ## Agreed scope (grill-me, 2026-08-24)
 
@@ -53,7 +53,7 @@ C3 Run the migration (additive, no reset). Dev/main DB is Neon.
 7. [x] Guard fix + audit.ts sets injected:true + run-estimate persists it
 8. [x] Tests: meta round-trip; injected card not promoted VIA promoteEstimate (DB path)
 9. [x] Verify typecheck/lint/tests
-10.[ ] Jira: comment on AEH-227 ITSELF (full backtrace of work done -- user asked
+10.[x] Jira: comment on AEH-227 ITSELF (full backtrace of work done -- user asked
      explicitly 2026-08-24), plus AEH-234 + AEH-229; transition AEH-227 -> Done
 
 
@@ -199,3 +199,23 @@ An over-broad `git add -A` had bundled the pre-existing working-tree state
 (CLAUDE.md, repo-map.sh, WORKLOG.md deletion) into the migration commit.
 Split out into 99d30e2 via reset --soft + re-commit; resulting tree verified
 BYTE-IDENTICAL to the pre-rewrite tree. Nothing had been pushed.
+
+
+## CLOSED 2026-08-24
+Commits on master (oldest first):
+  99d30e2  chore: pre-existing working-tree state (NOT this ticket)
+  94bec0e  feat(db): MenuItem.injected column
+  33f73dc  refactor: one row<->domain mapping with a compile-time guard
+  0600dd4  test: round-trip + DB-path coverage
+  9554d62  docs: production-data sweep + strictness note
+
+Jira comments posted and ALL READ BACK AND DIFFED (no markup corruption):
+  AEH-227  full backtrace incl. the retraction         -> then transitioned Done
+  AEH-234  what changed for the preset rework + the open semantic-id question
+  AEH-229  exactly what B3 deferral leaves, + 2 gotchas that will bite it
+  AEH-253  injectInfraBaseline is dead; AND its headline count 42 -> 38
+
+Left for the user to decide (raised, not actioned):
+  - runHiddenWorkAudit is a built, tested, UNWIRED pipeline stage with no owning
+    ticket. Offered to file one.
+  - phase strictness: no lenient fallback added, deliberately. See above.
