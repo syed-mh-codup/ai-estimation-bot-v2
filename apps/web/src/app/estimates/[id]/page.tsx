@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
-import { prisma } from '@repo/db';
+import { prisma, toMenuItem } from '@repo/db';
 import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
@@ -56,32 +56,7 @@ async function exportSheetsAction(formData: FormData) {
   });
   if (!estimate) return;
 
-  const items: MenuItemDTO[] = estimate.menuItems.map((m) => ({
-    id: m.id,
-    taxonomyKey: m.taxonomyKey,
-    title: m.title,
-    enabled: m.enabled,
-    sourcePresetId: m.sourcePresetId ?? undefined,
-    matchScore: m.matchScore ?? undefined,
-    parentItemId: m.parentItemId ?? undefined,
-    requirementIds: [],
-    toggleable: true,
-    notSafelyRemovable: false,
-    thinSlice: false,
-    lineItems: m.lineItems.map((li) => ({
-      role: li.role,
-      title: li.title ?? undefined,
-      baseHours: li.baseHours,
-      taxedHours: li.taxedHours,
-      notes: li.notes ?? undefined,
-      edited: li.edited,
-      aiAssistApplied: false,
-      dependsOn: [],
-      anchorPresetIds: [],
-      touchesFrontend: li.touchesFrontend,
-      touchesBackend: li.touchesBackend,
-    })),
-  }));
+  const items: MenuItemDTO[] = estimate.menuItems.map(toMenuItem);
 
   const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
   await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });

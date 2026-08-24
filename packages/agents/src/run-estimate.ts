@@ -1,4 +1,4 @@
-import type { PrismaClient, AgentKind } from '@repo/db';
+import { toMenuItemCreateData, type PrismaClient, type AgentKind } from '@repo/db';
 import type {
   IModelProvider,
   IEmbeddingProvider,
@@ -272,44 +272,7 @@ export async function runEstimate(
           await tx.menuItem.deleteMany({ where: { id: { in: ids } } });
         }
         for (const item of taxed) {
-          await tx.menuItem.create({
-            data: {
-              estimateId,
-              taxonomyKey: item.taxonomyKey,
-              category: item.category ?? null,
-              phase: item.phase ?? null,
-              title: item.title,
-              enabled: item.enabled,
-              sourcePresetId: item.sourcePresetId ?? null,
-              matchScore: item.matchScore ?? null,
-              meta: {
-                requirementIds: item.requirementIds,
-                toggleable: item.toggleable,
-                notSafelyRemovable: item.notSafelyRemovable,
-                thinSlice: item.thinSlice,
-              },
-              lineItems: {
-                create: item.lineItems.map((li) => ({
-                  role: li.role,
-                  title: li.title ?? null,
-                  baseHours: li.baseHours,
-                  taxedHours: li.taxedHours,
-                  notes: li.notes ?? null,
-                  edited: li.edited,
-                  touchesFrontend: li.touchesFrontend,
-                  touchesBackend: li.touchesBackend,
-                  meta: {
-                    id: li.id ?? null,
-                    requirementId: li.requirementId ?? null,
-                    complexity: li.complexity ?? null,
-                    aiAssistApplied: li.aiAssistApplied,
-                    dependsOn: li.dependsOn,
-                    anchorPresetIds: li.anchorPresetIds,
-                  },
-                })),
-              },
-            },
-          });
+          await tx.menuItem.create({ data: toMenuItemCreateData(item, estimateId) });
         }
         await tx.estimate.update({
           where: { id: estimateId },

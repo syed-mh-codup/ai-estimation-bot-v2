@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { MenuItem, RoleLineItem, RoleKind } from '@repo/shared';
+import { MenuItemSchema, type MenuItem, type RoleLineItem, type RoleKind } from '@repo/shared';
 
 // ─── Config shapes (read from EstimationConfig) ────────────────────────────────
 
@@ -109,17 +109,23 @@ export function injectInfraBaseline(
         }),
       );
 
-      return {
+      // Infra baseline (env setup, CI/CD, hypercare) is not delivered feature
+      // work, so it must never reach the preset library. That used to rely on
+      // promotion string-matching this `baseline-` id prefix — which never
+      // worked, because persistence replaces the id with a cuid. Now a column
+      // promotion actually reads. AEH-227.
+      return MenuItemSchema.parse({
         id: `${BASELINE_ID_PREFIX}-${bi.taxonomyKey}`,
         taxonomyKey: bi.taxonomyKey,
         title: bi.title,
         enabled: true,
+        injected: true,
         requirementIds: [],
         toggleable: true,
         notSafelyRemovable: false,
         thinSlice: false,
         lineItems,
-      };
+      });
     });
 
   return [...menuItems, ...baselineItems];

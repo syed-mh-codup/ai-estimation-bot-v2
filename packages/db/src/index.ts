@@ -12,3 +12,4 @@ export * from './generated/client/index.js';
 export * from './vector';
 export * from './preset-code';
 export * from './changelog';
+export * from './menu-item-mapping';

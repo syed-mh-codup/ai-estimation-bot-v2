@@ -1,6 +1,12 @@
 'use server';
 
-import { prisma, type RoleKind } from '@repo/db';
+import {
+  prisma,
+  type RoleKind,
+  type MenuItem as MenuItemRow,
+  type RoleLineItem as RoleLineItemRow,
+  type EstimateSection as EstimateSectionRow,
+} from '@repo/db';
 import { auth } from '@/lib/auth';
 import { requireUser } from '@/lib/rbac';
 
@@ -17,27 +23,29 @@ import { requireUser } from '@/lib/rbac';
 
 type Role = 'DEV' | 'QA' | 'PM' | 'BA';
 
-export type LineItemDTO = {
-  id: string;
-  role: RoleKind;
-  title: string | null;
-  baseHours: number;
-  taxedHours: number;
-  edited: boolean;
-  /** Which side of the stack this DEV item touches. Never divides the hours. */
-  touchesFrontend: boolean;
-  touchesBackend: boolean;
-};
-export type ItemDTO = {
-  id: string;
-  title: string;
-  enabled: boolean;
-  taxonomyKey: string;
-  sectionId: string | null;
-  order: number;
-  lineItems: LineItemDTO[];
-};
-export type SectionDTO = { id: string; title: string; order: number };
+/**
+ * The editor's DTOs, derived from the Prisma row types rather than declared
+ * fresh (AEH-227). Every field either of them carries IS a column — the editor
+ * edits columns, so the row type is its honest contract, and adding a column
+ * the editor should show now propagates here instead of needing a hand edit.
+ * That is how `touchesFrontend`/`touchesBackend` reached the editor in the
+ * first place.
+ *
+ * Deliberately NOT derived from `@repo/shared`'s `RoleLineItem`/`MenuItem`:
+ * those carry envelope fields the editor never renders, and `sectionId`/`order`
+ * are columns that the pipeline shapes do not have at all — so a `Pick` over
+ * them would need a hand-written intersection, re-introducing exactly the
+ * field list this removes.
+ */
+export type LineItemDTO = Pick<
+  RoleLineItemRow,
+  'id' | 'role' | 'title' | 'baseHours' | 'taxedHours' | 'edited' | 'touchesFrontend' | 'touchesBackend'
+>;
+export type ItemDTO = Pick<
+  MenuItemRow,
+  'id' | 'title' | 'enabled' | 'taxonomyKey' | 'sectionId' | 'order'
+> & { lineItems: LineItemDTO[] };
+export type SectionDTO = Pick<EstimateSectionRow, 'id' | 'title' | 'order'>;
 
 async function requireSession(): Promise<void> {
   const session = await auth();

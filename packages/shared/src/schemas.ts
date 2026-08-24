@@ -356,7 +356,12 @@ export const RoleLineItemSchema = z.object({
 export type RoleLineItem = z.infer<typeof RoleLineItemSchema>;
 
 export const MenuItemSchema = z.object({
-  /** MC-<DOMAIN>-<SLUG> once assembled by the Architect (or a synthetic id for injected items). */
+  /**
+   * MC-<DOMAIN>-<SLUG> as assembled by the Architect, and the row's cuid once
+   * persisted — `run-estimate` does not pass `id` on create, so the Architect's
+   * value does not survive the write. Anything reading a card back from the DB
+   * (promotion keys `sourceMenuItemId` on it) sees the cuid. AEH-227.
+   */
   id: z.string(),
   taxonomyKey: z.string(),
   category: CategorySchema.optional(),
@@ -372,6 +377,15 @@ export const MenuItemSchema = z.object({
   notSafelyRemovable: z.boolean().default(false),
   /** Tags the thin vertical slice cards giving the earliest demoable path. */
   thinSlice: z.boolean().default(false),
+  /**
+   * An injected placeholder (hidden-work audit), not delivered feature work.
+   * Promotion reads this to keep placeholders out of the preset library.
+   *
+   * A real DB column, not a `meta` key: behaviour depends on reading it, and
+   * `meta` is write-only throughout this repo. The guard it replaces keyed on
+   * an `id` string prefix that persistence discards. See AEH-227.
+   */
+  injected: z.boolean().default(false),
   parentItemId: z.string().optional(),
   lineItems: z.array(RoleLineItemSchema),
 });

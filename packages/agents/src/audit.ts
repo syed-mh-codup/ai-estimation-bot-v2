@@ -44,10 +44,14 @@ export function runHiddenWorkAudit(
 
     // Add a new menu item for this hidden work
     result.push({
+      // The id is for in-flight identification only — persistence mints a cuid
+      // and drops this, which is why `injected` is a column and not an id
+      // prefix. Promotion keys on the column. AEH-227.
       id: `hidden-${flag}-${Date.now()}`,
       taxonomyKey: config.taxonomyKey,
       title: config.title,
       enabled: true,
+      injected: true,
       requirementIds: [],
       toggleable: true,
       notSafelyRemovable: false,

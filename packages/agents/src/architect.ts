@@ -9,7 +9,7 @@ import type {
   SpecialistOutput,
   Category,
 } from '@repo/shared';
-import { ArchitectOutputSchema, FOUR_HOUR_CAP, PhaseSchema } from '@repo/shared';
+import { ArchitectOutputSchema, FOUR_HOUR_CAP, MenuItemSchema, PhaseSchema } from '@repo/shared';
 import { chatJSON } from './llm-json';
 
 export type ArchitectContext = {
@@ -241,7 +241,12 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
     const meta = metaByCardId.get(card.id);
     const notSafelyRemovable = card.requirementIds.some((id) => requiredRequirementIds.has(id));
     const bestMatch = bestMatchForCard(card, archivistMatches);
-    return {
+    // Parsed, not asserted: the literal is input-shaped, and `MenuItem` is the
+    // OUTPUT type, where every `.default()` field is required. Annotating an
+    // input literal with the output type is the drift that left 47 errors
+    // invisible until CI was repaired (4271478) — and it means real Architect
+    // cards get `injected: false` from the schema rather than by hand. AEH-227.
+    return MenuItemSchema.parse({
       id: card.id,
       taxonomyKey: card.id,
       category: card.category,
@@ -255,7 +260,7 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
       notSafelyRemovable,
       thinSlice: meta?.thinSlice ?? false,
       lineItems: card.lineItems,
-    };
+    });
   });
 
   return ArchitectOutputSchema.parse({
