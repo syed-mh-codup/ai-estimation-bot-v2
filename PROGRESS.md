@@ -219,3 +219,38 @@ Left for the user to decide (raised, not actioned):
   - runHiddenWorkAudit is a built, tested, UNWIRED pipeline stage with no owning
     ticket. Offered to file one.
   - phase strictness: no lenient fallback added, deliberately. See above.
+
+
+## NOT PUSHED (as of 2026-08-24 close)
+master is 6 commits AHEAD of github/master. bitbucket origin/master is also still
+at 4271478. Nothing deployed: .github/workflows/ci.yml has only lint, typecheck
+and test jobs -- no deploy step -- so prod deploys come from Vercel's git
+integration on push. Awaiting the user's go-ahead to push.
+
+MIGRATION IS APPLIED though, to three databases:
+  Neon dev/main  ep-polished-credit   (what packages/db/.env + apps/web/.env.local point at)
+  local docker   localhost:5433
+  Neon test      ep-wild-heart
+CANNOT VERIFY from the repo whether prod uses ep-polished-credit -- there is no
+vercel.json and Vercel's env vars are not visible here. If it does, prod's DB has
+the column while prod's code does not use it yet. That is safe (additive NOT NULL
+column WITH a default; old code never selects it) and is the correct ordering for
+an additive change.
+
+## AEH-251 OVERLAP -- I re-derived a known bug
+AEH-251 item one (filed 2026-08-21 from the AEH-226 work) already documented the
+dead promotion guard in full: the id-prefix match, the cuid replacing it at
+persist, both injectors being unwired, and the test passing only on hand-built
+in-memory ids. I found it independently and reported it as new before finding the
+ticket. Commented on AEH-251 marking item one resolved; items two
+(perItemMultipliers computed and never consumed) and three (stale RoleLineItem
+schema comment) remain open.
+
+## AEH-263 FILED (Medium, Backlog, epic AEH-6)
+"Decide whether the audit stage ships -- all of audit.ts is unwired".
+Scoped as the PRODUCT decision, because the mechanical view is already owned:
+AEH-253 lists these among its 60 zero-caller exports and AEH-251 notes the
+injectors are unreachable; both would resolve by deleting. Broader than the user
+asked: ALL THREE audit.ts exports are unwired (runHiddenWorkAudit,
+runValidationAudit, acknowledgeUnreconciled), not just the one.
+Linked Relates to AEH-227, AEH-251, AEH-253.
