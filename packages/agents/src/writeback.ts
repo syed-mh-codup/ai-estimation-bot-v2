@@ -1,5 +1,4 @@
-import type { PrismaClient } from '@repo/db';
-import { allocatePresetCode } from '@repo/db';
+import { allocatePresetCode, toMenuItem, type PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
 import type { MenuItem, RoleLineItem } from '@repo/shared';
 
@@ -98,9 +97,16 @@ export async function promoteMenuItemsToPresets(
   });
 
   for (const item of enabled) {
-    // Injected placeholders (infra baseline, hidden work) aren't features and
-    // have no side tags — they must never enter the library.
-    if (item.id.startsWith('baseline-') || item.id.startsWith('hidden-')) continue;
+    // Injected placeholders (hidden-work audit) aren't features and must never
+    // enter the library.
+    //
+    // This used to read `item.id.startsWith('baseline-') || 'hidden-'`, which
+    // could never match here: `run-estimate` creates cards without passing
+    // `id`, so Prisma mints a cuid and the pipeline's synthetic id is gone by
+    // the time promotion reads the row back. `baseline-` was minted nowhere at
+    // all. The check only ever passed in tests that called this function with
+    // in-memory items. Now a column. AEH-227.
+    if (item.injected) continue;
 
     // Already promoted from this estimate — don't stack duplicate versions on a
     // re-finalise. Keyed on (estimate, menu item) rather than on a synthesised
@@ -217,36 +223,14 @@ export async function promoteEstimate(
 ): Promise<PromoteResult> {
   const est = await db.estimate.findUnique({
     where: { id: estimateId },
-    include: { menuItems: { include: { lineItems: true } } },
+    // Injected placeholders are excluded in the query rather than loaded and
+    // then skipped. The in-loop `item.injected` guard stays for callers that
+    // pass menu items in directly. AEH-227.
+    include: { menuItems: { where: { injected: false }, include: { lineItems: true } } },
   });
   if (!est) return { promoted: [], skipped: [], versioned: [], created: [] };
 
-  const items: MenuItem[] = est.menuItems.map((m) => ({
-    id: m.id,
-    taxonomyKey: m.taxonomyKey,
-    title: m.title,
-    enabled: m.enabled,
-    sourcePresetId: m.sourcePresetId ?? undefined,
-    matchScore: m.matchScore ?? undefined,
-    parentItemId: m.parentItemId ?? undefined,
-    requirementIds: [],
-    toggleable: true,
-    notSafelyRemovable: false,
-    thinSlice: false,
-    lineItems: m.lineItems.map((li) => ({
-      role: li.role,
-      title: li.title ?? undefined,
-      baseHours: li.baseHours,
-      taxedHours: li.taxedHours,
-      notes: li.notes ?? undefined,
-      edited: li.edited,
-      aiAssistApplied: false,
-      dependsOn: [],
-      anchorPresetIds: [],
-      touchesFrontend: li.touchesFrontend,
-      touchesBackend: li.touchesBackend,
-    })),
-  }));
+  const items: MenuItem[] = est.menuItems.map(toMenuItem);
 
   return promoteMenuItemsToPresets(db, estimateId, items);
 }

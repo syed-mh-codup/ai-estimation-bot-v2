@@ -1,90 +1,173 @@
-# Progress (session continuity only)
+# AEH-227 — Shared costed-work type (FOCUSED)
 
-_No backlog or completion state here — that lives in Jira. This file is
-just working notes for whatever's in flight right now._
+Status: In Progress (Jira transitioned 2026-08-24).
 
-## AEH-228 "No orphaned backend work" — THREE checks BUILT
+## Agreed scope (grill-me, 2026-08-24)
 
-Branch `feat/aeh-228-orphan-checks`. Jira AEH-228 In Progress.
-Follow-up work catalogued in **AEH-253** (42 orphaned fields, 60 dead exports).
+Corrected inventory: 3 Prisma->shape READ maps + 1 WRITE map.
+  - page.tsx:59      Prisma -> MenuItem   (Sheets export) -- fabricates 7 fields
+  - writeback.ts:224 Prisma -> MenuItem   (promote)        -- fabricates same 7
+  - page.tsx:157     Prisma -> ItemDTO    (editor)         -- omits them
+  - run-estimate.ts:277 MenuItem -> Prisma (persist)       -- packs meta
+  - rollup.ts:85 is NOT a Prisma mapping; removed from the ticket's list.
 
-### State: both gates intentionally FAIL
+Root cause: MenuItem.meta / RoleLineItem.meta are WRITE-ONLY (audit pkg asserts
+this). Read maps hardcode requirementIds/toggleable/notSafelyRemovable/
+thinSlice/aiAssistApplied/dependsOn/anchorPresetIds. Inert today (no consumer
+reads them) but Architect-computed flags are discarded on every read.
 
-Full suite (verified under Node 22.13.1, matching CI): 332 passed, 3 failed,
-1 skipped — the 3 failures are one per gate. Nothing pre-existing broke.
-Also verified under Node 24. Lint and typecheck both pass for packages/audit. Per the decision that known debt must not hide
-behind an allowlist, no exemption was seeded, so CI is red until AEH-253 lands.
+## LIVE BUG in scope
+run-estimate.ts persists MenuItem WITHOUT id -> Prisma mints cuid; the semantic
+id (hidden-<flag>-<ts> from audit.ts:47) is discarded, not even in meta.
+So writeback.ts:103 `item.id.startsWith('hidden-')` is DEAD on the only
+production path (inngest -> promoteEstimate). Hidden-work placeholders ARE
+being promoted into the preset library. `baseline-` is minted nowhere = dead
+everywhere. Looks tested because writeback-promote.test.ts calls the inner
+promoteMenuItemsToPresets directly with in-memory semantic ids.
 
-`master` already had 47 typecheck errors and a failing lint before this branch.
-Pre-existing, in packages/agents + packages/core test files, unrelated.
-(That is also why ci.yml was split into three jobs.)
+## Decisions
+A1 toMenuItem/toLineItem parse meta back through the schema.
+A2 meta:null -> zod defaults; legacy vs genuine-default indistinguishable (accepted).
+A3 Both directions get named helpers.
+B1 `injected` = real COLUMN on MenuItem (not a meta key). Behaviour-gating
+   fields must be queryable + compiler-visible. Crosses ticket's stated
+   "no DB model change" line -- approved by user.
+B2 Fix dead guard here: `if (item.injected) continue;` drop baseline-.
+B3 Shared zod base for SpecialistLineItem/RoleLineItem DEFERRED -> AEH-229.
+   RoleLineItemSchema/MenuItemSchema stay canonical. Comment AEH-234 + AEH-229.
+C1 Editor DTOs derive from Prisma payload types (DB = source of truth).
+C2 Backfill historical injected cards. DRY-RUN AND SHOW USER FIRST.
+   Match: taxonomyKey IN (infra.retries, infra.rate-limit, infra.data-migration,
+   infra.legacy-adapter, infra.webhook) AND lineItem hours exactly
+   DEV8/QA4/PM2/BA2 AND edited=false. TaxonomyKey alone false-positives
+   (hasLineItemForFlag proves real cards carry those keys).
+C3 Run the migration (additive, no reset). Dev/main DB is Neon.
 
-    pnpm audit:fields     # orphan-field report
-    pnpm audit:exports    # zero-caller export report
+## Work plan
+1. [x] Baseline typecheck/lint/test (expect 3 pre-existing failures per 4271478)
+2. [x] injected column + migration 20260824000000_menu_item_injected
+3. [x] Backfill: NO-OP, DROPPED (evidence below)
+4. [x] MenuItemSchema: injected boolean default false
+5. [x] Mapping helpers (home: @repo/db, needs @repo/shared dep edge; no cycle)
+6. [x] DTOs -> Pick over Prisma payload types
+7. [x] Guard fix + audit.ts sets injected:true + run-estimate persists it
+8. [x] Tests: meta round-trip; injected card not promoted VIA promoteEstimate (DB path)
+9. [x] Verify typecheck/lint/tests
+10.[ ] Jira: comment on AEH-227 ITSELF (full backtrace of work done -- user asked
+     explicitly 2026-08-24), plus AEH-234 + AEH-229; transition AEH-227 -> Done
 
-### What was built
 
-`packages/audit` + `knip.jsonc`. Gates are vitest tests, so they block through
-the existing `pnpm test` job with no workflow change.
+## CORRECTION (2026-08-24) -- claim retracted
+I claimed hidden-work cards were being promoted into the preset library.
+WRONG. `runHiddenWorkAudit` has NO production caller (only ws15.test.ts), so
+no injected card has ever been created. writeback.ts:103 is a dead guard on an
+UNWIRED feature -- latent, not live. The `injected` column is still the right
+fix (makes the stage safe to wire later) but it is pre-emptive, not a leak fix.
 
-- `src/prisma-schema.ts` — schema line parser. Asserts 0 unparsed lines; a
-  silently-skipped field is an unaudited field.
-- `src/source-set.ts` — ts.Program over apps/web/src + packages/*/src.
-- `src/occurrences.ts` — R1–R7 classifiers + type-based attribution.
-- `src/field-audit.ts` — orchestrator, Json key discovery, findings.
-  All 8 Json columns are covered: those with discoverable keys are audited per
-  key, those written as `{}` or via a variable fall back to a plain column
-  target rather than being skipped.
-- `src/knip-baseline.ts` — knip runner + two-way baseline diff.
-- `src/zod-contracts.ts` — contract-field audit (gate 3). Added because item 3
-  of the ticket (`SupervisorInput.changedMenuItemIds`) has no column behind it,
-  so neither the column audit nor knip could ever see it.
+ALSO NOTED: runHiddenWorkAudit is a fully built + tested pipeline stage that
+nothing calls. Out of scope here; flag in Jira.
 
-**Gate 3's rule is deliberately much stricter than gate 1's:** a zod field is
-flagged only if the identifier appears NOWHERE outside its own declaration.
-Zod schemas here are LLM I/O contracts and input schemas get serialised whole
-into prompts, so "no property access" does not mean dead — a read-classification
-rule would flag dozens of fields the model genuinely consumes. 195 fields
-audited, 4 flagged. It under-reports on purpose.
+## Backfill dry-run (READ-ONLY, Neon dev/main, 2026-08-24)
+MenuItem rows total:                     77
+Estimate rows total:                      3
+MenuItems with hidden-work taxonomyKey:   0
+STRICT matches (key+DEV8/QA4/PM2/BA2+no edits): 0
+Loose (taxonomyKey only) matches:         0
+=> Nothing to backfill. No UPDATE written; column default `false` is already
+   correct for all 77 rows. User informed.
 
-### Three things worth not re-deriving
+## Migration applied 2026-08-24 (prisma migrate deploy, non-destructive)
+- Neon dev/main   ep-polished-credit  OK (13 applied before, no drift)
+- local docker    localhost:5433      OK
+- Neon test DB    ep-wild-heart       OK
+- prisma generate OK (injected in client)
 
-**1. knip needs all of: `--production`, `!`-suffixed patterns, and barrels NOT
-as entries.** Any one missing and the check reports nothing.
-- Test files count as callers by default. Neither a `!src/**/*.test.ts`
-  negation in `project` nor an `ignore` entry removes them from the import
-  graph — both only suppress reporting. Only production mode drops them.
-  Proof: `knip --trace-export recordActuals` -> `ws20.test.ts:import[...] OK`.
-- Production mode honours only `!`-suffixed entry/project patterns.
-- Every `packages/*/src/index.ts` is a wall of `export * from './x'`. As an
-  entry file, everything it re-exports is public API = used = 0 findings.
+## Baseline before my changes
+typecheck: CLEAN. lint: CLEAN.
+tests: 3 failed / 235 passed / 98 skipped; 18 suites failed to LOAD purely
+because local docker postgres was down (now started). The 3 real failures are
+pre-existing audit gates: field-audit x2 (AEH-228 gate 1), knip-baseline x1
+(gate 2). NOT mine.
 
-**2. knip's JSON has a preamble containing an unquoted brace**, so "slice from
-the first `{`" fails. Anchor on `{"issues":`:
-`◇ injected env (12) from apps/web/.env.local // tip: … { path: '…/.env' }`
+## Implementation notes (2026-08-24)
+Helpers live in packages/db/src/menu-item-mapping.ts. @repo/db already had the
+tsconfig path + project reference to ../shared; only the package.json dep was
+missing. Exported via packages/db/src/index.ts.
 
-**3. A Json key is consumed only if its COLUMN is read back out of the DB.**
-Key-name reads are not evidence: the pipeline reads `requirementIds` and
-`dependsOn` off in-flight zod objects whose shape is near-identical to the DB
-row's, so structural attribution cannot tell "read what we stored" from "read
-it before storing". Nothing reads `MenuItem.meta` or `RoleLineItem.meta` at all.
+THE KEY DELIVERABLE is the compile-time exhaustiveness assertion, not the dedup:
+  type _MenuItemFieldsAllClaimed = AssertNever<
+    Exclude<keyof MenuItem, MenuItemColumnKey | MenuItemMetaKey>>
+Every domain field must be claimed by the column union or the meta key list.
+VERIFIED by adding a probe field to MenuItemSchema: typecheck failed with
+  menu-item-mapping.ts(110,3): error TS2344:
+  Type '"probeField"' does not satisfy the constraint 'never'.
+Probe removed, typecheck clean. Without this a `.default()` on a new field
+would let parse invent it on read and the writer drop it -- the original rot.
 
-### Verified, so don't re-test from scratch
-- Acceptance 31/31: all 16 known orphans flagged, none of 15 known-live fields.
-  141 targets audited, 42 orphans.
-- Hard gate: 114 files, 98.7% attribution resolution.
-- Anti-rot, all 9 paths, by deliberate breakage + revert: valid exemption
-  suppresses (column + Json key); exemption on a live field -> stale-exemption-
-  consumed; @orphan-todo with no ticket -> malformed; annotation on a relation
-  -> misplaced; @backend-only:key for an unwritten key -> stale-missing-key;
-  knip baseline entry suppresses / vanished -> stale / bad reason -> malformed.
-- The gate THROWS if knip is missing rather than skipping (hit for real when a
-  branch switch pruned the bin symlink).
+Rule: readers spread meta FIRST so a column always wins a name collision.
 
-### Known limitations (stated in AEH-253, not bugs)
-Transitive orphans out of scope (`requires` will surface once Group 1 lands).
-DB-state orphans invisible (unembedded presets). Read-modify-write reads as
-carry-forward — do NOT weaken R3 to fix it, that reintroduces the
-`PresetVersion.notes` miss.
+id resolution (the ambiguity the ticket targets):
+  MenuItem.id     = row cuid. run-estimate never persists the Architect's
+                    MC-<DOMAIN>-<SLUG>. promote keys sourceMenuItemId on it.
+  RoleLineItem.id = the SEMANTIC id from meta. dependsOn/anchorPresetIds
+                    reference it by name, so reading the cuid here would leave
+                    dependsOn dangling. Nothing in production reads a line
+                    item's cuid off a domain object (editor uses its own
+                    Prisma-derived DTO).
 
-Plan file: `~/.claude/plans/please-start-planning-your-encapsulated-gadget.md`
+Adding `injected` to MenuItemSchema immediately broke 2 MORE hand-written
+MenuItem literals the ticket never listed -- architect.ts:240 and taxation.ts:92.
+Mechanism working as intended. Both now use MenuItemSchema.parse() per the
+4271478 precedent (input-shaped literal annotated with the OUTPUT type is the
+exact z.input vs z.infer trap).
+
+## THREE dead/unwired features found (all out of scope, flag in Jira)
+- runHiddenWorkAudit    (audit.ts)    no production caller -> hidden- ids
+- injectInfraBaseline   (taxation.ts) no production caller -> baseline- ids
+  (its own comment says so; AEH-253 owns it)
+=> BOTH sources of the guard's id prefixes are unwired, which is the full
+   explanation for why that guard was dead. Both now set injected:true so they
+   are correct if ever wired up.
+
+
+## Audit-tooling interaction (important, cost me two wrong attempts)
+`@repo/audit`'s discoverJsonKeys finds which keys a Json column persists by
+requiring the `meta:` property's initializer to be a BARE ObjectLiteralExpression
+and fingerprinting sibling property names to attribute the model. Therefore:
+  - a loop over a key list  -> audit goes blind (verified: MenuItem.meta -> undefined)
+  - `satisfies MetaBlob<..>` -> ALSO blind (wraps node in SatisfiesExpression)
+  - bare literal + narrowed RETURN TYPE (CreateDataWithMeta) -> works, and still
+    enforces exhaustiveness. This is why the write helpers look the way they do.
+DO NOT "tidy" those literals into a helper or add `satisfies`.
+
+## Verified gate impact (same test, baseline worktree at 4271478 vs now)
+gate 1 findings:      42 -> 38  (-4)
+audit:fields orphans: 46 -> 42  (-4)
+Removed: MenuItem.meta.requirementIds, RoleLineItem.meta.{id,requirementId,dependsOn}
+  -- no longer write-only because the helpers read them back.
+Added: NONE. MenuItem.injected avoided becoming an orphan by filtering
+  `where: { injected: false }` in promoteEstimate's query (a real consuming
+  read; `injected: row.injected` is classified as a WRITE, not a consumer).
+knip gate: zero new entries from packages/db/src/menu-item-mapping.ts.
+
+The stray "28" in my first baseline note was measured BEFORE `prisma generate`;
+regenerating the client shifted type attribution repo-wide. Ignore it.
+
+## Tests added, all verified to have TEETH
+packages/db/src/menu-item-mapping.test.ts (4 tests)
+  Fixture sets EVERY field away from its schema default on purpose -- the old
+  fabricated values were all defaults, so a default-valued fixture would pass
+  against the very bug being fixed.
+  Teeth check: removing meta read-back -> 3 of 4 fail.
+writeback-promote.test.ts
+  Rewrote the id-prefix test -> injected:true, and ADDED a test through
+  promoteEstimate (the DB path the old test could not reach).
+  Teeth check: restoring the old id-prefix guard -> both fail, the DB-path one
+  with "length 1 but got 2" = the placeholder WAS promoted. That is the bug.
+  Fixtures now parse through their schema instead of `as MenuItem`.
+
+## FINAL STATE
+typecheck CLEAN. lint CLEAN. tests 3 failed / 337 passed / 1 skipped.
+All 3 failures pre-existing AEH-228 gates (2 field-audit + 1 knip), all present
+at 4271478. Test count rose 235 -> 337 passed because local docker postgres is
+now running (18 suites could not load before).

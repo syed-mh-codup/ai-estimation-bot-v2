@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@repo/db';
-import { promoteMenuItemsToPresets, PROMOTION_MATCH_THRESHOLD } from './writeback';
-import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { promoteEstimate, promoteMenuItemsToPresets, PROMOTION_MATCH_THRESHOLD } from './writeback';
+import { MenuItemSchema, RoleLineItemSchema, type MenuItem, type RoleLineItem } from '@repo/shared';
 
 /**
  * Hybrid promotion: a card that matched an existing preset *confidently* becomes
@@ -20,32 +20,30 @@ let userId = '';
 let estimateId = '';
 const createdPresetIds = new Set<string>([MATCHED]);
 
+// Parsed, not cast. `as MenuItem` on an input-shaped literal is the
+// z.input/z.infer trap that hid 47 errors while CI was down (4271478): every
+// `.default()` field is required on the OUTPUT type but optional on the input,
+// so a cast silently leaves it absent at runtime. Parsing applies the defaults,
+// which is also why adding `injected` did not have to be hand-written here.
 const li = (role: RoleLineItem['role'], hours: number, side?: 'fe' | 'be' | 'both'): RoleLineItem =>
-  ({
+  RoleLineItemSchema.parse({
     role,
     baseHours: hours,
     taxedHours: hours,
     edited: false,
-    aiAssistApplied: false,
-    dependsOn: [],
-    anchorPresetIds: [],
     touchesFrontend: side === 'fe' || side === 'both',
     touchesBackend: side === 'be' || side === 'both',
-  }) as RoleLineItem;
+  });
 
 const card = (over: Partial<MenuItem>): MenuItem =>
-  ({
+  MenuItemSchema.parse({
     id: 'MC-TEST',
     taxonomyKey: 'storefront.checkout',
     title: 'Checkout extension',
     enabled: true,
-    requirementIds: [],
-    toggleable: true,
-    notSafelyRemovable: false,
-    thinSlice: false,
     lineItems: [li('DEV', 20, 'be'), li('DEV', 10, 'fe'), li('QA', 8)],
     ...over,
-  }) as MenuItem;
+  });
 
 beforeAll(async () => {
   await db.$connect();
@@ -223,12 +221,55 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     expect(all).toHaveLength(2); // v1 + one promotion, not three
   });
 
-  it('never promotes injected baseline or hidden-work placeholders', async () => {
-    const result = await promoteMenuItemsToPresets(db, estimateId, [
-      card({ id: 'baseline-env-setup' }),
-      card({ id: 'hidden-data-migration' }),
-    ]);
+  it('never promotes injected placeholders', async () => {
+    const result = await promoteMenuItemsToPresets(db, estimateId, [card({ injected: true })]);
     expect(result.promoted).toEqual([]);
+  });
+
+  /**
+   * The regression that motivated AEH-227's `injected` column.
+   *
+   * The exclusion used to key on an `id` string prefix ('baseline-',
+   * 'hidden-'). Every test of it — including this file's previous version —
+   * called `promoteMenuItemsToPresets` directly with in-memory cards whose ids
+   * still carried that prefix, so the guard passed. On the only production path
+   * it could never fire: `run-estimate` creates cards without passing `id`, so
+   * Prisma mints a cuid and the synthetic id is gone before promotion reads the
+   * row back.
+   *
+   * So this goes through `promoteEstimate` — reading real rows — which is the
+   * one path the old test could not reach. Asserting the good card DID promote
+   * matters as much: a filter that excludes everything would pass a
+   * `toEqual([])` check.
+   */
+  it('excludes injected placeholders when reading rows back from the database', async () => {
+    await db.menuItem.create({
+      data: {
+        estimateId,
+        taxonomyKey: 'infra.data-migration',
+        title: 'Data Remediation & Migration',
+        enabled: true,
+        injected: true,
+        lineItems: { create: [{ role: 'DEV', baseHours: 8, taxedHours: 8 }] },
+      },
+    });
+    await db.menuItem.create({
+      data: {
+        estimateId,
+        taxonomyKey: 'storefront.checkout',
+        title: 'Real delivered feature',
+        enabled: true,
+        injected: false,
+        lineItems: { create: [{ role: 'DEV', baseHours: 12, taxedHours: 12, touchesBackend: true }] },
+      },
+    });
+
+    const result = await promoteEstimate(db, estimateId);
+    result.promoted.forEach((p) => createdPresetIds.add(p));
+
+    expect(result.promoted).toHaveLength(1);
+    const v = await activeVersion(result.promoted[0]!);
+    expect(v!.name).toBe('Real delivered feature');
   });
 
   it('skips disabled cards — work switched off is not delivered work', async () => {
