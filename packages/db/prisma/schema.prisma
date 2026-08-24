@@ -371,6 +371,14 @@ model MenuItem {
   matchScore     Float?
   title          String
   enabled        Boolean      @default(true)
+  /// Injected placeholder (hidden-work audit), not delivered feature work.
+  /// Promotion reads this to keep placeholders out of the preset library.
+  ///
+  /// A real column rather than a `meta` key precisely because behaviour depends
+  /// on READING it: `meta` is write-only everywhere in this repo, and the guard
+  /// this replaces keyed on an `id` string prefix that persistence discards
+  /// (Prisma mints a cuid), so it was dead and nothing noticed. See AEH-227.
+  injected       Boolean      @default(false)
   parentItemId   String?
   /// User-assigned section grouping (null = Ungrouped). Presentational only.
   sectionId      String?
