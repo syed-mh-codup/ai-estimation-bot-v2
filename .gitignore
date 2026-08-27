@@ -11,3 +11,7 @@ packages/db/src/generated/
 
 # Local Claude Code config
 .claude/
+
+# Playwright output — transient, and it was getting committed
+apps/web/test-results/
+apps/web/playwright-report/
