@@ -18,7 +18,10 @@ test.describe('WS22-01: create estimate from SOW', () => {
     await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
 
     await page.getByTestId('new-estimate').click();
-    await expect(page).toHaveURL(/\/estimates\/new/);
+    // This one needs the budget too. The spec already applies COLD_COMPILE to the
+    // /estimates/[id] assertions below, but the hop to the form was left bare —
+    // and it is a cold route like any other.
+    await expect(page).toHaveURL(/\/estimates\/new/, { timeout: COLD_COMPILE });
 
     const title = `Created via E2E ${Date.now()}`;
     await page.fill('#title', title);
