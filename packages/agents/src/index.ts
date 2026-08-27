@@ -1,4 +1,3 @@
-export * from './sow-utils';
 // NOTE: './agent-factory' is intentionally NOT re-exported — it pulls in
 // @mastra/core, which would bloat/break consumers (e.g. the Next.js app) that
 // only need the IModelProvider-based run path. Import it directly where needed.

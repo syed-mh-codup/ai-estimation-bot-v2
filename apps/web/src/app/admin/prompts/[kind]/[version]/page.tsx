@@ -116,6 +116,14 @@ export default async function PromptVersionDetailPage({
               <dd className="num text-[12.5px] text-ink">
                 {new Date(promptVersion.createdAt).toLocaleString()}
               </dd>
+              <dt className="eyebrow self-center">Author</dt>
+              <dd className="text-[12.5px] text-ink" data-testid="version-author">
+                {promptVersion.createdBy ?? 'unattributed'}
+              </dd>
+              <dt className="eyebrow self-center">Motivation</dt>
+              <dd className="text-[12.5px] text-ink" data-testid="version-motivation">
+                {promptVersion.changeMotivation.toLowerCase().replace(/_/g, ' ')}
+              </dd>
               <dt className="eyebrow self-center">Change reason</dt>
               <dd className="text-[13px] text-ink">{promptVersion.changeReason ?? '—'}</dd>
             </dl>

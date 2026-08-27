@@ -4,7 +4,21 @@ import { requireAdmin } from '@/lib/rbac';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea, FieldLabel } from '@/components/ui/input';
+import { Input, Textarea, FieldLabel, Select } from '@/components/ui/input';
+import type { ChangeMotivation } from '@repo/db';
+
+const MOTIVATIONS: ChangeMotivation[] = [
+  'CORRECTION',
+  'NEW_PROCESS',
+  'POST_DELIVERY_VALIDATION',
+  'TECH_ADVANCEMENT',
+  'UPSKILL',
+  'OTHER',
+];
+
+function isMotivation(v: string): v is ChangeMotivation {
+  return (MOTIVATIONS as string[]).includes(v);
+}
 
 function parseJsonField(value: FormDataEntryValue | null): object | null {
   if (typeof value !== 'string') return null;
@@ -26,12 +40,17 @@ async function saveConfig(formData: FormData) {
   const hiddenWorkBlocksFinalise = formData.get('hiddenWorkBlocksFinalise') === 'on';
   const complexityRules = parseJsonField(formData.get('complexityRules'));
   const infraBaseline = parseJsonField(formData.get('infraBaseline'));
+  const changeReason = (formData.get('changeReason') as string | null)?.trim();
+  const motivationRaw = formData.get('changeMotivation');
+  const changeMotivation =
+    typeof motivationRaw === 'string' && isMotivation(motivationRaw) ? motivationRaw : 'OTHER';
 
   // Reject invalid input rather than persisting a broken config version.
   if (
     [pm, ba, qa].some((n) => Number.isNaN(n)) ||
     complexityRules === null ||
-    infraBaseline === null
+    infraBaseline === null ||
+    !changeReason
   ) {
     return;
   }
@@ -56,7 +75,8 @@ async function saveConfig(formData: FormData) {
         hiddenWorkBlocksFinalise,
         complexityRules,
         infraBaseline,
-        changeReason: 'edited via admin',
+        changeReason,
+        changeMotivation,
       },
     }),
   ]);
@@ -65,10 +85,15 @@ async function saveConfig(formData: FormData) {
 }
 
 export default async function ConfigAdminPage() {
-  const config = await prisma.estimationConfig.findFirst({
-    where: { active: true },
+  // Full rows, no `select`. The four versioned models share changeReason /
+  // changeMotivation / createdAt, so a narrow projection is indistinguishable
+  // between them — for the reader here, and for the field audit that has to
+  // decide which model this read belongs to.
+  const versions = await prisma.estimationConfig.findMany({
     orderBy: { version: 'desc' },
+    take: 20,
   });
+  const config = versions.find((v) => v.active) ?? null;
 
   if (!config) {
     return (
@@ -209,6 +234,38 @@ export default async function ConfigAdminPage() {
           </CardBody>
         </Card>
 
+        <Card>
+          <CardBody>
+            <Eyebrow>Why</Eyebrow>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              Every version is kept, so the question a reader has months later is not what
+              changed — the diff says that — but why anyone changed it.
+            </p>
+            <div className="mt-3.5 grid gap-3.5 sm:grid-cols-[1fr_auto]">
+              <div>
+                <FieldLabel htmlFor="changeReason">Change reason</FieldLabel>
+                <Input
+                  id="changeReason"
+                  name="changeReason"
+                  required
+                  placeholder="QA buffer was under-calling regression on integration-heavy work"
+                  data-testid="config-change-reason"
+                />
+              </div>
+              <div>
+                <FieldLabel htmlFor="changeMotivation">Motivation</FieldLabel>
+                <Select id="changeMotivation" name="changeMotivation" defaultValue="CORRECTION">
+                  {MOTIVATIONS.map((m) => (
+                    <option key={m} value={m}>
+                      {m.toLowerCase().replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+
         <div className="flex items-center gap-3">
           <Button type="submit" data-testid="save-config">
             Save new version
@@ -218,6 +275,39 @@ export default async function ConfigAdminPage() {
           </span>
         </div>
       </form>
+
+      <Card className="mt-5 max-w-2xl">
+        <CardBody>
+          <Eyebrow>History</Eyebrow>
+          <ul className="mt-3 divide-y divide-line" data-testid="config-history">
+            {versions.map((v) => (
+              <li key={v.version} className="py-3">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="num text-[13px] font-semibold text-ink">v{v.version}</span>
+                  {v.active && (
+                    <Pill tone="green" dot={false}>
+                      active
+                    </Pill>
+                  )}
+                  <span className="text-[12px] text-ink-4">
+                    {v.createdAt.toISOString().slice(0, 10)}
+                  </span>
+                  <span className="rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
+                    {v.changeMotivation.toLowerCase().replace(/_/g, ' ')}
+                  </span>
+                </div>
+                {v.changeReason && (
+                  <p className="mt-1 text-[12.5px] text-ink-2">{v.changeReason}</p>
+                )}
+                <p className="num mt-0.5 text-[12px] text-ink-3">
+                  PM {v.pmCommunicationTaxPct}% · BA {v.baCommunicationTaxPct}% · QA{' '}
+                  {v.qaRegressionBufferPct}%
+                </p>
+              </li>
+            ))}
+          </ul>
+        </CardBody>
+      </Card>
     </div>
   );
 }

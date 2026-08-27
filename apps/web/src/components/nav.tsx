@@ -60,6 +60,9 @@ export async function Nav() {
           <NavLink href="/admin/mcp" testId="nav-admin-mcp">
             MCP
           </NavLink>
+          <NavLink href="/admin/changelog" testId="nav-admin-changelog">
+            Changelog
+          </NavLink>
         </nav>
       )}
 

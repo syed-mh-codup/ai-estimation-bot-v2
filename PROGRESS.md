@@ -58,7 +58,7 @@ type-decl count for NOTHING.
 - [x] C2  MenuItem card DTO + setItemEnabled guard  (31 -> 24 fields)
 - [x] C3  LineItemDTO envelope  (24 -> 21 fields)
 - [x] C4  PresetVersion metadata  (21 -> 14 fields)
-- [ ] C5  version history (getChangeLog + per-entity lists)
+- [x] C5  version history (getChangeLog + per-entity lists)  (14 -> 10 fields, 16 -> 9 exports)
 - [ ] C6  MCP provider/auth/wiring
 - [ ] C7  diagnostics panel + agentState column read
 - [ ] C8  runDetective parses DetectiveInputSchema
@@ -184,3 +184,26 @@ deliberately kept for C8.
 DATA: presetEmbeddingText changed, so every one of the 45 active presets is now
 STALE by backfillPresetEmbeddings' own comparison. `pnpm db:embed:presets` must
 run on all 3 DBs before the Archivist sees the new text. NOT DONE YET.
+
+### C5 done — admin version history
+
+  fields 14 -> 10 (EstimationConfig.changeReason/changeMotivation,
+  PromptVersion.changeMotivation/createdBy).
+  exports 16 -> 9. getChangeLog wired into a new /admin/changelog.
+  tests 3 failed / 327 passed. typecheck + lint clean.
+
+Config admin now CAPTURES a reason instead of stamping 'edited via admin', and
+has a history list. Full rows, no narrow select — the Plan review's point: four
+version models share changeReason/changeMotivation/createdAt, so a narrow
+projection is ambiguous both to a reader and to the audit's attribution.
+
+CASCADE: removing the sowHash write in C1 left packages/agents/src/sow-utils.ts
+(hashSOW + normaliseSOW) with no production caller. Its own docstring says
+"Used as part of the cache key computation" — the cache is gone, so the module
+is too. This is the knip fixpoint continuing to unwind two commits later; it is
+why the plan says measure after every step rather than trusting C1's number.
+
+REMAINING 10 fields: 7 agentState (C7), authRef (C6), beHours/feHours (C9).
+REMAINING 9 exports: 3 MCP (C6), DetectiveInput (C8), reorderSections +
+DEFAULT_COMPLEXITY_RULES + DEFAULT_PROCESS_OVERHEAD + recordActuals +
+embedPromotedPresets (C9).
