@@ -104,13 +104,14 @@ started it. Without it 18 suites cannot even load.
        with the proposal accept/collapse queue. Evals before AND after.
 2. [x] Vocabulary: shared const interpolated into detective.ts:99; reconcile the
        3-way drift; complexity.ts:91-92 exact membership; invert audit.ts:25.
-3. [~] Coverage contract: schema field done; specialist PROMPT still to do. coversRiskFlags on SpecialistOutput + prompt + persist.
-4. [ ] Pipeline wiring (NEXT): between Architect (:224) and taxation (:235).
-5. [ ] injectInfraBaseline: migrate the stored infraBaseline SHAPE first, then
-       seed process.* items and wire.
-6. [ ] Promotion: writeback.ts:229 filters on outcome, not `injected`.
-7. [ ] Frontend: ItemDTO widening, INFERRED row treatment, rollup split, rail
-       panel, server actions, gate.
+3. [x] Coverage contract: coversRiskFlags on SpecialistOutput + prompt + filter.
+4. [x] Pipeline wiring: between Architect and taxation.
+5. [x] injectInfraBaseline -> injectProcessOverhead (PERCENTAGES, user decision
+       2026-08-27), config shape migrated on all 3 DBs, wired after taxation.
+6. [x] Promotion: injected cards promote; `enabled` on a FINALISED estimate
+       is the human acceptance.
+7. [x] Frontend: ItemDTO widening, INFERRED row treatment, rollup split, rail
+       panel, server actions, gate (+ server-side gate check).
 
 ## Landmines to carry (each cost someone time already)
 
@@ -234,3 +235,79 @@ integration on push. Awaiting the user's go-ahead to push.
   Pre-existing isolation smell, not caused by this work.
 - Migrations applied to all three DBs each time (local docker, Neon dev/main,
   Neon test): 20260827000000, 20260827010000, 20260827020000.
+
+
+## FINAL STATE (2026-08-27) — ALL 7 PHASES DONE, NOT PUSHED
+
+typecheck CLEAN. lint CLEAN.
+tests: 3 failed / 347 passed / 1 skipped (351). The 3 are the pre-existing
+AEH-228 gates (2 field-audit + 1 knip), identical to the opening baseline.
+Test count 337 -> 347 passed.
+
+FIELD-AUDIT ORPHANS: 38 -> 33. Net -5 even after adding a table and 3 columns:
+  - the taxonomy admin UI gave TaxonomyNodeVersion.changeReason /
+    changeMotivation / createdBy their first ever consuming reads
+  - EstimationConfig.infraBaseline's keys stopped being write-only because
+    ProcessOverheadSchema.safeParse finally reads them back
+  - every HiddenWorkFinding column has a real read (panel + gate)
+
+Commits on master (11 ahead of github/master, oldest first):
+  df83d0a  taxonomy governance: status + classifiable + infra.*/process.* seed
+  b2a86bb  taxonomy admin UI: review queue, versioned edits, audit trail
+  d523b37  one risk-flag vocabulary; coverage as a claim; flat defaults deleted
+  e0071dd  HiddenWorkFinding table
+  c52737c  wire the hidden-work stage into the pipeline
+  a2720fb  inferred work promotes; admin gate toggle
+  6434ded  frontend: INFERRED row, rollup split, rail panel, finalise gate
+  9a633ce  pipeline tests proving the stage runs
+  7ce01fa  delivery overhead as percentages, wired
+  2bf5a3b  overhead end-to-end coverage
+  (+ 85f468a docs)
+
+MIGRATIONS APPLIED to all 3 DBs (local docker, Neon dev/main, Neon test):
+  20260827000000_taxonomy_governance
+  20260827010000_taxonomy_classifiable
+  20260827020000_hidden_work_finding
+  20260827030000_hidden_work_gate
+
+DATA CHANGES applied (non-destructive, versioned, reversible):
+  - taxonomy re-seeded: 37 -> 50 nodes; Librarian vocabulary 37 -> 44
+    (7 infra.* classifiable, 6 process.* NOT classifiable)
+  - EstimationConfig: new active version on each DB carrying the percentage
+    overhead shape. Neon dev/main went v1 -> v9934 because that table already
+    held versions up to 9933 left by past test runs (see the flake note below);
+    v1 is retained and an admin can reactivate it.
+
+## DIAGNOSED, NOT FIXED: the run-estimate/evals test flake
+
+run-estimate.test.ts intermittently fails or fails to LOAD in a full-suite run
+(~2 in 8 runs); it passes alone every time. ROOT CAUSE FOUND:
+
+  run-estimate.test.ts:85  db.estimationConfig.updateMany({where:{active:true},
+                           data:{active:false}})
+
+It blanket-deactivates every active config — exactly what the prompt loop 20
+lines below it explicitly refuses to do, and documents why ("this file runs in
+parallel with other test files against the same local DB ... blanket-
+deactivating would create a window where a concurrent runEstimate() finds zero
+active rows"). evals.test.ts runs the same pipeline concurrently, so whichever
+deactivates second leaves the other's findFirstOrThrow({active:true}) throwing.
+Also explains the 9000-9999 config versions polluting Neon dev/main: the same
+file creates `version: 9000 + random(1000)`.
+
+Fix is the pattern already in the same file: converge on one shared upserted
+config row instead of each file minting and deactivating its own. NOT done —
+pre-existing, orthogonal to AEH-263, and it produces failures rather than false
+passes, so it does not undermine any green run above. OFFER TO FILE IT.
+
+## Still open / for the user
+
+- PUSH: 11 commits ahead of github/master, bitbucket origin/master also behind.
+  Nothing deployed (ci.yml is lint/typecheck/test only; Vercel deploys on push).
+  Awaiting go-ahead.
+- Visual QA of the new UI is UNVERIFIED BY ME: Chrome screenshots failed with an
+  extension conflict, and I cannot log in (entering passwords is off-limits).
+  Routes compile and RBAC-redirect correctly; the look needs human eyes.
+- E2E (Playwright) NOT run — needs the test DB harness and a browser.
+- WS26-03 (docs/04_WBS.md:279) reserved an e2e slot for the acknowledge flow;
+  covered at the integration level in run-estimate.test.ts, not in Playwright.
