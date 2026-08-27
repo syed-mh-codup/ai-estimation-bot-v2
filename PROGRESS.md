@@ -237,7 +237,7 @@ integration on push. Awaiting the user's go-ahead to push.
   Neon test): 20260827000000, 20260827010000, 20260827020000.
 
 
-## FINAL STATE (2026-08-27) — ALL 7 PHASES DONE, NOT PUSHED
+## FINAL STATE (2026-08-27) — ALL 7 PHASES DONE, PUSHED, AEH-263 CLOSED
 
 typecheck CLEAN. lint CLEAN.
 tests: 3 failed / 347 passed / 1 skipped (351). The 3 are the pre-existing
@@ -251,7 +251,7 @@ FIELD-AUDIT ORPHANS: 38 -> 33. Net -5 even after adding a table and 3 columns:
     ProcessOverheadSchema.safeParse finally reads them back
   - every HiddenWorkFinding column has a real read (panel + gate)
 
-Commits on master (11 ahead of github/master, oldest first):
+Commits (pushed to BOTH remotes 2026-08-27, fe4dc1a..8546214; oldest first):
   df83d0a  taxonomy governance: status + classifiable + infra.*/process.* seed
   b2a86bb  taxonomy admin UI: review queue, versioned edits, audit trail
   d523b37  one risk-flag vocabulary; coverage as a claim; flat defaults deleted
@@ -296,18 +296,40 @@ Also explains the 9000-9999 config versions polluting Neon dev/main: the same
 file creates `version: 9000 + random(1000)`.
 
 Fix is the pattern already in the same file: converge on one shared upserted
-config row instead of each file minting and deactivating its own. NOT done —
-pre-existing, orthogonal to AEH-263, and it produces failures rather than false
-passes, so it does not undermine any green run above. OFFER TO FILE IT.
+config row instead of each file minting and deactivating its own. NOT done here
+— pre-existing and orthogonal, and it produces failures rather than false
+passes, so it does not undermine any green run above. FILED AS AEH-275
+(Medium, Backlog, epic AEH-6) with the full diagnosis and the suggested fix.
 
 ## Still open / for the user
 
-- PUSH: 11 commits ahead of github/master, bitbucket origin/master also behind.
-  Nothing deployed (ci.yml is lint/typecheck/test only; Vercel deploys on push).
-  Awaiting go-ahead.
+- PUSHED. 13 commits to github and bitbucket. ci.yml is lint/typecheck/test
+  only, so nothing deploys from CI, but Vercel's git integration deploys on
+  push and it is NOT visible from the repo which remote it watches.
 - Visual QA of the new UI is UNVERIFIED BY ME: Chrome screenshots failed with an
   extension conflict, and I cannot log in (entering passwords is off-limits).
   Routes compile and RBAC-redirect correctly; the look needs human eyes.
 - E2E (Playwright) NOT run — needs the test DB harness and a browser.
 - WS26-03 (docs/04_WBS.md:279) reserved an e2e slot for the acknowledge flow;
   covered at the integration level in run-estimate.test.ts, not in Playwright.
+
+
+## CLOSED 2026-08-27
+
+AEH-263 retitled "Ship the hidden-work audit — inferred work costed, marked and
+gated" and transitioned to Done. Description rewritten as the implementation
+record. Comments posted and ALL READ BACK AND DIFFED (no markup corruption):
+  AEH-233  inferred-card hours inherit the prompt calibration gap; the new
+           coversRiskFlags field and its wording risk; the live DETECTIVE body
+           carries no flag list
+  AEH-259  HiddenWorkFinding joins Oracle's corpus; the menuItemId staleness
+           caveat on re-run
+  AEH-253  audit half resolves by wiring not deleting; orphans 38 -> 33
+  AEH-251  item one now genuinely exercised; the promotion rule INVERTED;
+           items two and three still open
+  AEH-275  NEW — the test-suite config race
+
+jira-text note: AEH-275's first push had TWO brace corruptions from backticked
+`{ }` (a closing backtick and brace swapped places). Repaired by rewording the
+braces out. The skill's "never backtick curly braces" rule is real; this is a
+second confirmed instance.
