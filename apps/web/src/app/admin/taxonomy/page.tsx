@@ -96,6 +96,11 @@ export default async function TaxonomyAdminPage() {
             <span className="num">{proposals.length}</span>&nbsp;awaiting review
           </Pill>
         )}
+        <Button asChild size="lg" className="ml-auto">
+          <Link href="/admin/taxonomy/new" data-testid="new-node">
+            New node
+          </Link>
+        </Button>
       </div>
       <p className="mt-1 max-w-[640px] text-[13px] leading-relaxed text-ink-3">
         Two separate questions per node. <span className="text-ink-2">Status</span> is whether the
@@ -146,6 +151,8 @@ export default async function TaxonomyAdminPage() {
           </CardBody>
         </Card>
       )}
+
+
 
       <div className="mt-5 space-y-3.5">
         {parents.map((parent) => (

@@ -182,6 +182,38 @@ export const LibrarianOutputSchema = z.object({
 });
 export type LibrarianOutput = z.infer<typeof LibrarianOutputSchema>;
 
+// ─── Risk-flag vocabulary ────────────────────────────────────────────────────
+// Deliberately NOT a z.enum, and for a different reason than category/req_type
+// above. Those are open because the label space is genuinely unbounded. This one
+// is open because closing it would cap what the Detective is allowed to notice —
+// the whole point of the stage is catching work nobody thought of, and an enum
+// makes the list of things nobody thought of a fixed list.
+//
+// Instead: these are the flags the pipeline knows how to cost WITHOUT a human,
+// because each maps to a taxonomy node and can be routed through the Specialist
+// council. Anything else the Detective emits is not discarded — it surfaces as an
+// unreconciled finding for someone to promote or dismiss. That inversion is the
+// safety net that makes leaving the vocabulary open safe.
+//
+// Three copies of this list used to exist and no two agreed: the prompt taught
+// `api-quota` with no cost mapping, while the cost table carried
+// `data-remediation` and `webhook-reliability` that the prompt never mentioned,
+// so those two could only ever fire by luck. One list now, interpolated into the
+// prompt and keyed by the cost table, so they cannot drift again. AEH-263.
+export const KNOWN_RISK_FLAGS = [
+  'rate-limits',
+  'retries',
+  'data-migration',
+  'legacy-system',
+  'api-quota',
+  'webhook-reliability',
+] as const;
+export type KnownRiskFlag = (typeof KNOWN_RISK_FLAGS)[number];
+
+export function isKnownRiskFlag(flag: string): flag is KnownRiskFlag {
+  return (KNOWN_RISK_FLAGS as readonly string[]).includes(flag);
+}
+
 // ─── Detective IO ────────────────────────────────────────────────────────────
 
 export const RiskFindingSchema = z.object({
@@ -311,6 +343,21 @@ export const SpecialistOutputSchema = z.object({
   role: RoleKindSchema,
   lineItems: z.array(SpecialistLineItemSchema),
   assumptions: z.array(z.string()).default([]),
+  /**
+   * Which of the Detective's risk flags these hours actually account for.
+   *
+   * The coverage question — "did anyone cost the rate limiting?" — used to be
+   * answered by comparing a card's taxonomyKey against a flag's, which could
+   * never match: the Architect writes its own MC-<DOMAIN>-<SLUG> id into that
+   * field, so the comparison was between two different kinds of string. Asking
+   * the estimator to declare it makes coverage a fact somebody asserted rather
+   * than a string coincidence, and it is what lets Oracle answer which risks
+   * were claimed and what happened to them.
+   *
+   * Defaults to empty, which reads as "claimed nothing" — the safe direction,
+   * since an unclaimed flag surfaces to a human rather than being dropped.
+   */
+  coversRiskFlags: z.array(z.string()).default([]),
 });
 export type SpecialistOutput = z.infer<typeof SpecialistOutputSchema>;
 
@@ -412,20 +459,6 @@ export const ArchitectOutputSchema = z.object({
   menuItems: z.array(MenuItemSchema),
 });
 export type ArchitectOutput = z.infer<typeof ArchitectOutputSchema>;
-
-// ─── Validation Audit ────────────────────────────────────────────────────────
-
-export const ValidationAuditOutputSchema = z.object({
-  passed: z.boolean(),
-  unreconciled: z.array(
-    z.object({
-      riskFlag: z.string(),
-      taxonomyKey: z.string(),
-      reason: z.string(),
-    }),
-  ),
-});
-export type ValidationAuditOutput = z.infer<typeof ValidationAuditOutputSchema>;
 
 // ─── Search Provider ─────────────────────────────────────────────────────────
 

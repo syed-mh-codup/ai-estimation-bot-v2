@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
 import type { DetectiveOutput, RiskFinding, OpenQuestion, Requirement } from '@repo/shared';
-import { DetectiveOutputSchema, PlatformSchema } from '@repo/shared';
+import { DetectiveOutputSchema, KNOWN_RISK_FLAGS, PlatformSchema } from '@repo/shared';
 import { chatJSON } from './llm-json';
 
 export type DetectiveContext = {
@@ -16,6 +16,15 @@ const LLMRiskSchema = z.object({
   requirementId: z.string(),
   platform: PlatformSchema.optional(),
   claim: z.string(),
+  /**
+   * Stays `z.string()` on purpose, and the trailing `...` in the prompt's
+   * example list is deliberate too. Two reasons, and they pull the same way:
+   * a strict enum here would fail the whole Detective step over one invented
+   * flag, and more importantly the stage exists to catch work nobody thought
+   * of — a closed list would make the set of things nobody thought of a fixed
+   * list. Off-list flags are safe now because they surface to a human instead
+   * of being dropped; see detectHiddenWork. AEH-263.
+   */
   riskFlags: z.array(z.string()).default([]),
   citation: z.string(),
   spikeRecommended: z.boolean().default(false),
@@ -96,7 +105,7 @@ Respond with JSON only, matching exactly this shape:
       "requirementId": "REQ-###",
       "platform": "<controlled platform value>" | omit,
       "claim": "specific technical claim driving risk",
-      "riskFlags": ["rate-limits", "retries", "data-migration", "legacy-system", "api-quota", ...],
+      "riskFlags": [${KNOWN_RISK_FLAGS.map((f) => `"${f}"`).join(', ')}, ...],
       "citation": "SOW location or external source — never assert without one",
       "spikeRecommended": true | false,
       "spikePresetId": "P01".."P06" | omit

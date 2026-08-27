@@ -2,6 +2,18 @@ import { z } from 'zod';
 import type { ComplexityOutput, Requirement, RiskFinding, DataVolumeLevel } from '@repo/shared';
 import { ComplexityOutputSchema } from '@repo/shared';
 
+/**
+ * Risk flags that mean "this integrates with someone else's API", which is what
+ * the API-integration signal is counting.
+ *
+ * This used to be `rf.includes('api') || rf.includes('rate')`, a substring test
+ * over an open vocabulary. It scored on coincidence: any invented flag with
+ * "api" anywhere in it counted, `rate-limits` counted through 'rate', and a
+ * rename nobody thought was risky would silently move every complexity score.
+ * Membership in the shared list is the honest test. AEH-263.
+ */
+const API_INTEGRATION_RISK_FLAGS = new Set<string>(['rate-limits', 'api-quota']);
+
 // ─── ComplexityRules shape (stored as JSON in EstimationConfig) ───────────────
 
 export const ApiThresholdSchema = z.object({
@@ -89,7 +101,7 @@ export function detectFeatures(
     if (matches) matches.forEach((m) => apiMatches.add(m.toLowerCase()));
   }
   const flaggedCount = riskFindings.filter((f) =>
-    f.riskFlags.some((rf: string) => rf.includes('api') || rf.includes('rate')),
+    f.riskFlags.some((rf: string) => API_INTEGRATION_RISK_FLAGS.has(rf)),
   ).length;
   const textBasedCount = Math.max(apiMatches.size, flaggedCount);
 

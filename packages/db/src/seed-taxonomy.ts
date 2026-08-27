@@ -79,6 +79,16 @@ const MANAGED_NODES: Array<{
     keywords: ['rate limit', 'throttling', 'quota', 'api limit', 'backpressure'],
   },
   {
+    // Kept apart from infra.rate-limit on purpose: throttling to a per-second
+    // ceiling and living within a daily call budget are different builds —
+    // one backs off, the other batches and schedules.
+    key: 'infra.api-quota',
+    label: 'Infrastructure & Resilience — API Quota Management',
+    parentKey: 'infra',
+    reqType: 'Infrastructure',
+    keywords: ['api quota', 'daily limit', 'call budget', 'usage cap', 'metering'],
+  },
+  {
     key: 'infra.data-migration',
     label: 'Infrastructure & Resilience — Data Remediation & Migration',
     parentKey: 'infra',

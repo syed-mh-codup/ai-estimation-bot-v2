@@ -13,7 +13,6 @@ import {
   ComplexityInputSchema,
   ComplexityOutputSchema,
   ArchitectOutputSchema,
-  ValidationAuditOutputSchema,
   SearchResultSchema,
   RequirementSchema,
 } from './schemas.js';
@@ -194,13 +193,6 @@ describe('shared schemas — round-trip parse', () => {
     expect(o.menuItems[0]?.lineItems).toHaveLength(5);
   });
 
-  it('ValidationAuditOutput', () => {
-    const v = ValidationAuditOutputSchema.parse({
-      passed: false,
-      unreconciled: [{ riskFlag: 'rate-limit', taxonomyKey: 'b2b.checkout', reason: 'no buffer' }],
-    });
-    expect(v.passed).toBe(false);
-  });
 
   it('SearchResult', () => {
     const r = SearchResultSchema.parse({

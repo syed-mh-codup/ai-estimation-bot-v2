@@ -1,164 +1,168 @@
 import { describe, it, expect } from 'vitest';
 import {
-  runHiddenWorkAudit,
-  runValidationAudit,
-  acknowledgeUnreconciled,
-  type AcknowledgementRecord,
+  detectHiddenWork,
+  claimedRiskFlags,
+  buildInjectedMenuItem,
+  taxonomyKeyForRiskFlag,
 } from './audit';
-import { MenuItemSchema, type MenuItem, type RiskFinding } from '@repo/shared';
+import {
+  SpecialistOutputSchema,
+  type RiskFinding,
+  type SpecialistOutput,
+} from '@repo/shared';
 
-function makeMenuItem(id: string, taxonomyKey: string): MenuItem {
-  const lineItems = [{ role: 'DEV' as const, baseHours: 20, taxedHours: 20, edited: false }];
-  return MenuItemSchema.parse({ id, taxonomyKey, title: id, enabled: true, lineItems });
+function risk(overrides: Partial<RiskFinding> & { riskFlags: string[] }): RiskFinding {
+  return {
+    id: 'RISK-001',
+    requirementId: 'REQ-001',
+    taxonomyKey: 'payments.api',
+    claim: 'Stripe API has rate limits',
+    citation: 'docs.stripe.com',
+    spikeRecommended: false,
+    ...overrides,
+  };
 }
 
-const rateRiskFinding: RiskFinding = {
-  id: 'RISK-001',
-  requirementId: 'REQ-001',
-  taxonomyKey: 'payments.api',
-  claim: 'Stripe API has rate limits',
-  citation: 'docs.stripe.com',
-  riskFlags: ['rate-limits'],
-  spikeRecommended: false,
-};
+/** Parsed through the schema so a new field with a default cannot be silently missed. */
+function specialist(
+  role: 'DEV' | 'QA' | 'PM' | 'BA',
+  hours: number,
+  coversRiskFlags: string[] = [],
+): SpecialistOutput {
+  return SpecialistOutputSchema.parse({
+    role,
+    coversRiskFlags,
+    assumptions: [],
+    lineItems: [
+      {
+        id: `${role}-REQ001-01`,
+        requirementId: 'REQ-001',
+        menuCardId: 'MC-INFRA-RATE',
+        description: `${role} work`,
+        hours,
+        complexity: 'base',
+      },
+    ],
+  });
+}
 
-const retryRiskFinding: RiskFinding = {
-  id: 'RISK-002',
-  requirementId: 'REQ-001',
-  taxonomyKey: 'payments.api',
-  claim: 'Webhook retries needed',
-  citation: 'docs.stripe.com',
-  riskFlags: ['retries'],
-  spikeRecommended: false,
-};
+// ─── WS15-01: detection ──────────────────────────────────────────────────────
 
-// ─── WS15-01: Hidden-Work Audit ───────────────────────────────────────────────
-
-describe('WS15-01: Hidden-Work Audit', () => {
-  it('adds a menu item when a risk flag has no matching line item', () => {
-    const menuItems: MenuItem[] = [makeMenuItem('item-1', 'payments.api')];
-    const findings = [rateRiskFinding];
-
-    const result = runHiddenWorkAudit(menuItems, findings);
-
-    const hiddenItems = result.filter((m) => m.taxonomyKey === 'infra.rate-limit');
-    expect(hiddenItems.length).toBe(1);
-    expect(hiddenItems[0]!.title).toContain('Rate Limit');
+describe('WS15-01: Hidden-Work Audit — detection', () => {
+  it('reports a known flag no specialist claimed', () => {
+    const found = detectHiddenWork([risk({ riskFlags: ['rate-limits'] })], []);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      riskFlag: 'rate-limits',
+      known: true,
+      taxonomyKey: 'infra.rate-limit',
+      claim: 'Stripe API has rate limits',
+      citation: 'docs.stripe.com',
+    });
   });
 
-  it('does NOT add a duplicate if the item is already present', () => {
-    const menuItems: MenuItem[] = [
-      makeMenuItem('item-1', 'payments.api'),
-      makeMenuItem('item-rate', 'infra.rate-limit'),
-    ];
-    const findings = [rateRiskFinding];
-
-    const result = runHiddenWorkAudit(menuItems, findings);
-    const rateLimitItems = result.filter((m) => m.taxonomyKey === 'infra.rate-limit');
-    expect(rateLimitItems.length).toBe(1);
+  it('stays silent when a specialist claimed the flag', () => {
+    const found = detectHiddenWork([risk({ riskFlags: ['rate-limits'] })], ['rate-limits']);
+    expect(found).toEqual([]);
   });
 
-  it('added item has DEV/QA/PM/BA line items', () => {
-    const menuItems: MenuItem[] = [];
-    const findings = [retryRiskFinding];
-
-    const result = runHiddenWorkAudit(menuItems, findings);
-    const retryItem = result.find((m) => m.taxonomyKey === 'infra.retries');
-    expect(retryItem).toBeDefined();
-    const roles = retryItem!.lineItems.map((li) => li.role);
-    expect(roles).toContain('DEV');
-    expect(roles).toContain('QA');
-    expect(roles).toContain('PM');
-    expect(roles).toContain('BA');
+  /**
+   * The regression this whole ticket exists for. The old branch read
+   * `if (!config) return true; // unknown flag = not our concern`, so any flag
+   * outside the table was treated as already handled and disappeared. The
+   * Detective's own prompt teaches it to invent flags, so that was the common
+   * case, not the edge case.
+   */
+  it('surfaces an off-list flag instead of silently dropping it', () => {
+    const found = detectHiddenWork([risk({ riskFlags: ['soc2-audit'] })], []);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ riskFlag: 'soc2-audit', known: false, taxonomyKey: null });
   });
 
-  it('handles multiple risk flags adding multiple hidden items', () => {
-    const menuItems: MenuItem[] = [];
-    const findings: RiskFinding[] = [
-      { id: 'RISK-003', requirementId: 'REQ-001', taxonomyKey: 'api', claim: 'rate limit', citation: 's', riskFlags: ['rate-limits', 'retries'], spikeRecommended: false },
-    ];
+  it('deduplicates a flag raised by two requirements, keeping the first argument for it', () => {
+    const found = detectHiddenWork(
+      [
+        risk({ riskFlags: ['retries'], claim: 'first claim' }),
+        risk({ id: 'RISK-002', requirementId: 'REQ-002', riskFlags: ['retries'], claim: 'second claim' }),
+      ],
+      [],
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]?.claim).toBe('first claim');
+  });
 
-    const result = runHiddenWorkAudit(menuItems, findings);
-    const infraItems = result.filter((m) => m.taxonomyKey.startsWith('infra.'));
-    expect(infraItems.length).toBe(2);
+  it('every known flag resolves to a seeded taxonomy key', () => {
+    // api-quota is the one the prompt taught for months with no mapping at all.
+    expect(taxonomyKeyForRiskFlag('api-quota')).toBe('infra.api-quota');
+    expect(taxonomyKeyForRiskFlag('webhook-reliability')).toBe('infra.webhook');
+    expect(taxonomyKeyForRiskFlag('soc2-audit')).toBeNull();
   });
 });
 
-// ─── WS15-02: Validation Audit gate ──────────────────────────────────────────
+// ─── WS15-02: claims ─────────────────────────────────────────────────────────
 
-describe('WS15-02: Validation Audit gate', () => {
-  it('passed=true when all risk flags have menu items', () => {
-    const menuItems: MenuItem[] = [
-      makeMenuItem('item-1', 'payments.api'),
-      makeMenuItem('item-2', 'infra.rate-limit'),
-    ];
-    const findings = [rateRiskFinding];
-
-    const result = runValidationAudit(menuItems, findings);
-    expect(result.passed).toBe(true);
-    expect(result.unreconciled).toHaveLength(0);
+describe('WS15-02: coverage is a claim, not a string match', () => {
+  it('unions what every role claimed', () => {
+    const claimed = claimedRiskFlags([
+      specialist('DEV', 3, ['rate-limits']),
+      specialist('QA', 1, ['retries']),
+      specialist('PM', 1),
+    ]);
+    expect([...claimed].sort()).toEqual(['rate-limits', 'retries']);
   });
 
-  it('passed=false with unreconciled non-empty when rate-limit has no line item', () => {
-    const menuItems: MenuItem[] = [makeMenuItem('item-1', 'other.feature')];
-    const findings = [rateRiskFinding];
-
-    const result = runValidationAudit(menuItems, findings);
-    expect(result.passed).toBe(false);
-    expect(result.unreconciled.length).toBeGreaterThan(0);
-    expect(result.unreconciled[0]!.riskFlag).toBe('rate-limits');
-  });
-
-  it('unreconciled item has riskFlag, taxonomyKey, and reason', () => {
-    const menuItems: MenuItem[] = [];
-    const result = runValidationAudit(menuItems, [rateRiskFinding]);
-    const item = result.unreconciled[0]!;
-    expect(item.riskFlag).toBeTruthy();
-    expect(item.taxonomyKey).toBeTruthy();
-    expect(item.reason).toBeTruthy();
+  it('claiming nothing is the default, so an unclaimed risk still surfaces', () => {
+    const outputs = [specialist('DEV', 3)];
+    const found = detectHiddenWork([risk({ riskFlags: ['rate-limits'] })], claimedRiskFlags(outputs));
+    expect(found).toHaveLength(1);
   });
 });
 
-// ─── WS15-03: Reconciliation / acknowledge path ───────────────────────────────
+// ─── WS15-03: costed cards carry the council's hours ─────────────────────────
 
-describe('WS15-03: Reconciliation — acknowledged item unblocks the gate', () => {
-  it('acknowledging an unreconciled item removes it and unblocks gate', () => {
-    const menuItems: MenuItem[] = [];
-    const audit = runValidationAudit(menuItems, [rateRiskFinding]);
-    expect(audit.passed).toBe(false);
+describe('WS15-03: injected cards are costed, never fabricated', () => {
+  const detection = {
+    riskFlag: 'rate-limits',
+    known: true,
+    title: 'Rate Limit Management & Throttling',
+    taxonomyKey: 'infra.rate-limit',
+    claim: 'Stripe API has rate limits',
+    citation: 'docs.stripe.com',
+    requirementId: 'REQ-001',
+  };
 
-    const ack: AcknowledgementRecord = {
-      riskFlag: 'rate-limits',
-      taxonomyKey: 'payments.api',
-      acknowledgedBy: 'admin@example.com',
-      note: 'Rate limiting handled by API gateway',
-      acknowledgedAt: new Date(),
-    };
-
-    const { audit: resolved, recorded } = acknowledgeUnreconciled(audit, [ack]);
-
-    expect(resolved.passed).toBe(true);
-    expect(resolved.unreconciled).toHaveLength(0);
-    expect(recorded).toHaveLength(1);
+  it('builds a card from the council hours and marks it injected', () => {
+    const card = buildInjectedMenuItem(detection, [
+      specialist('DEV', 3.5),
+      specialist('QA', 1.25),
+    ]);
+    expect(card).not.toBeNull();
+    expect(card?.injected).toBe(true);
+    expect(card?.taxonomyKey).toBe('infra.rate-limit');
+    expect(card?.requirementIds).toEqual(['REQ-001']);
+    expect(card?.lineItems.map((li) => li.baseHours)).toEqual([3.5, 1.25]);
   });
 
-  it('partial acknowledgement leaves remaining items unreconciled', () => {
-    const findings = [rateRiskFinding, retryRiskFinding];
-    const menuItems: MenuItem[] = [];
-    const audit = runValidationAudit(menuItems, findings);
+  /**
+   * Teeth for the decision that placeholders are gone. The deleted default was
+   * DEV 8 / QA 4 / PM 2 / BA 2 regardless of project size — if any of those
+   * numbers can reappear from a table rather than the council, this fails.
+   */
+  it('carries no default hours of its own', () => {
+    const card = buildInjectedMenuItem(detection, [specialist('DEV', 3.5)]);
+    expect(card?.lineItems).toHaveLength(1);
+    expect(card?.lineItems[0]?.baseHours).toBe(3.5);
+  });
 
-    const ack: AcknowledgementRecord = {
-      riskFlag: 'rate-limits',
-      taxonomyKey: 'payments.api',
-      acknowledgedBy: 'admin@example.com',
-      note: 'Acknowledged',
-      acknowledgedAt: new Date(),
-    };
+  it('returns null when the council produced nothing, so the caller records a question', () => {
+    expect(buildInjectedMenuItem(detection, [])).toBeNull();
+  });
 
-    const { audit: partial } = acknowledgeUnreconciled(audit, [ack]);
-
-    // 'retries' is still unreconciled
-    expect(partial.passed).toBe(false);
-    expect(partial.unreconciled.some((u) => u.riskFlag === 'retries')).toBe(true);
+  it('returns null for an off-list flag — there is nowhere to put the work', () => {
+    const card = buildInjectedMenuItem(
+      { ...detection, riskFlag: 'soc2-audit', known: false, title: null, taxonomyKey: null },
+      [specialist('DEV', 3.5)],
+    );
+    expect(card).toBeNull();
   });
 });

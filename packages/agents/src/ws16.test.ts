@@ -64,7 +64,7 @@ function makeSpecialistOutput(
   lineItems: SpecialistLineItem[],
   assumptions: string[] = [],
 ): SpecialistOutput {
-  return { role, lineItems, assumptions };
+  return { role, lineItems, assumptions, coversRiskFlags: [] };
 }
 
 // ─── Menu-card assembly from specialist line items ───────────────────────────
