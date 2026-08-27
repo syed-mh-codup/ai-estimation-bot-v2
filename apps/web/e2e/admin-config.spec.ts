@@ -1,6 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS } from './global-setup';
 
+/**
+ * The save is a server action plus a revalidate against a remote test database,
+ * and this is the first test in the suite, so it also pays the route's cold
+ * compile. `toHaveText` uses the 5s EXPECT budget, not the 60s test budget.
+ * Same idiom as admin-presets.spec.ts, which asserts the same version bump.
+ */
+const COLD_COMPILE = 30_000;
+
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.fill('#email', email);
@@ -26,13 +34,13 @@ test.describe('WS24-04: config admin — edit creates a new active version', () 
     await page.fill('#changeReason', 'e2e: exercising the versioned save path');
     await page.getByTestId('save-config').click();
 
-    await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);
+    await expect(versionBadge).toHaveText(`v${beforeNum + 1}`, { timeout: COLD_COMPILE });
     // The new active version carries the edited value.
     await expect(page.locator('#pmCommunicationTaxPct')).toHaveValue('42');
 
     // Durable across a fresh load.
     await page.reload();
-    await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);
+    await expect(versionBadge).toHaveText(`v${beforeNum + 1}`, { timeout: COLD_COMPILE });
     await expect(page.locator('#pmCommunicationTaxPct')).toHaveValue('42');
   });
 });

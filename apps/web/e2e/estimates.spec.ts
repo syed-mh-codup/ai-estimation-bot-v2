@@ -1,6 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, SEED_ESTIMATE } from './global-setup';
 
+/** `next dev`'s first compile of a heavy route outlasts the 5s expect budget. */
+const COLD_COMPILE = 30_000;
+
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.fill('#email', email);
@@ -25,7 +28,14 @@ test.describe('WS21-02: dashboard list + estimate detail', () => {
     await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
 
     await page.getByTestId(`estimate-row-${SEED_ESTIMATE.id}`).click();
-    await expect(page).toHaveURL(new RegExp(`/estimates/${SEED_ESTIMATE.id}`));
+    // Explicit budget: this is the first test in the suite to open the estimate
+    // detail page, so it pays that route's cold compile — and it is the heaviest
+    // route in the app. `toHaveURL` uses the 5s EXPECT timeout, not the 60s test
+    // timeout, so it is the one assertion here that cannot absorb it. The same
+    // COLD_COMPILE idiom the admin specs use.
+    await expect(page).toHaveURL(new RegExp(`/estimates/${SEED_ESTIMATE.id}`), {
+      timeout: COLD_COMPILE,
+    });
     await expect(page.getByTestId('estimate-detail')).toBeVisible();
     // The title is an editable <input>, and toContainText reads textContent,
     // which never includes an input's value — assert the value instead.

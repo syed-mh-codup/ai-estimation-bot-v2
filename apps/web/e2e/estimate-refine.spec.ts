@@ -11,6 +11,8 @@ async function login(page: Page, email: string, password: string) {
 }
 
 const [MI1, MI2] = COSTED_ESTIMATE.itemIds;
+/** Budget for a reload-and-settle loop against a remote test database. */
+const COLD_COMPILE = 30_000;
 
 test.describe('WS23: Menu Card refinement', () => {
   test('view, toggle, edit hours, export, finalise', async ({ page }) => {
@@ -52,8 +54,19 @@ test.describe('WS23: Menu Card refinement', () => {
     // fired straight after blur races the server action and re-renders from a
     // row that hasn't been updated yet — the page then shows the OLD number
     // even though the write lands moments later.
+    // Drain the toggle writes first, so the only POST left in flight after the
+    // blur below is this one.
+    await page.waitForLoadState('networkidle');
+    // Then wait for THAT response, so the write is at least in flight before the
+    // reload below. Deliberately NOT `.finished()`: Next streams a server
+    // action's RSC payload and can leave the response open, so waiting for the
+    // body hangs the test rather than the 2s it looks like it costs.
+    const hoursWritten = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && r.url().includes(COSTED_ESTIMATE.id),
+    );
     await devBaseInput.fill('100');
     await devBaseInput.blur();
+    await hoursWritten;
     // Wait for EVERY pending write, not one matched response. A predicate on
     // "POST to this estimate" is not specific enough: the two toggles above are
     // also server actions posting to the same URL, and one of theirs can still
@@ -68,9 +81,22 @@ test.describe('WS23: Menu Card refinement', () => {
     // Now the reload is meaningful: it proves the number was written, not just
     // reflected in the client ledger. (There is no change-log view — this spec
     // used to assert a `change-log` testid that src has never had.)
-    await page.reload();
-    await expect(page.getByTestId('estimate-detail')).toBeVisible();
-    await expect(page.locator(`[data-testid^="base-DEV-${MI2}-"]`)).toHaveValue('100');
+    // Polled across reloads, not asserted on one. What this step means is "the
+    // number was persisted", and persistence is eventual from the browser's side:
+    // the ledger writes in the background. A single reload that lands early
+    // cannot recover, because the hours input is UNCONTROLLED — its value is
+    // fixed at render, so a retrying assertion just re-reads the same stale DOM
+    // 14 times. Reloading until it settles asserts the thing we actually mean.
+    await expect
+      .poll(
+        async () => {
+          await page.reload();
+          await expect(page.getByTestId('estimate-detail')).toBeVisible();
+          return page.locator(`[data-testid^="base-DEV-${MI2}-"]`).inputValue();
+        },
+        { timeout: COLD_COMPILE },
+      )
+      .toBe('100');
 
     // WS23-05: export to Sheets (stub) → link appears.
     await page.getByTestId('export-sheets').click();
