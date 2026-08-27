@@ -61,7 +61,7 @@ type-decl count for NOTHING.
 - [x] C5  version history (getChangeLog + per-entity lists)  (14 -> 10 fields, 16 -> 9 exports)
 - [x] C6  MCP provider/auth/wiring  (10 -> 9 fields, 9 -> 6 exports)
 - [x] C7  diagnostics panel + agentState column read  (9 -> 2 fields)
-- [ ] C8  runDetective parses DetectiveInputSchema
+- [x] C8  runDetective parses DetectiveInputSchema  (2 -> 0 contract, 6 -> 5 exports)
 - [ ] C9  annotations + knip baseline, against the FINAL register
 
 ## Landmines (each already cost someone time)
@@ -250,3 +250,14 @@ CAUGHT A GREEN-FOR-THE-WRONG-REASON, and it is worth remembering:
   persisted key set against RunDiagnostics. Stronger than satisfies anyway —
   it checks what is actually in the database.
   The `audited` count is the tell. Watch it, not just the finding count.
+
+### C8 done — the Detective's contract is a contract
+
+  contract fields 2 -> 0. exports 6 -> 5 (DetectiveInput alias too — the alias
+  needed a real `import type` + use, not just the schema being parsed).
+  FIELD GATE IS NOW GREEN except beHours/feHours, which take @backend-only.
+  tests 3 failed / 343 passed. typecheck + lint clean.
+
+ISearchProvider gained a `name`. A citation grounded in a live Tavily search and
+one produced with the stub in place are not worth the same, and nothing recorded
+which an estimate got.

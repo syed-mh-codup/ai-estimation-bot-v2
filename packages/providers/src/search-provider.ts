@@ -1,6 +1,12 @@
 import type { SearchResult } from '@repo/shared';
 
 export interface ISearchProvider {
+  /**
+   * Which adapter this is, for the record. A citation grounded in a live web
+   * search and one produced with the stub in place are not worth the same, and
+   * until now nothing recorded which of the two an estimate got.
+   */
+  readonly name: string;
   search(query: string, maxResults?: number): Promise<SearchResult[]>;
 }
 
@@ -9,6 +15,8 @@ export interface ISearchProvider {
  * BLOCKED-CREDENTIAL: replace with a real adapter when Tavily/Brave API key is available.
  */
 export class StubSearchProvider implements ISearchProvider {
+  readonly name = 'stub';
+
   async search(_query: string, _maxResults = 5): Promise<SearchResult[]> {
     return [];
   }
@@ -19,6 +27,7 @@ export class StubSearchProvider implements ISearchProvider {
  * Requires TAVILY_API_KEY env var.
  */
 export class TavilySearchProvider implements ISearchProvider {
+  readonly name = 'tavily';
   private readonly apiKey: string;
 
   constructor(apiKey?: string) {

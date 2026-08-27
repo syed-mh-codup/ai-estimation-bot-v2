@@ -1,7 +1,18 @@
 import { z } from 'zod';
 import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
-import type { DetectiveOutput, RiskFinding, OpenQuestion, Requirement } from '@repo/shared';
-import { DetectiveOutputSchema, KNOWN_RISK_FLAGS, PlatformSchema } from '@repo/shared';
+import type {
+  DetectiveInput,
+  DetectiveOutput,
+  RiskFinding,
+  OpenQuestion,
+  Requirement,
+} from '@repo/shared';
+import {
+  DetectiveInputSchema,
+  DetectiveOutputSchema,
+  KNOWN_RISK_FLAGS,
+  PlatformSchema,
+} from '@repo/shared';
 import { chatJSON } from './llm-json';
 
 export type DetectiveContext = {
@@ -81,7 +92,12 @@ async function gatherSearchContext(
   return sections.join('\n\n');
 }
 
-function buildUserMessage(requirements: Requirement[], searchContext: string, mcpSummary: string): string {
+function buildUserMessage(
+  requirements: Requirement[],
+  searchContext: string,
+  mcpSummary: string,
+  searchTool: string,
+): string {
   const requirementsText = requirements
     .map((r) => `- ${r.id}: ${r.text} [platforms: ${r.platforms.join(', ') || 'none'}, blocks_estimation: ${r.blocksEstimation}, integration_count: ${r.integrationCount}]`)
     .join('\n');
@@ -92,7 +108,7 @@ Take requirements with blocks_estimation=true or high integration_count first.
 Requirements:
 ${requirementsText}
 
-Search results:
+Search results (via ${searchTool}):
 ${searchContext || '(no search results available)'}
 
 MCP tools available:
@@ -138,7 +154,25 @@ export async function runDetective(
   const searchContext = await gatherSearchContext(requirements, ctx.searchProvider);
 
   const mcpTools = await ctx.mcpProvider.listAllTools();
-  const mcpSummary = mcpTools.length > 0
+
+  /**
+   * The Detective's declared contract, finally constructed rather than merely
+   * documented. `runDetective` took positional arguments and never built one,
+   * so `enabledMcpTools` and `searchTool` were spec artefacts with no runtime
+   * meaning — the agent spec described a research seam nothing filled in.
+   *
+   * Parsing rather than assembling a literal is the point: these two fields say
+   * what the findings below were actually grounded in, and a citation produced
+   * against an empty tool list with the stub search adapter is not worth the
+   * same as one produced against a live MCP server and Tavily. AEH-253.
+   */
+  const input: DetectiveInput = DetectiveInputSchema.parse({
+    requirements,
+    enabledMcpTools: mcpTools.map((t) => `${t.connectorId}/${t.name}`),
+    searchTool: ctx.searchProvider.name,
+  });
+
+  const mcpSummary = input.enabledMcpTools.length > 0
     ? mcpTools.map((t: { connectorId: string; name: string; description: string }) => `${t.connectorId}/${t.name}: ${t.description}`).join('\n')
     : '(no MCP tools available)';
 
@@ -148,7 +182,10 @@ export async function runDetective(
       model: ctx.modelString,
       messages: [
         { role: 'system', content: ctx.instructions },
-        { role: 'user', content: buildUserMessage(requirements, searchContext, mcpSummary) },
+        {
+          role: 'user',
+          content: buildUserMessage(input.requirements, searchContext, mcpSummary, input.searchTool),
+        },
       ],
       temperature: 0,
     },

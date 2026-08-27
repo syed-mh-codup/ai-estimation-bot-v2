@@ -6,7 +6,7 @@ import type { Requirement, RiskFinding } from '@repo/shared';
 // ─── Stubs ───────────────────────────────────────────────────────────────────
 
 const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
-const mockSearch: ISearchProvider = { search: vi.fn() };
+const mockSearch: ISearchProvider = { name: 'mock', search: vi.fn() };
 const mockMcp: IMcpProvider = {
   listTools: vi.fn(),
   listAllTools: vi.fn(),
@@ -69,6 +69,48 @@ describe('WS10-01: Detective agent wiring with SearchProvider + McpProvider', ()
     expect(mockSearch.search).toHaveBeenCalled();
     expect(mockMcp.listAllTools).toHaveBeenCalled();
     expect(result.risks.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * `DetectiveInputSchema` declared `enabledMcpTools` and `searchTool` from the
+   * day the agent spec was written, and `runDetective` took positional
+   * arguments and never constructed one — so both fields were documentation of
+   * a seam nothing filled in. The prompt now names what the findings were
+   * grounded in, because a citation produced against an empty tool list with
+   * the stub search adapter is not worth the same as one produced against a
+   * live MCP server and Tavily. AEH-253.
+   */
+  it('tells the model which search adapter and MCP tools it actually had', async () => {
+    vi.mocked(mockSearch.search).mockResolvedValue([
+      { title: 'Stripe API limits', url: 'https://stripe.com/docs', snippet: 'Rate limits apply' },
+    ]);
+    vi.mocked(mockMcp.listAllTools).mockResolvedValue([
+      { connectorId: 'jira', name: 'create_issue', description: 'Create a Jira issue', inputSchema: {} },
+    ]);
+    vi.mocked(mockModel.chat).mockResolvedValue(JSON.stringify({ risks: [], questions: [] }));
+
+    await runDetective(sampleRequirements, ctx);
+
+    const call = vi.mocked(mockModel.chat).mock.calls.at(-1)?.[0] as
+      | { messages: Array<{ role: string; content: string }> }
+      | undefined;
+    const userMessage = call?.messages.find((m) => m.role === 'user')?.content ?? '';
+    expect(userMessage).toContain('via mock');
+    expect(userMessage).toContain('jira/create_issue');
+  });
+
+  it('says so plainly when no MCP tools were available', async () => {
+    vi.mocked(mockSearch.search).mockResolvedValue([]);
+    vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
+    vi.mocked(mockModel.chat).mockResolvedValue(JSON.stringify({ risks: [], questions: [] }));
+
+    await runDetective(sampleRequirements, ctx);
+
+    const call = vi.mocked(mockModel.chat).mock.calls.at(-1)?.[0] as
+      | { messages: Array<{ role: string; content: string }> }
+      | undefined;
+    const userMessage = call?.messages.find((m) => m.role === 'user')?.content ?? '';
+    expect(userMessage).toContain('(no MCP tools available)');
   });
 });
 
