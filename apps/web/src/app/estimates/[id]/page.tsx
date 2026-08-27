@@ -22,8 +22,9 @@ import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
-import { updateNarrative, updateAssumptions, deleteEstimate, cardFlags, lineEnvelope } from './actions';
-import type { ItemDTO, SectionDTO } from './actions';
+import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
+import { cardFlags, lineEnvelope } from './dto';
+import type { ItemDTO, SectionDTO } from './dto';
 
 type Role = 'DEV' | 'QA' | 'PM' | 'BA';
 

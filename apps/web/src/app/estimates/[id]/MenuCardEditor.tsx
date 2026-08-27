@@ -25,7 +25,7 @@ import { ChevronRight, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { InlineText } from '@/components/ui/input';
-import type { ItemDTO, SectionDTO, LineItemDTO } from './actions';
+import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
 import {
   ROLES,
   UNGROUPED,

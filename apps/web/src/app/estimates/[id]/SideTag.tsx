@@ -1,6 +1,6 @@
 'use client';
 
-import type { LineItemDTO } from './actions';
+import type { LineItemDTO } from './dto';
 
 /**
  * Which side of the stack a DEV line item touches.

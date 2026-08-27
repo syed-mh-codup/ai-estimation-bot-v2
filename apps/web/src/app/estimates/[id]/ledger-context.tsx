@@ -22,10 +22,8 @@ import {
   updateLineItem,
   setLineItemSide,
   deleteLineItem,
-  type ItemDTO,
-  type SectionDTO,
-  type LineItemDTO,
 } from './actions';
+import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
 
 export const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
 export type Role = (typeof ROLES)[number];

@@ -28,7 +28,8 @@ vi.mock('@repo/db', () => ({
 }));
 
 import { auth } from '@/lib/auth';
-import { setItemEnabled, cardFlags } from './actions';
+import { setItemEnabled } from './actions';
+import { cardFlags } from './dto';
 
 const mockAuth = auth as unknown as ReturnType<typeof vi.fn>;
 const ITEM = 'item-1';
