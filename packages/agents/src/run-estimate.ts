@@ -6,7 +6,8 @@ import type {
   IMcpProvider,
 } from '@repo/providers';
 import { createSearchProvider, StubMcpProvider } from '@repo/providers';
-import type { ArchivistMatch, RiskFinding, SpecialistOutput } from '@repo/shared';
+import type { ArchivistMatch, MenuItem, Requirement, RiskFinding, SpecialistOutput } from '@repo/shared';
+import { RequirementSchema } from '@repo/shared';
 import { hashSOW, normaliseSOW } from './sow-utils';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
 import { runDetective } from './detective';
@@ -17,6 +18,12 @@ import { applyTaxationToMenuItems } from './taxation';
 import { runArchitect } from './architect';
 import { computeRollup } from './rollup';
 import { checkSupervisorGates } from './supervisor-gates';
+import {
+  buildInjectedMenuItem,
+  claimedRiskFlags,
+  detectHiddenWork,
+  type HiddenWorkDetection,
+} from './audit';
 
 /** A single progress tick: a human-readable stage label + 0–100 percentage. */
 export type RunProgress = { stage: string; pct: number };
@@ -231,8 +238,65 @@ export async function runEstimate(
     }),
   );
 
+  // ── 5b. Hidden-work audit: cost what the SOW implied but nobody asked for ───
+  //
+  // Placed here and nowhere else. It needs the Architect's cards to exist (there
+  // is nothing to be uncovered ALONGSIDE until they do) and it must finish before
+  // taxation, because an injected card's hours are real council hours and should
+  // be taxed exactly like the rest. The older injectors set taxedHours=baseHours
+  // and skipped tax, which only made sense while their numbers were fictional.
+  await report('Auditing hidden work', 90);
+  const detections = detectHiddenWork(riskFindings, claimedRiskFlags(allSpecialistOutputs));
+  const injected: MenuItem[] = [];
+  const resolvedDetections: Array<{ detection: HiddenWorkDetection; costed: boolean }> = [];
+
+  for (const detection of detections) {
+    // Off-list flags have no taxonomy key and no agreed cost shape, so there is
+    // nothing to estimate against — they go straight to a person.
+    if (!detection.known) {
+      resolvedDetections.push({ detection, costed: false });
+      continue;
+    }
+
+    // Own step id, never the `specialists:` prefix — run-estimate.test.ts
+    // asserts on that prefix's cardinality, and these are not per-requirement.
+    // Keyed by flag so the memoised step stays stable across replays.
+    let outputs: SpecialistOutput[] = [];
+    try {
+      outputs = await step(`hidden-work:${detection.riskFlag}`, () =>
+        runSpecialistCouncil(
+          {
+            requirement: syntheticRequirement(detection, lib.requirements),
+            menuCardId: detection.taxonomyKey!,
+            riskFindings: riskFindings.filter((r) => r.riskFlags.includes(detection.riskFlag)),
+            complexityScore: complexity.score,
+          },
+          specialistCtx,
+        ),
+      );
+    } catch (err) {
+      // A refinement failing must not fail the whole estimate. Falling back to a
+      // flat default is what this ticket deleted, so the honest fallback is the
+      // other direction: record it as an open question for a human.
+      console.warn(
+        `[runEstimate] ${estimateId} could not cost hidden work '${detection.riskFlag}':`,
+        err,
+      );
+      resolvedDetections.push({ detection, costed: false });
+      continue;
+    }
+
+    const card = buildInjectedMenuItem(detection, outputs);
+    if (!card) {
+      resolvedDetections.push({ detection, costed: false });
+      continue;
+    }
+    injected.push(card);
+    resolvedDetections.push({ detection, costed: true });
+  }
+
   // ── 6. Taxation (stored %s → fractions, matching the config-admin UI) ───────
-  const taxed = applyTaxationToMenuItems(arch.menuItems, {
+  const taxed = applyTaxationToMenuItems([...arch.menuItems, ...injected], {
     pmCommunicationTaxPct: config.pmCommunicationTaxPct / 100,
     baCommunicationTaxPct: config.baCommunicationTaxPct / 100,
     qaRegressionBufferPct: config.qaRegressionBufferPct / 100,
@@ -274,6 +338,41 @@ export async function runEstimate(
         for (const item of taxed) {
           await tx.menuItem.create({ data: toMenuItemCreateData(item, estimateId) });
         }
+        // What the audit found, and what became of it. Upserted rather than
+        // recreated: a re-run must not duplicate a finding or overwrite a
+        // decision someone already made about it. The menu-item link IS cleared,
+        // because every card above was just deleted and rebuilt.
+        for (const { detection, costed } of resolvedDetections) {
+          const card = costed
+            ? await tx.menuItem.findFirst({
+                where: { estimateId, taxonomyKey: detection.taxonomyKey ?? '', injected: true },
+                select: { id: true },
+              })
+            : null;
+          await tx.hiddenWorkFinding.upsert({
+            where: { estimateId_riskFlag: { estimateId, riskFlag: detection.riskFlag } },
+            update: {
+              claim: detection.claim,
+              citation: detection.citation,
+              requirementId: detection.requirementId,
+              known: detection.known,
+              taxonomyKey: detection.taxonomyKey,
+              menuItemId: card?.id ?? null,
+            },
+            create: {
+              estimateId,
+              riskFlag: detection.riskFlag,
+              known: detection.known,
+              claim: detection.claim,
+              citation: detection.citation,
+              requirementId: detection.requirementId,
+              taxonomyKey: detection.taxonomyKey,
+              outcome: costed ? 'AUTO_COST' : 'OPEN',
+              menuItemId: card?.id ?? null,
+            },
+          });
+        }
+
         await tx.estimate.update({
           where: { id: estimateId },
           data: {
@@ -323,6 +422,42 @@ async function loadActivePrompt(
     throw new Error(`No active prompt version for agent kind: ${kind}`);
   }
   return pv;
+}
+
+/**
+ * The requirement a hidden-work card is estimated against.
+ *
+ * There is no Librarian requirement for work the SOW never stated — that is the
+ * definition of hidden work — so one is synthesised from the Detective's own
+ * claim. Project-level attributes are borrowed from the requirement the risk was
+ * raised against rather than defaulted, because they are what calibrate the
+ * council: rate limiting for an Enterprise integration with High data volume is
+ * not the same job as rate limiting for an SMB brochure site, and defaulting
+ * them would quietly estimate every project as the same size.
+ *
+ * `archivistMatch` is deliberately omitted: describeCoverage renders that as
+ * "coverage: none — build from first principles", which is exactly right here.
+ */
+function syntheticRequirement(
+  detection: HiddenWorkDetection,
+  requirements: Requirement[],
+): Requirement {
+  const parent = requirements.find((r) => r.id === detection.requirementId);
+  return RequirementSchema.parse({
+    id: `REQ-HIDDEN-${detection.riskFlag.toUpperCase()}`,
+    text: `${detection.title}. Implied by the SOW but not stated in it — the Detective found: ${detection.claim}`,
+    category: 'Infrastructure & Resilience',
+    reqType: 'Infrastructure',
+    platforms: parent?.platforms ?? [],
+    projectSize: parent?.projectSize ?? 'Mid-market',
+    dataVolume: parent?.dataVolume ?? 'Low',
+    integrationCount: parent?.integrationCount ?? 1,
+    candidateMenuCardId: detection.taxonomyKey ?? 'infra',
+    taxonomyKey: detection.taxonomyKey,
+    sourceRef: detection.citation,
+    ambiguities: [],
+    blocksEstimation: false,
+  });
 }
 
 /**

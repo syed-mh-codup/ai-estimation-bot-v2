@@ -38,6 +38,11 @@ const LLMLineItemSchema = z.object({
 const LLMSpecialistSchema = z.object({
   lineItems: z.array(LLMLineItemSchema).min(1),
   assumptions: z.array(z.string()).default([]),
+  /**
+   * Which of the risk flags shown in the prompt these hours actually account
+   * for. Filtered against the input before it is trusted — see runSpecialist.
+   */
+  coversRiskFlags: z.array(z.string()).default([]),
 });
 
 /**
@@ -117,10 +122,12 @@ Respond with JSON only, matching exactly this shape:
       "dependsOn": [<0-based indices of other items in THIS list this depends on>]${sideFieldSpec(role)}
     }
   ],
-  "assumptions": ["..."]
+  "assumptions": ["..."],
+  "coversRiskFlags": [<risk flags from the list above whose work these hours genuinely include — [] if none>]
 }
 HARD CAP: no item's "hours" may exceed 4.0. If a unit of work needs more, split it into multiple items.
-If a category of work genuinely isn't needed for this requirement (e.g. no integration to test), OMIT it from "lineItems" entirely — do not include a 0-hour placeholder item.${sideGuidance(role)}`;
+If a category of work genuinely isn't needed for this requirement (e.g. no integration to test), OMIT it from "lineItems" entirely — do not include a 0-hour placeholder item.
+Only list a flag in "coversRiskFlags" if your line items above actually include the work it implies. A flag you leave out is not lost — it is raised for a human to cost or dismiss deliberately, which is the right outcome when you have not costed it. Claiming a flag you did not cost is the one thing that makes real work disappear.${sideGuidance(role)}`;
 }
 
 function snapToQuarterHour(hours: number): number {
@@ -257,10 +264,20 @@ export async function runSpecialist(
     };
   });
 
+  // Only flags this specialist was actually SHOWN can be claimed. A hallucinated
+  // claim is uniquely damaging here: it would mark a genuine risk as covered and
+  // suppress the finding, which is the silent-omission failure the whole stage
+  // exists to prevent. Filtering makes over-claiming impossible rather than
+  // merely discouraged by the prompt.
+  const offered = new Set(input.riskFindings.flatMap((f) => f.riskFlags));
+  const claimed = llmResult.coversRiskFlags ?? [];
+  const coversRiskFlags = [...new Set(claimed.filter((f) => offered.has(f)))];
+
   return SpecialistOutputSchema.parse({
     role,
     lineItems,
     assumptions: llmResult.assumptions,
+    coversRiskFlags,
   });
 }
 
