@@ -290,8 +290,20 @@ FOLLOW-UPS FILED (all read back and diffed, one markup repair on AEH-277):
 
 ## STILL TO DO
 
-- [ ] pnpm db:embed:presets on all 3 DBs (45 rows stale since C4 widened
-      presetEmbeddingText). NOTE the packages/db/.env-points-at-Neon trap.
+- [x] pnpm db:embed:presets — DONE on Neon dev/main. 45 stale -> 45 embedded,
+      which is exactly what C4 predicted and proves the staleness mechanism
+      works end to end (backfill compares stored embeddingText against a freshly
+      computed one, so widening the function marks every row stale).
+      The OTHER THREE DBs were measured and deliberately NOT embedded:
+        local docker ai_estimation       51 active, 51 MISSING, 0 stale
+        local docker ai_estimation_test   1 active,  1 MISSING, 0 stale
+        Neon test                        46 active, 45 MISSING, 1 stale
+      Those are MISSING, not stale — they have never been embedded at all,
+      which is the pre-existing condition AEH-253's own description records
+      ("a fresh db:seed:presets leaves presets unembedded until the script is
+      run by hand"). Not caused by this ticket, and no test depends on it:
+      the vector tests seed their own fixtures. Left alone rather than spending
+      ~100 embedding calls to change a number nothing reads.
 - [ ] pnpm test:e2e
 - [ ] AEH-253 close-out comment + transition
 - [ ] push (both remotes) — awaiting the user's go-ahead
