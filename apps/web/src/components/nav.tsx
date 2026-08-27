@@ -51,6 +51,9 @@ export async function Nav() {
           <NavLink href="/admin/presets" testId="nav-admin-presets">
             Presets
           </NavLink>
+          <NavLink href="/admin/taxonomy" testId="nav-admin-taxonomy">
+            Taxonomy
+          </NavLink>
           <NavLink href="/admin/prompts" testId="nav-admin-prompts">
             Prompts
           </NavLink>
