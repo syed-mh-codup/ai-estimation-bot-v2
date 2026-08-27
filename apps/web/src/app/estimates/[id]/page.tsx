@@ -20,6 +20,7 @@ import { CollapseAllButton } from './CollapseAllButton';
 import { LedgerProvider } from './ledger-context';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
+import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
 import { updateNarrative, updateAssumptions, deleteEstimate, cardFlags, lineEnvelope } from './actions';
 import type { ItemDTO, SectionDTO } from './actions';
@@ -282,6 +283,7 @@ export default async function EstimateDetailPage({
           <aside className="flex flex-col gap-3.5 lg:sticky lg:top-4 max-lg:order-first">
             {hasMenu && <RollupCard />}
             <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
+            <RunDiagnosticsPanel estimateId={estimate.id} />
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Actions</Eyebrow>

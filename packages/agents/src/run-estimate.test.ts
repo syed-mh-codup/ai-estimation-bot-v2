@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
-import { runEstimate, type StepRunner } from './run-estimate';
+import { runEstimate, type StepRunner, type RunDiagnostics } from './run-estimate';
 import { DEFAULT_COMPLEXITY_RULES } from './complexity';
 
 const DB_URL =
@@ -257,6 +257,42 @@ describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {
       const dev = item.lineItems.find((li) => li.role === 'DEV')!;
       expect(dev.taxedHours).toBe(dev.baseHours);
     }
+  });
+
+  /**
+   * The declared type and the payload drifted apart once already:
+   * `AgentStateSnapshot` described librarianOutput / archivistOutput /
+   * architectOutput while the pipeline wrote seven entirely different keys, and
+   * nobody noticed because nothing read the column.
+   *
+   * `satisfies RunDiagnostics` on the write would be the obvious guard and is
+   * the wrong one — it hides the object literal from the field audit's Json-key
+   * discovery, which then audits `agentState` as one opaque column and reports
+   * green with all seven keys unaudited. So the guard lives here, against what
+   * is actually persisted, which is the stronger check anyway.
+   */
+  it('persists exactly the diagnostics keys RunDiagnostics declares', async () => {
+    await runEstimate(estimateId, { db, modelProvider: stubModelProvider });
+
+    const est = await db.estimate.findUniqueOrThrow({ where: { id: estimateId } });
+    const state = est.agentState as Record<string, unknown>;
+
+    const declared: Array<keyof RunDiagnostics> = [
+      'archivistMatchCount',
+      'complexity',
+      'detectiveQuestionCount',
+      'detectiveRiskCount',
+      'gateWarnings',
+      'librarianOutput',
+      'ranAt',
+    ];
+    expect(Object.keys(state).sort()).toEqual([...declared].sort());
+
+    // And the shapes the diagnostics panel actually renders.
+    expect(typeof state['ranAt']).toBe('string');
+    expect(Array.isArray(state['gateWarnings'])).toBe(true);
+    expect(typeof state['archivistMatchCount']).toBe('number');
+    expect((state['librarianOutput'] as { requirements: unknown[] }).requirements.length).toBeGreaterThan(0);
   });
 });
 

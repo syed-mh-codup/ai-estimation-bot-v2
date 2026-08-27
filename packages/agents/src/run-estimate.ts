@@ -6,7 +6,15 @@ import type {
   IMcpProvider,
 } from '@repo/providers';
 import { createSearchProvider, buildMcpProvider } from '@repo/providers';
-import type { ArchivistMatch, MenuItem, Requirement, RiskFinding, SpecialistOutput } from '@repo/shared';
+import type {
+  ArchivistMatch,
+  ComplexityOutput,
+  LibrarianOutput,
+  MenuItem,
+  Requirement,
+  RiskFinding,
+  SpecialistOutput,
+} from '@repo/shared';
 import { RequirementSchema } from '@repo/shared';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
 import { runDetective } from './detective';
@@ -84,6 +92,39 @@ export type RunEstimateResult = {
  * passes a real OpenRouter provider. Archivist (preset RAG) only runs when an
  * embeddingProvider is supplied AND presets have embeddings.
  */
+/**
+ * What a run records about itself, beyond the estimate it produced.
+ *
+ * This type sits next to the write below and describes it exactly. The previous
+ * declaration (`AgentStateSnapshot`) described `librarianOutput`,
+ * `archivistOutput` and `architectOutput` while the pipeline actually wrote
+ * seven different keys — a type nothing enforced, drifting from the payload it
+ * claimed to describe, unnoticed because nothing read the column either.
+ *
+ * Do NOT put `satisfies RunDiagnostics` on the write, tempting as it is. The
+ * field audit discovers a Json column's keys by finding `agentState: { … }` as
+ * a property assignment whose initializer is an object LITERAL; wrapping it in
+ * a `satisfies` expression (or hoisting it to a variable) hides the keys, and
+ * the gate then audits `agentState` as one opaque column that the diagnostics
+ * panel reads — green, with all seven keys silently unaudited. What guards the
+ * drift instead is a test that asserts the persisted key set. AEH-253.
+ */
+export type RunDiagnostics = {
+  /** The Librarian's full classification pass — requirements and their taxonomy keys. */
+  librarianOutput: LibrarianOutput;
+  /** Risks the Detective raised. */
+  detectiveRiskCount: number;
+  /** Questions the Detective could not answer from the SOW. */
+  detectiveQuestionCount: number;
+  /** Requirements the Archivist found a historical analogue for. */
+  archivistMatchCount: number;
+  complexity: ComplexityOutput;
+  /** Deterministic gate warnings. Until now these reached console.warn and nothing else. */
+  gateWarnings: string[];
+  /** ISO timestamp. A Date would violate the step-JSON memoisation contract. */
+  ranAt: string;
+};
+
 export async function runEstimate(
   estimateId: string,
   deps: RunEstimateDeps,

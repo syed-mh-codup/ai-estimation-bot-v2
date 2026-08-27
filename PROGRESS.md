@@ -60,7 +60,7 @@ type-decl count for NOTHING.
 - [x] C4  PresetVersion metadata  (21 -> 14 fields)
 - [x] C5  version history (getChangeLog + per-entity lists)  (14 -> 10 fields, 16 -> 9 exports)
 - [x] C6  MCP provider/auth/wiring  (10 -> 9 fields, 9 -> 6 exports)
-- [ ] C7  diagnostics panel + agentState column read
+- [x] C7  diagnostics panel + agentState column read  (9 -> 2 fields)
 - [ ] C8  runDetective parses DetectiveInputSchema
 - [ ] C9  annotations + knip baseline, against the FINAL register
 
@@ -233,3 +233,20 @@ Build order mattered and was followed:
 
 CI has no ENCRYPTION_KEY and admin-mcp.spec.ts does a live open-server test —
 both still work, because the secret is optional end to end.
+
+### C7 done — run diagnostics
+
+  fields 9 -> 2. All SEVEN agentState keys cleared. Only beHours/feHours left.
+  tests 3 failed / 341 passed. typecheck + lint clean.
+
+CAUGHT A GREEN-FOR-THE-WRONG-REASON, and it is worth remembering:
+  I first wrote `agentState: { ... } satisfies RunDiagnostics`. Findings went
+  to 2 — but `audited` dropped 150 -> 144. discoverJsonKeys finds a Json
+  column's keys only when the initializer is an object LITERAL; a satisfies
+  expression (or a hoisted variable) hides them, so the gate audited agentState
+  as ONE opaque column, saw the panel read it, and reported green with all
+  seven keys silently unaudited.
+  Fix: keep the bare literal, and guard drift with a TEST that asserts the
+  persisted key set against RunDiagnostics. Stronger than satisfies anyway —
+  it checks what is actually in the database.
+  The `audited` count is the tell. Watch it, not just the finding count.
