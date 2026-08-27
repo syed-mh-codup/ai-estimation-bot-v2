@@ -27,7 +27,11 @@ export async function queryTaxonomyByText(
   queryText: string,
 ): Promise<RankedTaxonomyNode[]> {
   const nodes = await db.taxonomyNodeVersion.findMany({
-    where: { active: true },
+    // Same three gates as loadTaxonomyEntries, kept in step deliberately: this
+    // function ranks nodes to classify against, so surfacing a PROPOSED or
+    // non-classifiable node here would reintroduce exactly what those gates
+    // prevent, just through a different door. AEH-263.
+    where: { active: true, node: { status: 'ACTIVE', classifiable: true } },
     select: { nodeKey: true, label: true, keywords: true },
   });
 

@@ -80,6 +80,19 @@ enum RoleKind {
   BA
 }
 
+/// Governance state of a taxonomy node. The taxonomy was originally derived
+/// wholesale from the preset library with no authoring surface; once nodes can
+/// be proposed by a run, "is this node real yet" has to be a queryable fact
+/// rather than a convention. AEH-263.
+enum TaxonomyStatus {
+  /// Proposed by a run, not yet reviewed. Invisible to the Librarian.
+  PROPOSED
+  /// Accepted by an admin. This is the only status the Librarian classifies against.
+  ACTIVE
+  /// Folded into another node by an admin; collapsedIntoKey names the survivor.
+  COLLAPSED
+}
+
 /// How a preset entered the library. Stored as a column, not inferred from the
 /// code prefix — "show me everything validated against delivery" should be a
 /// query, not a string match.
@@ -125,6 +138,26 @@ model TaxonomyNode {
   key      String               @unique
   label    String
   parentKey String?
+  /// Governance state. Only ACTIVE nodes reach the Librarian's classification
+  /// vocabulary (run-estimate.ts loadTaxonomyEntries), so a PROPOSED node
+  /// changes no estimate until an admin accepts it. That filter is what bounds
+  /// the blast radius of adding nodes at all. AEH-263.
+  status   TaxonomyStatus       @default(ACTIVE)
+  /// Set when an admin collapses a proposal into an existing node instead of
+  /// accepting it. Bare key like parentKey (no relation) — same idiom, and the
+  /// admin action validates the target exists. Reads resolve through it.
+  collapsedIntoKey String?
+  /// May the Librarian assign this key to a SOW requirement?
+  ///
+  /// A different axis from `status`, and the distinction is load-bearing: status
+  /// asks "is this node real", classifiable asks "can a client ask for it".
+  /// `process.code-review` is real, referenceable and promotable, but nobody
+  /// writes "do code reviews" in a statement of work — offering it to the
+  /// Librarian only invites a real requirement to be misclassified as overhead.
+  /// `infra.rate-limit` is the opposite: a client absolutely can ask for rate
+  /// limiting, and when they do it is asked-for work under that key, which is
+  /// also how the hidden-work audit sees it is already covered. AEH-263.
+  classifiable Boolean @default(true)
   versions TaxonomyNodeVersion[]
 }
 

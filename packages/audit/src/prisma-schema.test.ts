@@ -24,7 +24,8 @@ describe('AEH-228: prisma schema parser', () => {
 
   it('finds all models and enums', () => {
     expect(schema.models.size).toBe(14);
-    expect(schema.enums.size).toBe(10);
+    // 11 since AEH-263 added TaxonomyStatus.
+    expect(schema.enums.size).toBe(11);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {

@@ -332,7 +332,14 @@ async function loadActivePrompt(
  */
 async function loadTaxonomyEntries(db: PrismaClient): Promise<TaxonomyEntry[]> {
   const versions = await db.taxonomyNodeVersion.findMany({
-    where: { active: true },
+    // Three independent gates, and they mean different things. `active` picks
+    // the current VERSION of a node. `status` decides whether the node is real
+    // yet, so a PROPOSED node cannot change how requirements are classified
+    // before an admin has accepted it. `classifiable` decides whether a client
+    // could ask for it at all — this query IS the Librarian's whole vocabulary,
+    // and offering it `process.code-review` would just give a real requirement
+    // somewhere wrong to land. AEH-263.
+    where: { active: true, node: { status: 'ACTIVE', classifiable: true } },
     select: { nodeKey: true, label: true, keywords: true },
   });
   return versions.map((v) => ({ key: v.nodeKey, label: v.label, keywords: v.keywords }));

@@ -1,0 +1,19 @@
+-- AEH-263: separate "is this node real" from "can a client ask for it".
+--
+-- The taxonomy turns out to have two consumers that were never distinguished
+-- because, until now, every node came from the same place (derived from the
+-- preset library, so every node was by construction a kind of work a client had
+-- actually paid for):
+--
+--   1. the Librarian's classification vocabulary  -- SOW requirement -> key
+--   2. the label space for injected cards         -- work nobody asked for
+--
+-- process.* belongs only to (2). Nobody writes "do code reviews" in a statement
+-- of work, so offering those keys to the Librarian would only give a real
+-- requirement somewhere wrong to land. infra.* belongs to BOTH: a client can
+-- genuinely ask for rate limiting, and when they do it is asked-for work under
+-- that key -- which is also how the audit sees the work is already covered.
+--
+-- Defaults to true so every existing derived node keeps its current behaviour;
+-- the Librarian's vocabulary is unchanged by this migration.
+ALTER TABLE "TaxonomyNode" ADD COLUMN "classifiable" BOOLEAN NOT NULL DEFAULT true;
