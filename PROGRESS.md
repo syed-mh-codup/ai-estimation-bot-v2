@@ -1,325 +1,190 @@
-# AEH-227 — Shared costed-work type (FOCUSED)
+# AEH-263 — Ship the hidden-work feature
 
-Status: DONE (Jira AEH-227 transitioned to Done 2026-08-24).
+Status: IN PROGRESS (Jira AEH-263 transitioned to In Progress 2026-08-27).
+Plan file: ~/.claude/plans/catching-uncosted-hidden-work-modular-snowflake.md (APPROVED)
 
-## Agreed scope (grill-me, 2026-08-24)
+Previous ticket AEH-227 (shared costed-work type) closed 2026-08-24 — its full
+backtrace lives in Jira comments on AEH-227/229/234/253, not here.
 
-Corrected inventory: 3 Prisma->shape READ maps + 1 WRITE map.
-  - page.tsx:59      Prisma -> MenuItem   (Sheets export) -- fabricates 7 fields
-  - writeback.ts:224 Prisma -> MenuItem   (promote)        -- fabricates same 7
-  - page.tsx:157     Prisma -> ItemDTO    (editor)         -- omits them
-  - run-estimate.ts:277 MenuItem -> Prisma (persist)       -- packs meta
-  - rollup.ts:85 is NOT a Prisma mapping; removed from the ticket's list.
+## The decision (2026-08-27)
 
-Root cause: MenuItem.meta / RoleLineItem.meta are WRITE-ONLY (audit pkg asserts
-this). Read maps hardcode requirementIds/toggleable/notSafelyRemovable/
-thinSlice/aiAssistApplied/dependsOn/anchorPresetIds. Inert today (no consumer
-reads them) but Architect-computed flags are discarded on every read.
+AEH-263 was a DECISION ticket: does the unwired audit stage ship or get deleted?
+**Decision: it ships.** User: "catching uncosted hidden work is one of the core
+responsibilities of this product."
 
-## LIVE BUG in scope
-run-estimate.ts persists MenuItem WITHOUT id -> Prisma mints cuid; the semantic
-id (hidden-<flag>-<ts> from audit.ts:47) is discarded, not even in meta.
-So writeback.ts:103 `item.id.startsWith('hidden-')` is DEAD on the only
-production path (inngest -> promoteEstimate). Hidden-work placeholders ARE
-being promoted into the preset library. `baseline-` is minted nowhere = dead
-everywhere. Looks tested because writeback-promote.test.ts calls the inner
-promoteMenuItemsToPresets directly with in-memory semantic ids.
+The ticket is now an IMPLEMENTATION ticket. Its Jira description still describes
+the decision and needs rewriting (see Post-approval below).
 
-## Decisions
-A1 toMenuItem/toLineItem parse meta back through the schema.
-A2 meta:null -> zod defaults; legacy vs genuine-default indistinguishable (accepted).
-A3 Both directions get named helpers.
-B1 `injected` = real COLUMN on MenuItem (not a meta key). Behaviour-gating
-   fields must be queryable + compiler-visible. Crosses ticket's stated
-   "no DB model change" line -- approved by user.
-B2 Fix dead guard here: `if (item.injected) continue;` drop baseline-.
-B3 Shared zod base for SpecialistLineItem/RoleLineItem DEFERRED -> AEH-229.
-   RoleLineItemSchema/MenuItemSchema stay canonical. Comment AEH-234 + AEH-229.
-C1 Editor DTOs derive from Prisma payload types (DB = source of truth).
-C2 Backfill historical injected cards. DRY-RUN AND SHOW USER FIRST.
-   Match: taxonomyKey IN (infra.retries, infra.rate-limit, infra.data-migration,
-   infra.legacy-adapter, infra.webhook) AND lineItem hours exactly
-   DEV8/QA4/PM2/BA2 AND edited=false. TaxonomyKey alone false-positives
-   (hasLineItemForFlag proves real cards carry those keys).
-C3 Run the migration (additive, no reset). Dev/main DB is Neon.
+## Decisions locked with the user (7 rounds of grill-me)
 
-## Work plan
-1. [x] Baseline typecheck/lint/test (expect 3 pre-existing failures per 4271478)
-2. [x] injected column + migration 20260824000000_menu_item_injected
-3. [x] Backfill: NO-OP, DROPPED (evidence below)
-4. [x] MenuItemSchema: injected boolean default false
-5. [x] Mapping helpers (home: @repo/db, needs @repo/shared dep edge; no cycle)
-6. [x] DTOs -> Pick over Prisma payload types
-7. [x] Guard fix + audit.ts sets injected:true + run-estimate persists it
-8. [x] Tests: meta round-trip; injected card not promoted VIA promoteEstimate (DB path)
-9. [x] Verify typecheck/lint/tests
-10.[x] Jira: comment on AEH-227 ITSELF (full backtrace of work done -- user asked
-     explicitly 2026-08-24), plus AEH-234 + AEH-229; transition AEH-227 -> Done
+1. Injected cards carry DERIVED hours, never placeholders. Delete
+   HIDDEN_WORK_DEFAULT_HOURS (flat DEV8/QA4/PM2/BA2). Hours come from
+   runSpecialistCouncil — the same path every real card uses.
+   User: "they should be a best effort estimation for the work that the line
+   item describes. if this is decided by the user-editable prompt, flag that
+   in AEH-233."
+2. Known flags auto-cost; novel flags SURFACE to a human. Nothing silently
+   dropped. audit.ts:25 inverts from "unknown flag = not our concern" to
+   "unknown flag = needs a human".
+3. Hidden work flagged for analysis (hidden vs asked-for), in queryable
+   columns/rows, NOT meta JSON (AEH-227's B1 rule).
+4. Finalise gate is an ADMIN TOGGLE — warn or block. User: "we may need this to
+   be a toggle for admins to go between warning and blocking."
+5. Real taxonomy + GOVERNANCE. infra.* AND process.* branches. User: "the list
+   needs to be verifyable, editable, auditable, and new items being added should
+   be reviewable by admins and either accepted or collapsed into an existing
+   taxonomy independently of an estimate in progress."
+6. Accepted inferred work PROMOTES to the preset library. `injected` stays true
+   forever for analysis; promotion filters on outcome.
+7. Coverage = a RECORDED CLAIM (coversRiskFlags on SpecialistOutput), not a
+   string match. Oracle (AEH-259) later answers "which risks were claimed and
+   what happened" by reading it. Oracle does NOT gate injection — AEH-259 is
+   read-only and optional by design ("an estimate can start and finish without
+   Oracle ever being opened").
+8. Overhead does NOT double-count. User's clarification, and it is the crux:
+     - pmCommunicationTaxPct prices THE PM'S SEAT in a meeting.
+       process.meetings prices the DEV and QA seats at the SAME meeting.
+     - qaRegressionBufferPct prices REGRESSION SWEEPS.
+       process.ticket-reopens prices PER-REOPEN CHURN — bug writeup, context
+       switch back, re-fix, re-review.
+     - process.code-review / process.unit-testing are DEV-side, and DEV carries
+       no multiplier at all (taxation.ts:47).
+   Each hour is claimed by exactly one mechanism.
+9. ONE TICKET, ONE DELIVERY. All phases land together under AEH-263.
 
+## What scoping found (all verified in code, all change the work)
 
-## CORRECTION (2026-08-24) -- claim retracted
-I claimed hidden-work cards were being promoted into the preset library.
-WRONG. `runHiddenWorkAudit` has NO production caller (only ws15.test.ts), so
-no injected card has ever been created. writeback.ts:103 is a dead guard on an
-UNWIRED feature -- latent, not live. The `injected` column is still the right
-fix (makes the stage safe to wire later) but it is pre-emptive, not a leak fix.
+1. THE COVERAGE CHECK CAN NEVER MATCH. hasLineItemForFlag (audit.ts:23-27)
+   compares `infra.retries` against MenuItem.taxonomyKey. But architect.ts:251
+   writes `taxonomyKey: card.id` (an MC-<DOMAIN>-<SLUG> id) and actions.ts:159
+   hardcodes 'custom'. Every flag reads as uncovered on every run => duplicate
+   scope alongside work the Architect already costed. This is why decision 7
+   exists.
+2. THE infra.* TAXONOMY KEYS DON'T EXIST. Keys are DERIVED (seed-taxonomy.ts:
+   73-74) as `${slug(category)}.${slug(reqType)}` from preset rows. The workbook
+   yields 6 category slugs; none is `infra`. Same for all 3 baseline.* keys.
+   There is NO taxonomy authoring surface at all.
+3. VOCABULARY IS OPEN AND 3-WAY INCONSISTENT. detective.ts:99 teaches the model
+   `api-quota` (no table entry); the table has `data-remediation` and
+   `webhook-reliability` (never shown to the model).
+4. THE SEAM WAS PRE-PLANNED. step-error.ts:11-12 already carries 'HIDDEN_WORK'
+   and 'VALIDATION' in AgentStep, between TAXATION and ARCHITECT. Nothing
+   constructs them. docs/04_WBS.md:279 reserves WS26-03 for this exact e2e.
+5. NOTHING SURFACES RUN DIAGNOSTICS. No UI reads agentState, gateWarnings or
+   consistencyFlags. checkSupervisorGates runs on every estimate and goes to
+   console.warn only. Any warning path needs UI or it ships nothing.
 
-ALSO NOTED: runHiddenWorkAudit is a fully built + tested pipeline stage that
-nothing calls. Out of scope here; flag in Jira.
+## VERIFIED 2026-08-27: the live DETECTIVE prompt does NOT list risk flags
 
-## Backfill dry-run (READ-ONLY, Neon dev/main, 2026-08-24)
-MenuItem rows total:                     77
-Estimate rows total:                      3
-MenuItems with hidden-work taxonomyKey:   0
-STRICT matches (key+DEV8/QA4/PM2/BA2+no edits): 0
-Loose (taxonomyKey only) matches:         0
-=> Nothing to backfill. No UPDATE written; column default `false` is already
-   correct for all 77 rows. User informed.
+Read DETECTIVE v3 (active, 5822 chars, openai/gpt-4o-mini) straight from Neon
+dev/main. Its FOCUS AREAS are PLATFORM-oriented (P21/Celigo/Contentful/Klevu/
+Shopify/Act-On), not a flag vocabulary. It has a "The following fields ARE
+closed" section covering phase/project_size/data_volume/ai_assist/risk/role —
+riskFlags is NOT among them.
 
-## Migration applied 2026-08-24 (prisma migrate deploy, non-destructive)
-- Neon dev/main   ep-polished-credit  OK (13 applied before, no drift)
-- local docker    localhost:5433      OK
-- Neon test DB    ep-wild-heart       OK
-- prisma generate OK (injected in client)
+=> The flag vocabulary lives ONLY in code at detective.ts:99. Phase 2 is a PURE
+   CODE CHANGE. No DB prompt version bump, no per-environment rollout, no
+   seed-revert hazard. This was the single biggest unknown and it resolved the
+   easy way.
 
-## Baseline before my changes
-typecheck: CLEAN. lint: CLEAN.
-tests: 3 failed / 235 passed / 98 skipped; 18 suites failed to LOAD purely
-because local docker postgres was down (now started). The 3 real failures are
-pre-existing audit gates: field-audit x2 (AEH-228 gate 1), knip-baseline x1
-(gate 2). NOT mine.
+## Baseline before any of my changes (2026-08-27, local docker started first)
 
-## Implementation notes (2026-08-24)
-Helpers live in packages/db/src/menu-item-mapping.ts. @repo/db already had the
-tsconfig path + project reference to ../shared; only the package.json dep was
-missing. Exported via packages/db/src/index.ts.
+pnpm test: 3 failed / 337 passed / 1 skipped (341), 2 files failed of 50.
+Identical to the AEH-227 close-out baseline. The 2 failing files are the
+pre-existing AEH-228 gates: field-audit x2, knip-baseline x1. NOT mine.
+Gate 1 findings sit at 38 — do not let a new agentState Json key make it 39.
 
-THE KEY DELIVERABLE is the compile-time exhaustiveness assertion, not the dedup:
-  type _MenuItemFieldsAllClaimed = AssertNever<
-    Exclude<keyof MenuItem, MenuItemColumnKey | MenuItemMetaKey>>
-Every domain field must be claimed by the column union or the meta key list.
-VERIFIED by adding a probe field to MenuItemSchema: typecheck failed with
-  menu-item-mapping.ts(110,3): error TS2344:
-  Type '"probeField"' does not satisfy the constraint 'never'.
-Probe removed, typecheck clean. Without this a `.default()` on a new field
-would let parse invent it on read and the writer drop it -- the original rot.
+Local docker postgres (:5433) was DOWN at session start; `docker compose up -d`
+started it. Without it 18 suites cannot even load.
 
-Rule: readers spread meta FIRST so a column always wins a name collision.
+## Work plan (phases; all land together under AEH-263)
 
-id resolution (the ambiguity the ticket targets):
-  MenuItem.id     = row cuid. run-estimate never persists the Architect's
-                    MC-<DOMAIN>-<SLUG>. promote keys sourceMenuItemId on it.
-  RoleLineItem.id = the SEMANTIC id from meta. dependsOn/anchorPresetIds
-                    reference it by name, so reading the cuid here would leave
-                    dependsOn dangling. Nothing in production reads a line
-                    item's cuid off a domain object (editor uses its own
-                    Prisma-derived DTO).
+1. [ ] Taxonomy governance: status + collapsedIntoKey + migration; filter
+       loadTaxonomyEntries to ACTIVE; seed infra.* + process.*; /admin/taxonomy
+       with the proposal accept/collapse queue. Evals before AND after.
+2. [ ] Vocabulary: shared const interpolated into detective.ts:99; reconcile the
+       3-way drift; complexity.ts:91-92 exact membership; invert audit.ts:25.
+3. [ ] Coverage contract: coversRiskFlags on SpecialistOutput + prompt + persist.
+4. [ ] Pipeline wiring: between Architect (:224) and taxation (:235).
+5. [ ] injectInfraBaseline: migrate the stored infraBaseline SHAPE first, then
+       seed process.* items and wire.
+6. [ ] Promotion: writeback.ts:229 filters on outcome, not `injected`.
+7. [ ] Frontend: ItemDTO widening, INFERRED row treatment, rollup split, rail
+       panel, server actions, gate.
 
-Adding `injected` to MenuItemSchema immediately broke 2 MORE hand-written
-MenuItem literals the ticket never listed -- architect.ts:240 and taxation.ts:92.
-Mechanism working as intended. Both now use MenuItemSchema.parse() per the
-4271478 precedent (input-shaped literal annotated with the OUTPUT type is the
-exact z.input vs z.infer trap).
+## Landmines to carry (each cost someone time already)
 
-## TWO dead/unwired features found (both out of scope, flag in Jira)
-- runHiddenWorkAudit    (audit.ts)    no production caller -> hidden- ids
-- injectInfraBaseline   (taxation.ts) no production caller -> baseline- ids
-  (its own comment says so; AEH-253 owns it)
-=> BOTH sources of the guard's id prefixes are unwired, which is the full
-   explanation for why that guard was dead. Both now set injected:true so they
-   are correct if ever wired up.
+- acknowledgedAt is a Date (audit.ts:127). A Date VIOLATES the step JSON
+  memoisation contract (run-estimate.ts:24-37, enforced by
+  run-estimate.test.ts:193-234). Use an ISO string across any step boundary.
+- Step ids: `hidden-work:${flag}`. NEVER the `specialists:` prefix —
+  run-estimate.test.ts:221 asserts on that prefix's cardinality.
+- Council failure for an injected card => an OPEN finding, NOT flat defaults
+  (consistent with decision 1, and stops a refinement failing the whole run).
+- Injection goes BEFORE applyTaxationToMenuItems (run-estimate.ts:235) so
+  council-derived hours get taxed. The OLD injectors deliberately set
+  taxedHours = baseHours; derived hours are different and SHOULD tax.
+- Findings go in a REAL TABLE, not agentState. run-estimate.ts:285-293 writes
+  agentState as a bare object literal, which is exactly the shape
+  discoverJsonKeys (field-audit.ts:110-113) fingerprints. A new key with no
+  consuming read = orphan finding 39 of 38.
+- EstimationConfig tunable = an 8-file procedure. The one people miss is
+  apps/web/e2e/global-setup.ts:121-132 — it does an EXPLICIT create that does
+  NOT reuse configData, so a non-defaulted column breaks every e2e run.
+- NEVER run `pnpm db:seed` against a DB with admin-edited prompts. seed.ts:
+  174-198 deactivates every active PromptVersion and upserts v1 with the stub
+  body — silently reverting the live prompts. This is AEH-233's central finding.
+- New taxonomy nodes feed the Librarian's classification vocabulary
+  (run-estimate.ts:333-339 -> librarian.ts:154, rag-retriever.ts:29). Filtering
+  to ACTIVE is what bounds the blast radius; PROPOSED nodes change nothing.
+- injectInfraBaseline's stored config shape does NOT parse: seed.ts:138 writes
+  {devops, environments}, InfraBaselineSchema wants {items:[{title,taxonomyKey,
+  roles}]}. It would throw at taxation.ts:86 today.
+- Existing pipeline tests assert EXACTLY 2 menu items (run-estimate.test.ts:214,
+  228, 242, 257). A third injected card breaks all four — that is the teeth you
+  want, but scope it to a NEW estimate/describe, don't mutate the shared stub.
+- Fixtures .parse() through their schema, never `as MenuItem`
+  (ws15.test.ts:10-13 is the exemplar; PROGRESS/AEH-227 rule).
 
+## Design (Warm Ledger is live on master — globals.css:3-17)
 
-## Audit-tooling interaction (important, cost me two wrong attempts)
-`@repo/audit`'s discoverJsonKeys finds which keys a Json column persists by
-requiring the `meta:` property's initializer to be a BARE ObjectLiteralExpression
-and fingerprinting sibling property names to attribute the model. Therefore:
-  - a loop over a key list  -> audit goes blind (verified: MenuItem.meta -> undefined)
-  - `satisfies MetaBlob<..>` -> ALSO blind (wraps node in SatisfiesExpression)
-  - bare literal + narrowed RETURN TYPE (CreateDataWithMeta) -> works, and still
-    enforces exhaustiveness. This is why the write helpers look the way they do.
-DO NOT "tidy" those literals into a helper or add `satisfies`.
+Colour contract is a stated rule: green settles, bronze is in flight, brick
+failed; "colour never travels alone — every pill carries its label"
+(pill.tsx:5). Inferred scope is unsettled => bronze. No fifth hue.
 
-## Verified gate impact (same test, baseline worktree at 4271478 vs now)
-gate 1 findings:      42 -> 38  (-4)
-audit:fields orphans: 46 -> 42  (-4)
-Removed: MenuItem.meta.requirementIds, RoleLineItem.meta.{id,requirementId,dependsOn}
-  -- no longer write-only because the helpers read them back.
-Added: NONE. MenuItem.injected avoided becoming an orphan by filtering
-  `where: { injected: false }` in promoteEstimate's query (a real consuming
-  read; `injected: row.injected` is classified as a WRITE, not a consumer).
-knip gate: zero new entries from packages/db/src/menu-item-mapping.ts.
+Metaphor: an inferred card is a MARGIN ANNOTATION — the bookkeeper noted it, the
+invoice didn't say it. NOT a broken card, so no amber warning badge.
 
-The stray "28" in my first baseline note was measured BEFORE `prisma generate`;
-regenerating the client shifted type attribution repo-wide. Ignore it.
+- Row (ItemRow, MenuCardEditor.tsx:452): bronze hairline margin rule in the
+  gutter + INFERRED micro-chip beside the title (the 9.5px idiom already used by
+  the "Off" chip at :530-534) + provenance line in text-ink-4
+  ("rate-limits · SOW §3.2"). NO background tint.
+  Do NOT reuse the hatch at :473-480 — that means DISABLED, a state an inferred
+  card can also be in.
+- Rollup split (the signature): RollupCard.tsx:65-72 already discloses a subset
+  against the headline ("N items switched off"). Same dashed-top-border pattern:
+    Total 412h / asked for 368h / inferred 44h.
+- Unreconciled panel: the STICKY RAIL below RollupCard. NOT RunControls —
+  RunControls.tsx:134-164 collapses to one line once hasMenu && (DONE||IDLE),
+  i.e. exactly when the estimator is editing.
+- Gate: Finalise (page.tsx:249-295) reads the open-finding count.
 
-## Tests added, all verified to have TEETH
-packages/db/src/menu-item-mapping.test.ts (4 tests)
-  Fixture sets EVERY field away from its schema default on purpose -- the old
-  fabricated values were all defaults, so a default-valued fixture would pass
-  against the very bug being fixed.
-  Teeth check: removing meta read-back -> 3 of 4 fail.
-writeback-promote.test.ts
-  Rewrote the id-prefix test -> injected:true, and ADDED a test through
-  promoteEstimate (the DB path the old test could not reach).
-  Teeth check: restoring the old id-prefix guard -> both fail, the DB-path one
-  with "length 1 but got 2" = the placeholder WAS promoted. That is the bug.
-  Fixtures now parse through their schema instead of `as MenuItem`.
+## Post-approval Jira (not done yet)
 
-## FINAL STATE
-typecheck CLEAN. lint CLEAN. tests 3 failed / 337 passed / 1 skipped.
-All 3 failures pre-existing AEH-228 gates (2 field-audit + 1 knip), all present
-at 4271478. Test count rose 235 -> 337 passed because local docker postgres is
-now running (18 suites could not load before).
+- Rewrite AEH-263's description — decision ticket becoming implementation ticket.
+- Comment AEH-233: inferred-card hours are Specialist-derived, so they inherit
+  the recorded calibration gap (QA/PM/BA out of band on EVERY live run;
+  sow-simple at 160-190h for a 30-60h job). User asked for this flag twice.
+- Comment AEH-259: its corpus list predates HiddenWorkFinding; Oracle answers
+  "which risks were claimed" by reading it + coversRiskFlags.
+- Comment AEH-253: the audit-stage half of its register resolves by WIRING, not
+  deleting. Also note AEH-263 no longer blocks it in the "might delete" sense.
+- Comment AEH-251: items two and three remain open.
+- All writes via the jira-text skill, read back and diffed.
 
+## Push state
 
-## Production-data sweep (READ-ONLY, Neon dev/main, 2026-08-24) -- REQUIRED CHECK
-The read maps used to tolerate anything; MenuItemSchema.parse now THROWS. All
-tests used synthetic rows, so real data was the unchecked third input.
-  rows fetched: 77      parsed OK: 77      THREW: 0
-  MenuItem meta=null:     0/77      (so read-back IS exercised on real data)
-  RoleLineItem meta=null: 0/1925
-  distinct phase values: [null, Core, Foundation, Enhancement] -- all valid
-
-BEHAVIOUR CHANGE to know about: the read path is now strict where it was lenient.
-  - CategorySchema is z.string().trim().min(1) -> permissive; all 31 distinct
-    real category values pass. An EMPTY-STRING category would throw (none exist).
-  - PhaseSchema is z.enum([Foundation, Core, Enhancement]) but the DB column is
-    a free-form String?. This is the one field where a hand-edited DB value
-    would now make exportSheetsAction / promoteEstimate throw instead of
-    silently coercing.
-Deliberately NOT given a lenient fallback: silently dropping an invalid phase is
-the same "fabricate a default" pattern this ticket removes. phase is only ever
-written from PhaseSchema-validated pipeline output (the editor never writes it),
-so the only way a bad value gets in is direct DB manipulation, and that SHOULD
-fail loudly.
-
-## Commit hygiene
-An over-broad `git add -A` had bundled the pre-existing working-tree state
-(CLAUDE.md, repo-map.sh, WORKLOG.md deletion) into the migration commit.
-Split out into 99d30e2 via reset --soft + re-commit; resulting tree verified
-BYTE-IDENTICAL to the pre-rewrite tree. Nothing had been pushed.
-
-
-## CLOSED 2026-08-24
-Commits on master (oldest first):
-  99d30e2  chore: pre-existing working-tree state (NOT this ticket)
-  94bec0e  feat(db): MenuItem.injected column
-  33f73dc  refactor: one row<->domain mapping with a compile-time guard
-  0600dd4  test: round-trip + DB-path coverage
-  9554d62  docs: production-data sweep + strictness note
-
-Jira comments posted and ALL READ BACK AND DIFFED (no markup corruption):
-  AEH-227  full backtrace incl. the retraction         -> then transitioned Done
-  AEH-234  what changed for the preset rework + the open semantic-id question
-  AEH-229  exactly what B3 deferral leaves, + 2 gotchas that will bite it
-  AEH-253  injectInfraBaseline is dead; AND its headline count 42 -> 38
-
-Left for the user to decide (raised, not actioned):
-  - runHiddenWorkAudit is a built, tested, UNWIRED pipeline stage with no owning
-    ticket. Offered to file one.
-  - phase strictness: no lenient fallback added, deliberately. See above.
-
-
-## NOT PUSHED (as of 2026-08-24 close)
-master is 6 commits AHEAD of github/master. bitbucket origin/master is also still
-at 4271478. Nothing deployed: .github/workflows/ci.yml has only lint, typecheck
-and test jobs -- no deploy step -- so prod deploys come from Vercel's git
+master is 1 commit ahead of github/master (1e9fbb4, the grooming notes).
+bitbucket origin/master also behind. Nothing deployed — .github/workflows/ci.yml
+has lint/typecheck/test only, no deploy step; prod deploys come from Vercel's git
 integration on push. Awaiting the user's go-ahead to push.
-
-MIGRATION IS APPLIED though, to three databases:
-  Neon dev/main  ep-polished-credit   (what packages/db/.env + apps/web/.env.local point at)
-  local docker   localhost:5433
-  Neon test      ep-wild-heart
-CANNOT VERIFY from the repo whether prod uses ep-polished-credit -- there is no
-vercel.json and Vercel's env vars are not visible here. If it does, prod's DB has
-the column while prod's code does not use it yet. That is safe (additive NOT NULL
-column WITH a default; old code never selects it) and is the correct ordering for
-an additive change.
-
-## AEH-251 OVERLAP -- I re-derived a known bug
-AEH-251 item one (filed 2026-08-21 from the AEH-226 work) already documented the
-dead promotion guard in full: the id-prefix match, the cuid replacing it at
-persist, both injectors being unwired, and the test passing only on hand-built
-in-memory ids. I found it independently and reported it as new before finding the
-ticket. Commented on AEH-251 marking item one resolved; items two
-(perItemMultipliers computed and never consumed) and three (stale RoleLineItem
-schema comment) remain open.
-
-## AEH-263 FILED (Medium, Backlog, epic AEH-6)
-"Decide whether the audit stage ships -- all of audit.ts is unwired".
-Scoped as the PRODUCT decision, because the mechanical view is already owned:
-AEH-253 lists these among its 60 zero-caller exports and AEH-251 notes the
-injectors are unreachable; both would resolve by deleting. Broader than the user
-asked: ALL THREE audit.ts exports are unwired (runHiddenWorkAudit,
-runValidationAudit, acknowledgeUnreconciled), not just the one.
-Linked Relates to AEH-227, AEH-251, AEH-253.
-
-
-## GROOMING 2026-08-27 (epic AEH-6)
-State at open: 52 Done, 25 open -- ALL 25 in Backlog. Zero in Selected for
-Development, zero In Progress. Last close was AEH-227 on 08-24; user confirmed
-no work done in the three days since. Board is not tracking WIP.
-
-HEADLINE: the preset-rework chain is unblocked. AEH-234's only two blockers
-(AEH-226, AEH-227) both closed on 08-21/08-24. AEH-244 is the entry point.
-
-### Applied (10 writes, all read back and verified)
-Summaries retitled count-free -- the old numbers had already gone stale once
-(AEH-227's work moved 42 orphaned fields to 38), so hardcoding 38 would just
-go stale again. Counts now live in comments only:
-  AEH-253  "Clear the orphan register -- orphaned fields and zero-caller
-            exports (counts tracked in comments)"
-  AEH-251  "Estimation-path claims that don't hold -- see comments for what
-            remains"   (item one was resolved under AEH-227; two remain)
-
-Priority:
-  AEH-263  Medium -> Highest
-
-New Blocks edges (verified direction: inward = blocker, outward = blocked):
-  118676  AEH-263 blocks AEH-253   cannot clear audit.ts zero-caller exports
-                                   before deciding whether audit ships. This
-                                   is why 263 was raised -- otherwise Highest
-                                   would sit blocked behind a Medium.
-  118677  AEH-240 blocks AEH-237   custodian before approval chains
-  118678  AEH-243 blocks AEH-245   3b is the controlled vocabulary FOR 3's
-                                   comparison signals
-  118679  AEH-244 blocks AEH-250
-  118680  AEH-244 blocks AEH-247
-  118681  AEH-244 blocks AEH-246   4, 5 and the QA/PM/BA column all mutate the
-                                   same flat row that 1 restructures
-
-Comment on AEH-232 (Sheets export): recorded that the read path is now strict
--- exportSheetsAction goes through MenuItemSchema.parse, PhaseSchema is an enum
-while the DB column is free-form nullable String, so an out-of-band phase value
-now throws instead of coercing. Includes the 08-24 Neon sweep result (77 menu
-items, 1925 role line items, zero bad rows) so whoever verifies live knows a
-failure there may be data, not the export.
-
-### Deliberately NOT changed
-AEH-230 (rename nonDev in supervisor-gates): left link-less. I proposed relating
-it to AEH-229 on role-taxonomy grounds; user said leave it alone. It is a
-standalone one-liner.
-AEH-259 (Oracle) staying High while its whole cluster (233, 235, 236, 238, 239,
-241) is Medium: NOT drift. User wants to work on Oracle soon. Do not "correct"
-this in a future groom.
-AEH-253 keeps Highest even though AEH-263 now blocks it -- only part of 253 is
-audit-related, and 253 still gates the 3 red tests (2 field-audit + 1 knip).
-
-### Open / raised, not actioned
-Two Relates links are now redundant, duplicated by the new Blocks edges:
-  118673  AEH-263 relates to AEH-253
-  118654  AEH-250 relates to AEH-244
-Flagged for removal; awaiting the user's yes/no. Non-destructive to leave.
-
-Prior groomings each got their own ticket (AEH-181 20-08, AEH-183, AEH-269
-24-08). No ticket filed for this session yet -- offered, not created.
-
-### jira-text discipline
-All 10 writes read back and diffed. The AEH-232 comment's write response showed
-newlines wrapping the auto-linked AEH-227 token; those did NOT persist to
-storage -- the stored form is a clean [AEH-227](url) with prose intact. Further
-confirmation that the write response shows a pre-storage conversion and must
-never be trusted. Summaries appear NOT to go through the markdown-to-wiki
-converter (em dashes and an apostrophe round-tripped byte-exact), but I still
-reworded a "+" to "and" rather than test that assumption on a P0 title.
