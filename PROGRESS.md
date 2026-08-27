@@ -307,3 +307,42 @@ FOLLOW-UPS FILED (all read back and diffed, one markup repair on AEH-277):
 - [ ] pnpm test:e2e
 - [ ] AEH-253 close-out comment + transition
 - [ ] push (both remotes) — awaiting the user's go-ahead
+
+## E2E DIAGNOSIS — a self-inflicted .next corruption, not a code defect
+
+Cost an hour, so it is written down.
+
+SYMPTOM. Every spec that logs in failed at `page.waitForURL(/\/dashboard/)`,
+60s timeout, button stuck on "Signing in...". /login was fine, bad-credentials
+was fine, and `POST /api/auth/callback/credentials` returned 200 — the login
+SUCCEEDED and the redirect target was what hung.
+
+CAUSE. /dashboard returned 500 with one error and no other:
+
+  ENOENT: copyfile
+    packages/db/src/generated/client/libquery_engine-debian-openssl-3.0.x.so.node
+    -> apps/web/.next/server/app/dashboard/libquery_engine-...so.node
+
+The SOURCE was a valid 16MB ELF. The DEST DIRECTORY did not exist and never got
+created, so @prisma/nextjs-monorepo-workaround-plugin's copy aborted the route
+build. Other Prisma routes (/api/auth/[...nextauth]) copied fine. It did NOT
+recover on retry — persistently 500 across restarts.
+
+WHAT IT WAS NOT. typecheck clean, lint clean, 346 unit tests pass including
+DB-backed ones. No module, import or type error in any log. And the discriminator:
+the SAME COMMIT served /dashboard 307 on a warm .next at 19:19, then 500 after I
+deleted .next, with no code change in between.
+
+WHAT IT ACTUALLY WAS. I had run `pkill -f 'next dev'` several times while servers
+were mid-compile. That leaves a half-written .next which then poisons every later
+compile of the affected route — deleting .next alone did not clear it because the
+next server was killed mid-rebuild too. After a plain `pnpm install` and a cold
+start on an unused port with nothing killed underneath it: /dashboard 307,
+ZERO ENOENTs.
+
+RULES FOR NEXT TIME.
+- Never pkill a next dev server mid-compile. Stop it cleanly or leave it.
+- A 500 on ONE route with an ENOENT into .next/server/app/<route>/ is a build
+  artefact problem, not application code. Check whether the DEST DIR exists
+  before reading the error as a missing binary — the message names the source.
+- Before blaming a change, find a discriminator: same commit, warm vs cold cache.
