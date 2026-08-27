@@ -308,9 +308,35 @@ FOLLOW-UPS FILED (all read back and diffed, one markup repair on AEH-277):
 - [ ] AEH-253 close-out comment + transition
 - [ ] push (both remotes) — awaiting the user's go-ahead
 
-## E2E DIAGNOSIS — a self-inflicted .next corruption, not a code defect
+## E2E DIAGNOSIS — WRONG TWICE, then found by the user opening the app
 
-Cost an hour, so it is written down.
+**The section below is superseded. Keeping it because the wrong reasoning is
+the lesson.** The real cause was a REAL BUG I introduced, fixed in f7ec642:
+
+  actions.ts carries 'use server'. EVERY export in such a module must be an
+  async function. I added two synchronous ones (cardFlags, lineEnvelope), which
+  fails the build of every route importing ANYTHING from that file.
+  dashboard/page.tsx does -> /dashboard 500 -> login appears to hang.
+
+WHY EVERY CHECK MISSED IT:
+  tsc clean        — it is a Next.js compiler rule, not a type rule
+  pnpm lint clean  — `next build` runs its own STRICTER eslint pass
+  346 tests pass   — vitest imports the module without 'use server' semantics
+  ONLY `next build` catches it. THE VERIFICATION PLAN HAD NO BUILD STEP.
+  => `pnpm --filter web build` is now mandatory before calling any UI work done.
+
+WHY I GOT IT WRONG TWICE. I curled /dashboard unauthenticated, got 307, and
+concluded the route was fine. A 307 comes from MIDDLEWARE, before the page
+component is ever built — it proves nothing about whether the route compiles.
+Both my "it works warm / breaks cold" data points had that same hole. A
+discriminator that cannot distinguish the two hypotheses is not evidence.
+
+RULE: to prove a protected route renders, build it (`next build`) or request it
+AUTHENTICATED. Never infer it from a middleware redirect.
+
+---
+
+## Superseded: the .next-corruption theory (wrong, kept for the reasoning)
 
 SYMPTOM. Every spec that logs in failed at `page.waitForURL(/\/dashboard/)`,
 60s timeout, button stuck on "Signing in...". /login was fine, bad-credentials
