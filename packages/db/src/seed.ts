@@ -136,7 +136,25 @@ async function main() {
       baCommunicationTaxPct: 10,
       qaRegressionBufferPct: 20,
       hiddenWorkBlocksFinalise: false,
-      infraBaseline: { devops: 24, environments: ['dev', 'staging', 'prod'] },
+      // Delivery overhead: work every project carries that no SOW names.
+      // Shape MUST match ProcessOverheadSchema (packages/agents/src/taxation.ts)
+      // or a run injects nothing and warns. Percentages, not flat hours —
+      // 24h of ceremony is 6% of a nine-month build and 120% of a two-week one.
+      //
+      // These are the complement of the tax percentages above, never a repeat of
+      // them: PM/BA comms tax prices those roles' own hours in a meeting, and
+      // process.meetings prices the DEV and QA seats at the same meeting; the QA
+      // regression buffer prices the sweep, process.ticket-reopens the per-reopen
+      // churn. Every hour is claimed by exactly one mechanism.
+      infraBaseline: {
+        items: [
+          { title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 8 } },
+          { title: 'Unit Testing', taxonomyKey: 'process.unit-testing', pct: { DEV: 10 } },
+          { title: 'Manual End-to-End Passes', taxonomyKey: 'process.manual-e2e', pct: { QA: 15 } },
+          { title: 'Meeting Attendance', taxonomyKey: 'process.meetings', pct: { DEV: 5, QA: 5 } },
+          { title: 'Ticket Re-open Churn', taxonomyKey: 'process.ticket-reopens', pct: { DEV: 5, QA: 5 } },
+        ],
+      },
       changeReason: 'bootstrap seed',
     };
     // Restore the full values on update too, so re-seeding over an existing v1

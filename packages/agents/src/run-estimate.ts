@@ -14,7 +14,7 @@ import { runDetective } from './detective';
 import { runArchivist } from './archivist';
 import { runComplexityScorecard } from './complexity';
 import { runSpecialistCouncil, type SpecialistContext } from './specialist';
-import { applyTaxationToMenuItems } from './taxation';
+import { applyTaxationToMenuItems, injectProcessOverhead, ProcessOverheadSchema } from './taxation';
 import { runArchitect } from './architect';
 import { computeRollup } from './rollup';
 import { checkSupervisorGates } from './supervisor-gates';
@@ -302,8 +302,29 @@ export async function runEstimate(
     qaRegressionBufferPct: config.qaRegressionBufferPct / 100,
   });
 
+  // ── 6b. Delivery overhead: the work every project carries and no SOW names ──
+  //
+  // After taxation, unlike the hidden-work stage above, and for the opposite
+  // reason: these are percentages OF the taxed hours, so taxing the result
+  // would compound. See injectProcessOverhead for how the split against
+  // pmCommunicationTaxPct / qaRegressionBufferPct is drawn.
+  //
+  // A config that does not parse injects nothing and says so loudly. Falling
+  // back to built-in defaults would quietly put hours nobody configured into a
+  // client-facing total, which is the habit this ticket exists to break.
+  const overheadParsed = ProcessOverheadSchema.safeParse(config.infraBaseline);
+  if (!overheadParsed.success) {
+    console.warn(
+      `[runEstimate] ${estimateId} delivery overhead not configured or malformed — no overhead cards injected. ` +
+        `Set it at /admin/config; expected {"items":[{"title","taxonomyKey","pct":{"DEV":8}}]}.`,
+    );
+  }
+  const withOverhead = overheadParsed.success
+    ? injectProcessOverhead(taxed, overheadParsed.data)
+    : taxed;
+
   // ── 7. Rollup (totals; computed for completeness/return value) ──────────────
-  computeRollup(taxed);
+  computeRollup(withOverhead);
 
   // ── 8. Deterministic SUPERVISOR-style invariant checks (see supervisor-gates.ts) ─
   const gateWarnings = checkSupervisorGates({
@@ -311,7 +332,7 @@ export async function runEstimate(
     archivistMatches: matches,
     riskFindings,
     specialistOutputs: allSpecialistOutputs,
-    menuItems: taxed,
+    menuItems: withOverhead,
     consistencyFlags: arch.consistencyFlags,
   });
   if (gateWarnings.length > 0) {
@@ -335,7 +356,7 @@ export async function runEstimate(
           await tx.roleLineItem.deleteMany({ where: { menuItemId: { in: ids } } });
           await tx.menuItem.deleteMany({ where: { id: { in: ids } } });
         }
-        for (const item of taxed) {
+        for (const item of withOverhead) {
           await tx.menuItem.create({ data: toMenuItemCreateData(item, estimateId) });
         }
         // What the audit found, and what became of it. Upserted rather than
@@ -403,7 +424,10 @@ export async function runEstimate(
     estimateId,
     status: 'REVIEW',
     complexityScore: complexity.score,
-    menuItemCount: arch.menuItems.length,
+    // Everything persisted, not just what the Architect assembled — inferred
+    // and overhead cards are rows on the estimate too, and a count that omitted
+    // them would disagree with the editor.
+    menuItemCount: withOverhead.length,
     gateWarnings,
   };
 }

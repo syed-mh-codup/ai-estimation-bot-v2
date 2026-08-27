@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyTaxation,
-  injectInfraBaseline,
+  injectProcessOverhead,
   parseTaxationConfig,
-  DEFAULT_INFRA_BASELINE,
+  DEFAULT_PROCESS_OVERHEAD,
   type TaxationConfig,
 } from './taxation';
 import { MenuItemSchema, RoleLineItemSchema, type RoleLineItem, type MenuItem } from '@repo/shared';
@@ -66,44 +66,79 @@ describe('WS14-01: Taxation — taxedHours = base * (1 + pct) per role from conf
   });
 });
 
-// ─── WS14-02: Infrastructure baseline injector ────────────────────────────────
+// ─── WS14-02: Delivery-overhead injector ─────────────────────────────────────
 
-describe('WS14-02: Infrastructure baseline — mandatory items injected once', () => {
-  it('injects baseline items from config into menu items', () => {
-    const menuItems: MenuItem[] = [makeMenuItem('item-1', [makeLineItem('DEV', 30)])];
-    const result = injectInfraBaseline(menuItems, DEFAULT_INFRA_BASELINE, config);
+describe('WS14-02: Delivery overhead — scales with the work it attaches to', () => {
+  it('charges each role a percentage of its asked-for hours', () => {
+    const menuItems: MenuItem[] = [makeMenuItem('item-1', [makeLineItem('DEV', 100)])];
+    const result = injectProcessOverhead(menuItems, {
+      items: [{ title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 8 } }],
+    });
 
-    const baselineItems = result.filter((m) => m.id.startsWith('baseline'));
-    expect(baselineItems.length).toBe(3); // env-setup, cicd, hypercare
+    const card = result.find((m) => m.taxonomyKey === 'process.code-review')!;
+    expect(card.injected).toBe(true);
+    expect(card.lineItems).toHaveLength(1);
+    expect(card.lineItems[0]!.baseHours).toBe(8);
   });
 
-  it('each baseline item has DEV/QA/PM/BA line items', () => {
-    const menuItems: MenuItem[] = [];
-    const result = injectInfraBaseline(menuItems, DEFAULT_INFRA_BASELINE, config);
+  /**
+   * The failure flat hours had: 24h of ceremony is 6% of a nine-month build and
+   * 120% of a two-week one. A percentage has to move with the project or it is
+   * the same bug in a different shape.
+   */
+  it('scales between a small and a large project', () => {
+    const spec = {
+      items: [{ title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 10 } }],
+    };
+    const small = injectProcessOverhead([makeMenuItem('s', [makeLineItem('DEV', 20)])], spec);
+    const large = injectProcessOverhead([makeMenuItem('l', [makeLineItem('DEV', 200)])], spec);
 
-    for (const baseline of result.filter((m) => m.id.startsWith('baseline'))) {
-      const roles = baseline.lineItems.map((li) => li.role);
-      expect(roles).toContain('DEV');
-      expect(roles).toContain('QA');
-      expect(roles).toContain('PM');
+    const hoursOf = (r: MenuItem[]) =>
+      r.find((m) => m.taxonomyKey === 'process.code-review')!.lineItems[0]!.baseHours;
+    expect(hoursOf(small)).toBe(2);
+    expect(hoursOf(large)).toBe(20);
+  });
+
+  it('ignores injected cards, so overhead never compounds on overhead', () => {
+    const menuItems: MenuItem[] = [
+      makeMenuItem('asked-for', [makeLineItem('DEV', 100)]),
+      MenuItemSchema.parse({
+        id: 'hidden-rate-limits',
+        taxonomyKey: 'infra.rate-limit',
+        title: 'Rate Limit Management',
+        enabled: true,
+        injected: true,
+        lineItems: [{ role: 'DEV', baseHours: 100, taxedHours: 100, edited: false }],
+      }),
+    ];
+    const result = injectProcessOverhead(menuItems, {
+      items: [{ title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 10 } }],
+    });
+    // 10% of the 100 asked-for hours, not of all 200.
+    expect(result.find((m) => m.taxonomyKey === 'process.code-review')!.lineItems[0]!.baseHours).toBe(10);
+  });
+
+  it('skips a card whose roles all come to nothing', () => {
+    // No QA work on the estimate, so a QA-only overhead card would be 0h.
+    const result = injectProcessOverhead([makeMenuItem('item-1', [makeLineItem('DEV', 100)])], {
+      items: [{ title: 'Manual E2E', taxonomyKey: 'process.manual-e2e', pct: { QA: 15 } }],
+    });
+    expect(result.find((m) => m.taxonomyKey === 'process.manual-e2e')).toBeUndefined();
+  });
+
+  it('does not tax overhead again — the percentage was taken over taxed hours', () => {
+    const result = injectProcessOverhead([makeMenuItem('item-1', [makeLineItem('QA', 50)])], {
+      items: [{ title: 'Manual E2E', taxonomyKey: 'process.manual-e2e', pct: { QA: 20 } }],
+    });
+    const li = result.find((m) => m.taxonomyKey === 'process.manual-e2e')!.lineItems[0]!;
+    expect(li.taxedHours).toBe(li.baseHours);
+  });
+
+  it('every default item names a real seeded taxonomy node', () => {
+    for (const item of DEFAULT_PROCESS_OVERHEAD.items) {
+      expect(item.taxonomyKey.startsWith('process.')).toBe(true);
     }
-  });
-
-  it('idempotent — does not add baseline twice on second call', () => {
-    const menuItems: MenuItem[] = [];
-    const once = injectInfraBaseline(menuItems, DEFAULT_INFRA_BASELINE, config);
-    const twice = injectInfraBaseline(once, DEFAULT_INFRA_BASELINE, config);
-
-    const baselineOnce = once.filter((m) => m.id.startsWith('baseline')).length;
-    const baselineTwice = twice.filter((m) => m.id.startsWith('baseline')).length;
-    expect(baselineTwice).toBe(baselineOnce);
-  });
-
-  it('baseline items are enabled by default', () => {
-    const result = injectInfraBaseline([], DEFAULT_INFRA_BASELINE, config);
-    for (const item of result) {
-      expect(item.enabled).toBe(true);
-    }
+    expect(DEFAULT_PROCESS_OVERHEAD.items).toHaveLength(5);
   });
 });
 
