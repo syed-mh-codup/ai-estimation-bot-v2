@@ -50,6 +50,13 @@ const COLS =
   'grid grid-cols-[minmax(0,1fr)_0px_0px_0px_0px_72px] sm:grid-cols-[minmax(0,1fr)_52px_52px_52px_52px_66px] lg:grid-cols-[minmax(0,1fr)_66px_66px_66px_66px_84px] gap-1.5';
 /** Role cells hide with their column below `sm`. */
 const ROLE_CELL = 'hidden sm:block';
+/**
+ * The 9.5px chip already used for "Off" and "Inferred". Neutral on purpose:
+ * these say what a card IS, not that anything is wrong with it, and the colour
+ * contract reserves tone for state (green settles, bronze is in flight).
+ */
+const MICRO_CHIP =
+  'shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase';
 
 export function MenuCardEditor({ estimateId }: { estimateId: string }) {
   const {
@@ -465,6 +472,7 @@ function ItemRow({
   const key = `item:${item.id}`;
   const isCollapsed = collapsed.has(key);
   const roles = byRole(item);
+  const lockedOff = item.flags.notSafelyRemovable || !item.flags.toggleable;
 
   return (
     <div
@@ -549,6 +557,25 @@ function ItemRow({
               Inferred
             </span>
           )}
+          {item.flags.thinSlice && (
+            <span
+              className={MICRO_CHIP}
+              title="On the thin slice — the earliest path to something demoable"
+              data-testid={`item-thin-slice-${item.id}`}
+            >
+              Slice
+            </span>
+          )}
+          {item.flags.notSafelyRemovable && (
+            <span
+              className={MICRO_CHIP}
+              title="Other scope in this estimate depends on this card, so it can't be switched off"
+              data-testid={`item-locked-${item.id}`}
+            >
+              Load bearing
+            </span>
+          )}
+          <ItemProvenance item={item} />
         </div>
 
         {ROLES.map((r) => (
@@ -571,7 +598,15 @@ function ItemRow({
             <button
               type="button"
               onClick={() => onToggleItem(item.id, !item.enabled)}
-              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-3 hover:border-ink-4 hover:text-ink"
+              // Switching a card back ON is never gated — the judgment is about
+              // removing scope something else stands on, not about adding it.
+              disabled={item.enabled && lockedOff}
+              title={
+                item.enabled && lockedOff
+                  ? 'Other scope in this estimate depends on this card'
+                  : undefined
+              }
+              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-3 hover:border-ink-4 hover:text-ink disabled:cursor-not-allowed disabled:border-line-soft disabled:text-ink-4 disabled:hover:border-line-soft disabled:hover:text-ink-4"
               data-testid={`toggle-item-${item.id}`}
             >
               {item.enabled ? 'Disable' : 'Enable'}
@@ -619,6 +654,41 @@ function ItemRow({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Where a card came from, in the margin voice — phase and category are the
+ * Architect's own filing of it, and the preset match is what the Archivist
+ * anchored its hours to. All four were computed on every run and read by
+ * nothing, so an estimator questioning a number had no way to see whether it
+ * came from a close historical match or from nothing at all. AEH-253.
+ */
+function ItemProvenance({ item }: { item: ItemDTO }) {
+  const bits: string[] = [];
+  if (item.phase) bits.push(item.phase);
+  if (item.category) bits.push(item.category);
+  if (item.sourcePresetId) {
+    bits.push(
+      item.matchScore === null
+        ? `matched ${item.sourcePresetId}`
+        : `matched ${item.sourcePresetId} · ${item.matchScore.toFixed(2)}`,
+    );
+  }
+  if (bits.length === 0) return null;
+
+  return (
+    <span
+      className="hidden min-w-0 truncate text-[11px] text-ink-4 md:inline"
+      title={
+        item.sourcePresetId
+          ? 'Phase · category · the historical preset this card was priced against'
+          : 'Phase · category'
+      }
+      data-testid={`item-provenance-${item.id}`}
+    >
+      {bits.join(' · ')}
+    </span>
   );
 }
 

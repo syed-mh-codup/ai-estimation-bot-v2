@@ -21,7 +21,7 @@ import { LedgerProvider } from './ledger-context';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { ContentsCard } from './ContentsCard';
-import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
+import { updateNarrative, updateAssumptions, deleteEstimate, cardFlags } from './actions';
 import type { ItemDTO, SectionDTO } from './actions';
 
 type Role = 'DEV' | 'QA' | 'PM' | 'BA';
@@ -166,6 +166,11 @@ export default async function EstimateDetailPage({
     taxonomyKey: m.taxonomyKey,
     sectionId: m.sectionId,
     order: m.order,
+    category: m.category,
+    phase: m.phase,
+    sourcePresetId: m.sourcePresetId,
+    matchScore: m.matchScore,
+    flags: cardFlags(m.meta),
     lineItems: m.lineItems.map((li) => ({
       id: li.id,
       role: li.role,

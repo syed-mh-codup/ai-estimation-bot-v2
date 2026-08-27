@@ -55,7 +55,7 @@ type-decl count for NOTHING.
 ## Execution order (delete -> wire -> annotate; measure after every step)
 
 - [x] C1  deletions, driven to a knip fixpoint  (33->31 fields, 4->2 contract, 57->16 exports)
-- [ ] C2  MenuItem card DTO + setItemEnabled guard
+- [x] C2  MenuItem card DTO + setItemEnabled guard  (31 -> 24 fields)
 - [ ] C3  LineItemDTO envelope
 - [ ] C4  PresetVersion metadata
 - [ ] C5  version history (getChangeLog + per-entity lists)
@@ -137,3 +137,21 @@ Tests rewritten rather than deleted, so coverage moved instead of vanishing:
 Remaining 16 exports all have a disposition:
   C5 getChangeLog | C6 encryptSecret/decryptSecret/buildMcpProvider
   C8 DetectiveInput | C9 the rest (baseline-with-ticket or delete)
+
+### C2 done — MenuItem card DTO + the toggle gate
+
+  fields 31 -> 24. All SEVEN MenuItem findings cleared in one pass:
+  category, phase, sourcePresetId, matchScore, meta.toggleable,
+  meta.notSafelyRemovable, meta.thinSlice.
+  tests 3 failed / 314 passed (+11 new). typecheck + lint clean.
+
+R1 held exactly as predicted. `flags: CardFlags` is NESTED on ItemDTO on
+purpose — flattening toggleable/thinSlice alongside category/phase would have
+let the MenuItem.meta pseudo-model outscore MenuItem on every read of the DTO
+and orphaned the columns instead of clearing them. The rationale is written
+into actions.ts so nobody "tidies" it later.
+
+sourcePresetId + matchScore were the two FALSE ORPHANS. They now have honest UI
+consumers (the provenance line) rather than being argued away — an estimator
+questioning a number can finally see whether it came from a close historical
+match or from nothing.

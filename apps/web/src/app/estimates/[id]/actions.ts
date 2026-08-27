@@ -43,8 +43,57 @@ export type LineItemDTO = Pick<
 >;
 export type ItemDTO = Pick<
   MenuItemRow,
-  'id' | 'title' | 'enabled' | 'taxonomyKey' | 'sectionId' | 'order' | 'injected'
-> & { lineItems: LineItemDTO[] };
+  | 'id'
+  | 'title'
+  | 'enabled'
+  | 'taxonomyKey'
+  | 'sectionId'
+  | 'order'
+  | 'injected'
+  | 'category'
+  | 'phase'
+  | 'sourcePresetId'
+  | 'matchScore'
+> & { flags: CardFlags; lineItems: LineItemDTO[] };
+
+/**
+ * The Architect's per-card judgment, which lives in `MenuItem.meta` rather than
+ * in columns of its own.
+ *
+ * Kept as a NESTED object rather than flattened onto `ItemDTO`, and that is not
+ * a style choice. The field audit attributes a property read by structural
+ * overlap against each model's field set, and it builds a pseudo-model for each
+ * Json column whose fields are `model columns UNION discovered keys` — a strict
+ * superset of the model. Mixing `toggleable`/`thinSlice` into the same
+ * top-level shape as `category`/`phase` would make that pseudo-model outscore
+ * `MenuItem` on every read of this DTO, silently re-attributing the column
+ * reads below and orphaning columns that are consumed today. Nested, the two
+ * shapes are scored separately and both resolve correctly. See AEH-253.
+ */
+export type CardFlags = {
+  /** False when the Architect says this card is not the estimator's to switch off. */
+  toggleable: boolean;
+  /** Another requirement declares a Requires-edge onto this card's work. */
+  notSafelyRemovable: boolean;
+  /** Part of the earliest demoable path through the estimate. */
+  thinSlice: boolean;
+};
+
+/**
+ * Read the flags out of a persisted card, permissively.
+ *
+ * Absent meta means an ordinary card, never a locked one: rows predating the
+ * envelope, and the e2e fixtures, are created with no `meta` at all, and the
+ * safe reading of "the Architect never said" is "the estimator decides".
+ */
+export function cardFlags(meta: MenuItemRow['meta']): CardFlags {
+  const m = (meta ?? {}) as Partial<CardFlags>;
+  return {
+    toggleable: m.toggleable !== false,
+    notSafelyRemovable: m.notSafelyRemovable === true,
+    thinSlice: m.thinSlice === true,
+  };
+}
 export type SectionDTO = Pick<EstimateSectionRow, 'id' | 'title' | 'order'>;
 
 async function requireSession(): Promise<void> {
@@ -172,9 +221,16 @@ export async function createMenuItem(estimateId: string, sectionId: string | nul
       sectionId: true,
       order: true,
       injected: true,
+      category: true,
+      phase: true,
+      sourcePresetId: true,
+      matchScore: true,
+      meta: true,
     },
   });
-  return { ...item, lineItems: [] };
+  // A hand-added card carries no Architect judgment, so `cardFlags` gives it the
+  // permissive defaults — freely toggleable, not on the thin slice.
+  return { ...item, flags: cardFlags(item.meta), lineItems: [] };
 }
 
 export async function renameMenuItem(id: string, title: string): Promise<void> {
@@ -183,9 +239,37 @@ export async function renameMenuItem(id: string, title: string): Promise<void> {
   await prisma.menuItem.update({ where: { id }, data: { title: title.trim() || 'Untitled item' } });
 }
 
+/**
+ * Switch a card in or out of the estimate.
+ *
+ * The Architect marks a card `notSafelyRemovable` when another requirement
+ * declares a Requires-edge onto its work — switching it off does not remove
+ * scope, it removes scope something else is standing on. That judgment was
+ * computed and persisted on every run and then read by nothing, so the editor
+ * happily let a BA switch off a foundation card the pipeline knew was load
+ * bearing. This is the gate; the disabled button in the editor is the courtesy.
+ */
 export async function setItemEnabled(id: string, enabled: boolean): Promise<void> {
   await requireSession();
-  await assertEditable(await estimateIdForItem(id));
+  const item = await prisma.menuItem.findUnique({
+    where: { id },
+    select: { estimateId: true, title: true, meta: true },
+  });
+  if (!item) throw new Error('Menu item not found');
+  await assertEditable(item.estimateId);
+
+  if (!enabled) {
+    const flags = cardFlags(item.meta);
+    if (flags.notSafelyRemovable) {
+      throw new Error(
+        `"${item.title}" can't be switched off — other scope in this estimate depends on it.`,
+      );
+    }
+    if (!flags.toggleable) {
+      throw new Error(`"${item.title}" is not optional scope.`);
+    }
+  }
+
   await prisma.menuItem.update({ where: { id }, data: { enabled } });
 }
 
