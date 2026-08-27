@@ -254,3 +254,72 @@ injectors are unreachable; both would resolve by deleting. Broader than the user
 asked: ALL THREE audit.ts exports are unwired (runHiddenWorkAudit,
 runValidationAudit, acknowledgeUnreconciled), not just the one.
 Linked Relates to AEH-227, AEH-251, AEH-253.
+
+
+## GROOMING 2026-08-27 (epic AEH-6)
+State at open: 52 Done, 25 open -- ALL 25 in Backlog. Zero in Selected for
+Development, zero In Progress. Last close was AEH-227 on 08-24; user confirmed
+no work done in the three days since. Board is not tracking WIP.
+
+HEADLINE: the preset-rework chain is unblocked. AEH-234's only two blockers
+(AEH-226, AEH-227) both closed on 08-21/08-24. AEH-244 is the entry point.
+
+### Applied (10 writes, all read back and verified)
+Summaries retitled count-free -- the old numbers had already gone stale once
+(AEH-227's work moved 42 orphaned fields to 38), so hardcoding 38 would just
+go stale again. Counts now live in comments only:
+  AEH-253  "Clear the orphan register -- orphaned fields and zero-caller
+            exports (counts tracked in comments)"
+  AEH-251  "Estimation-path claims that don't hold -- see comments for what
+            remains"   (item one was resolved under AEH-227; two remain)
+
+Priority:
+  AEH-263  Medium -> Highest
+
+New Blocks edges (verified direction: inward = blocker, outward = blocked):
+  118676  AEH-263 blocks AEH-253   cannot clear audit.ts zero-caller exports
+                                   before deciding whether audit ships. This
+                                   is why 263 was raised -- otherwise Highest
+                                   would sit blocked behind a Medium.
+  118677  AEH-240 blocks AEH-237   custodian before approval chains
+  118678  AEH-243 blocks AEH-245   3b is the controlled vocabulary FOR 3's
+                                   comparison signals
+  118679  AEH-244 blocks AEH-250
+  118680  AEH-244 blocks AEH-247
+  118681  AEH-244 blocks AEH-246   4, 5 and the QA/PM/BA column all mutate the
+                                   same flat row that 1 restructures
+
+Comment on AEH-232 (Sheets export): recorded that the read path is now strict
+-- exportSheetsAction goes through MenuItemSchema.parse, PhaseSchema is an enum
+while the DB column is free-form nullable String, so an out-of-band phase value
+now throws instead of coercing. Includes the 08-24 Neon sweep result (77 menu
+items, 1925 role line items, zero bad rows) so whoever verifies live knows a
+failure there may be data, not the export.
+
+### Deliberately NOT changed
+AEH-230 (rename nonDev in supervisor-gates): left link-less. I proposed relating
+it to AEH-229 on role-taxonomy grounds; user said leave it alone. It is a
+standalone one-liner.
+AEH-259 (Oracle) staying High while its whole cluster (233, 235, 236, 238, 239,
+241) is Medium: NOT drift. User wants to work on Oracle soon. Do not "correct"
+this in a future groom.
+AEH-253 keeps Highest even though AEH-263 now blocks it -- only part of 253 is
+audit-related, and 253 still gates the 3 red tests (2 field-audit + 1 knip).
+
+### Open / raised, not actioned
+Two Relates links are now redundant, duplicated by the new Blocks edges:
+  118673  AEH-263 relates to AEH-253
+  118654  AEH-250 relates to AEH-244
+Flagged for removal; awaiting the user's yes/no. Non-destructive to leave.
+
+Prior groomings each got their own ticket (AEH-181 20-08, AEH-183, AEH-269
+24-08). No ticket filed for this session yet -- offered, not created.
+
+### jira-text discipline
+All 10 writes read back and diffed. The AEH-232 comment's write response showed
+newlines wrapping the auto-linked AEH-227 token; those did NOT persist to
+storage -- the stored form is a clean [AEH-227](url) with prose intact. Further
+confirmation that the write response shows a pre-storage conversion and must
+never be trusted. Summaries appear NOT to go through the markdown-to-wiki
+converter (em dashes and an apostrophe round-tripped byte-exact), but I still
+reworded a "+" to "and" rather than test that assumption on a P0 title.
