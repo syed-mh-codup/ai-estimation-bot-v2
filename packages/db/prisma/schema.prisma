@@ -241,7 +241,10 @@ model PresetVersion {
   /// estimate as one figure may be revisited and this data can't be recovered.
   /// NULL on every version created after consolidation — meaning "not tracked",
   /// which is why these are nullable rather than 0.
+  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited. Surfacing it would invite anchoring on a split the estimator no longer produces.
   beHours          Int?
+  /// The frontend half of the same archived split; see beHours above.
+  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited. Surfacing it would invite anchoring on a split the estimator no longer produces.
   feHours          Int?
   platforms        String[]
   reqType          String

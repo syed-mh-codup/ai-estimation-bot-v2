@@ -290,25 +290,6 @@ async function embedVersionRow(
   return true;
 }
 
-/**
- * Generate and store embeddings for promoted PresetVersions.
- * After this, Archivist can match previously promoted items.
- */
-export async function embedPromotedPresets(
-  db: PrismaClient,
-  presetIds: string[],
-  embeddingProvider: IEmbeddingProvider,
-): Promise<void> {
-  for (const presetId of presetIds) {
-    const version = await db.presetVersion.findFirst({
-      where: { presetId, active: true },
-      select: { id: true, name: true, description: true, keywords: true, notes: true, userStoryTags: true },
-    });
-    if (!version) continue;
-    await embedVersionRow(db, version, embeddingProvider);
-  }
-}
-
 export type BackfillResult = {
   /** Rows that had no vector at all — invisible to the Archivist until now. */
   missing: number;

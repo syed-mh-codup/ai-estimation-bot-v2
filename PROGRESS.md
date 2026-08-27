@@ -62,7 +62,7 @@ type-decl count for NOTHING.
 - [x] C6  MCP provider/auth/wiring  (10 -> 9 fields, 9 -> 6 exports)
 - [x] C7  diagnostics panel + agentState column read  (9 -> 2 fields)
 - [x] C8  runDetective parses DetectiveInputSchema  (2 -> 0 contract, 6 -> 5 exports)
-- [ ] C9  annotations + knip baseline, against the FINAL register
+- [x] C9  annotations + knip baseline, against the FINAL register  ALL GATES GREEN
 
 ## Landmines (each already cost someone time)
 
@@ -261,3 +261,37 @@ CAUGHT A GREEN-FOR-THE-WRONG-REASON, and it is worth remembering:
 ISearchProvider gained a `name`. A citation grounded in a live Tavily search and
 one produced with the stub in place are not worth the same, and nothing recorded
 which an estimate got.
+
+### C9 done — ALL THREE GATES GREEN
+
+  orphan-field audit: 150 audited, 148 consumed, 2 exempt, 0 finding(s)
+  contract-field audit: 0 finding(s)
+  zero-caller export check: clean
+  pnpm test: 48 files, 346 passed, 0 FAILED   <- the done signal
+  typecheck + lint clean.
+
+  Exactly 2 exempt, both @backend-only on PresetVersion.beHours/feHours,
+  restating the retention rationale already in the schema doc comment.
+  knip baseline has exactly 3 entries, each defensible on its own:
+    DEFAULT_COMPLEXITY_RULES  shared fixture, 5 test files
+    DEFAULT_PROCESS_OVERHEAD  shared fixture, deliberately NOT a prod fallback
+    recordActuals             real capability, no way in -> AEH-276
+
+  Last deletions: reorderSections (server half of section drag; the client half
+  was never written) and embedPromotedPresets (strictly weaker than
+  backfillPresetEmbeddings, which is the wired path and takes the same
+  presetIds argument — its test now goes through the real one).
+
+FOLLOW-UPS FILED (all read back and diffed, one markup repair on AEH-277):
+  AEH-276 Medium  post-delivery actuals loop (recordActuals has no way in)
+  AEH-277 Medium  the field-audit attribution defect (Json pseudo-model steals
+                  attribution from its own model; the 2 false orphans)
+  AEH-278 Low     runEstimate has no cache; pinVersions is a prerequisite
+
+## STILL TO DO
+
+- [ ] pnpm db:embed:presets on all 3 DBs (45 rows stale since C4 widened
+      presetEmbeddingText). NOTE the packages/db/.env-points-at-Neon trap.
+- [ ] pnpm test:e2e
+- [ ] AEH-253 close-out comment + transition
+- [ ] push (both remotes) — awaiting the user's go-ahead

@@ -4,7 +4,27 @@
     "Entries knip reports that are NOT listed here fail the build.",
     "Entries listed here that knip NO LONGER reports also fail the build — delete them.",
     "Every entry needs a reason of at least 12 characters; add a ticket (AEH-###) when it is debt rather than intent.",
-    "Deliberately empty: per the AEH-228 decision, known dead exports are NOT given baseline cover. The check is meant to fail on them until the umbrella follow-up ticket lands."
+    "AEH-253 cleared the register this file was left empty for: 57 zero-caller exports became 3. Two of the three are intentional and permanent; the third is a feature with a ticket. Keep it that way — a baseline is only worth having while every line in it is defensible on its own."
   ],
-  "entries": []
+  "entries": [
+    {
+      "type": "exports",
+      "file": "packages/agents/src/complexity.ts",
+      "name": "DEFAULT_COMPLEXITY_RULES",
+      "reason": "Shared test fixture, deliberately not a production fallback. Production reads complexityRules from the active EstimationConfig; five test files need a known-good rule set to assert scoring against, and duplicating it into each of them is how they drift apart."
+    },
+    {
+      "type": "exports",
+      "file": "packages/agents/src/taxation.ts",
+      "name": "DEFAULT_PROCESS_OVERHEAD",
+      "reason": "Shared test fixture, and deliberately NOT reachable from the run path. run-estimate refuses to fall back on a malformed config rather than using this, because built-in defaults would quietly put hours nobody configured into a client-facing total. Wiring it up would undo that decision."
+    },
+    {
+      "type": "exports",
+      "file": "packages/agents/src/writeback.ts",
+      "name": "recordActuals",
+      "reason": "Implemented and tested post-delivery calibration with no way in. Kept rather than deleted because the preset library currently learns from estimates and never from what delivery actually cost, and this is the mechanism that closes that.",
+      "ticket": "AEH-276"
+    }
+  ]
 }

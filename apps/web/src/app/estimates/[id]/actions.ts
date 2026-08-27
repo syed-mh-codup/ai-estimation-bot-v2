@@ -220,16 +220,6 @@ export async function deleteSection(id: string): Promise<void> {
   await prisma.estimateSection.delete({ where: { id } });
 }
 
-export async function reorderSections(estimateId: string, orderedIds: string[]): Promise<void> {
-  await requireSession();
-  await assertEditable(estimateId);
-  await prisma.$transaction(
-    orderedIds.map((id, index) =>
-      prisma.estimateSection.update({ where: { id }, data: { order: index } }),
-    ),
-  );
-}
-
 // ─── Menu items ───────────────────────────────────────────────────────────────
 
 export async function createMenuItem(estimateId: string, sectionId: string | null): Promise<ItemDTO> {

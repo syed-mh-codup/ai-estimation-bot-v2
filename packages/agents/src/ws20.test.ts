@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
 import {
+  backfillPresetEmbeddings,
   promoteMenuItemsToPresets,
-  embedPromotedPresets,
   recordActuals,
 } from './writeback';
 import type { IEmbeddingProvider } from '@repo/providers';
@@ -115,10 +115,16 @@ describe('WS20-01: Finalise — promote menu items to PresetVersions', () => {
 // ─── WS20-02: Generate + store embeddings for promoted rows ───────────────────
 
 describe('WS20-02: Embeddings stored for promoted presets', () => {
-  it('embedPromotedPresets stores embeddings so Archivist can match them', async () => {
+  /**
+   * Through `backfillPresetEmbeddings`, which is the wired path: the inngest
+   * promotion handler calls it with exactly these presetIds. `embedPromotedPresets`
+   * did the same job without the staleness check or the per-row error tolerance,
+   * had no production caller, and was deleted in AEH-253.
+   */
+  it('promoted presets get embeddings so the Archivist can match them', async () => {
     vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(400)]);
 
-    await embedPromotedPresets(db, promotedPresetIds, mockEmbedding);
+    await backfillPresetEmbeddings(db, mockEmbedding, { presetIds: promotedPresetIds });
 
     // Verify embedding was stored
     for (const presetId of promotedPresetIds) {
