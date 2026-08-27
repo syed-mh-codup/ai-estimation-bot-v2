@@ -354,6 +354,22 @@ describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
   let riskyEstimateId = '';
 
   beforeAll(async () => {
+    // Give this estimate real overhead config. The file-level fixture uses `{}`
+    // deliberately (the suites above count menu items exactly), and this describe
+    // runs last, so switching it on here exercises the injector end-to-end
+    // without disturbing them.
+    await db.estimationConfig.updateMany({
+      where: { active: true },
+      data: {
+        infraBaseline: {
+          items: [
+            { title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 10 } },
+            { title: 'Manual End-to-End Passes', taxonomyKey: 'process.manual-e2e', pct: { QA: 20 } },
+          ],
+        },
+      },
+    });
+
     const est = await db.estimate.create({
       data: {
         title: 'Hidden Work Test',
@@ -383,11 +399,34 @@ describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
 
   it('costs an unclaimed known flag into a card marked injected', async () => {
     const injected = await db.menuItem.findMany({
-      where: { estimateId: riskyEstimateId, injected: true },
+      where: { estimateId: riskyEstimateId, injected: true, taxonomyKey: { startsWith: 'infra.' } },
       include: { lineItems: true },
     });
     expect(injected).toHaveLength(1);
     expect(injected[0]!.taxonomyKey).toBe('infra.rate-limit');
+  });
+
+  it('injects delivery overhead as a percentage of the asked-for work', async () => {
+    const overhead = await db.menuItem.findMany({
+      where: { estimateId: riskyEstimateId, taxonomyKey: { startsWith: 'process.' } },
+      include: { lineItems: true },
+      orderBy: { taxonomyKey: 'asc' },
+    });
+    expect(overhead.map((m) => m.taxonomyKey)).toEqual([
+      'process.code-review',
+      'process.manual-e2e',
+    ]);
+    for (const card of overhead) expect(card.injected).toBe(true);
+
+    // Sized off the ASKED-FOR card only. The stub gives one requirement 3.5h per
+    // role; DEV is untaxed, so 10% of 3.5 rounds to 0.25h at quarter-hour
+    // granularity. The inferred rate-limit card's own 3.5h DEV must NOT count,
+    // or overhead would be compounding on overhead.
+    const review = overhead.find((m) => m.taxonomyKey === 'process.code-review')!;
+    const dev = review.lineItems.find((li) => li.role === 'DEV')!;
+    expect(dev.baseHours).toBe(0.25);
+    // Percentages were taken over taxed hours, so these are not taxed again.
+    expect(dev.taxedHours).toBe(dev.baseHours);
   });
 
   it('gives the injected card the council hours, not a flat default', async () => {
