@@ -35,6 +35,9 @@ test.describe('WS24-05: prompts admin — edit creates a new active version', ()
     // Edit the body and save → new active version.
     const newBody = `Edited librarian prompt ${Date.now()}`;
     await page.fill('#body', newBody);
+    // A change reason is required — a prompt edit moves every estimate's numbers,
+    // so the record has to say why.
+    await page.fill('#changeReason', 'e2e: exercising the versioned save path');
     await page.getByTestId('save-prompt').click();
 
     await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);

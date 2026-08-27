@@ -20,8 +20,10 @@ test.describe('WS24-04: config admin — edit creates a new active version', () 
     const before = (await versionBadge.textContent()) ?? 'v0';
     const beforeNum = Number(before.replace(/[^0-9]/g, ''));
 
-    // Change a value and save → new active version.
+    // Change a value and save → new active version. The reason is required:
+    // every version is kept, so what a reader needs later is why, not what.
     await page.fill('#pmCommunicationTaxPct', '42');
+    await page.fill('#changeReason', 'e2e: exercising the versioned save path');
     await page.getByTestId('save-config').click();
 
     await expect(versionBadge).toHaveText(`v${beforeNum + 1}`);

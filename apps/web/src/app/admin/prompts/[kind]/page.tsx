@@ -2,12 +2,25 @@ import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@repo/db';
-import type { AgentKind } from '@repo/db';
+import type { AgentKind, ChangeMotivation } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
-import { Input, Textarea, FieldLabel } from '@/components/ui/input';
+import { Input, Textarea, FieldLabel, Select } from '@/components/ui/input';
+
+const MOTIVATIONS: ChangeMotivation[] = [
+  'CORRECTION',
+  'NEW_PROCESS',
+  'POST_DELIVERY_VALIDATION',
+  'TECH_ADVANCEMENT',
+  'UPSKILL',
+  'OTHER',
+];
+
+function isMotivation(v: string): v is ChangeMotivation {
+  return (MOTIVATIONS as string[]).includes(v);
+}
 
 const AGENT_KINDS: AgentKind[] = [
   'SUPERVISOR',
@@ -27,13 +40,27 @@ function isAgentKind(v: string): v is AgentKind {
 
 async function savePrompt(formData: FormData) {
   'use server';
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const kindRaw = formData.get('kind');
   const body = (formData.get('body') as string | null)?.trim();
   const modelString = (formData.get('modelString') as string | null)?.trim();
-  if (typeof kindRaw !== 'string' || !isAgentKind(kindRaw) || !body || !modelString) return;
+  const changeReason = (formData.get('changeReason') as string | null)?.trim();
+  const motivationRaw = formData.get('changeMotivation');
+  const changeMotivation =
+    typeof motivationRaw === 'string' && isMotivation(motivationRaw) ? motivationRaw : 'OTHER';
+  if (typeof kindRaw !== 'string' || !isAgentKind(kindRaw) || !body || !modelString || !changeReason) {
+    return;
+  }
   const kind = kindRaw;
+
+  // A prompt edit changes what every estimate is worth. Whoever made it should
+  // be on the record — the detail page has an Author row and nothing was ever
+  // filling it.
+  const author = await prisma.user.findUnique({
+    where: { id: admin.id },
+    select: { email: true },
+  });
 
   const last = await prisma.promptVersion.findFirst({
     where: { kind },
@@ -52,7 +79,9 @@ async function savePrompt(formData: FormData) {
         body,
         modelString,
         active: true,
-        changeReason: 'edited via admin',
+        changeReason,
+        changeMotivation,
+        createdBy: author?.email ?? null,
       },
     }),
   ]);
@@ -129,6 +158,38 @@ export default async function PromptEditorPage({
                 defaultValue={active.body}
                 className="font-mono text-[12.5px] leading-relaxed"
               />
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card className="mt-3.5">
+          <CardBody>
+            <Eyebrow>Why</Eyebrow>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              A prompt edit changes what every estimate is worth. The body diff shows what moved;
+              this is the only place the reason survives.
+            </p>
+            <div className="mt-3.5 grid gap-3.5 sm:grid-cols-[1fr_auto]">
+              <div>
+                <FieldLabel htmlFor="changeReason">Change reason</FieldLabel>
+                <Input
+                  id="changeReason"
+                  name="changeReason"
+                  required
+                  placeholder="Tightened the decomposition rule — cards were coming back over 4h"
+                  data-testid="prompt-change-reason"
+                />
+              </div>
+              <div>
+                <FieldLabel htmlFor="changeMotivation">Motivation</FieldLabel>
+                <Select id="changeMotivation" name="changeMotivation" defaultValue="CORRECTION">
+                  {MOTIVATIONS.map((m) => (
+                    <option key={m} value={m}>
+                      {m.toLowerCase().replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
           </CardBody>
         </Card>
