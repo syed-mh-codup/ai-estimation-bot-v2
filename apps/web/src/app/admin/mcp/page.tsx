@@ -1,7 +1,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
-import { LiveMcpProvider } from '@repo/providers';
+import { LiveMcpProvider, encryptSecret, decryptSecret } from '@repo/providers';
 import { requireAdmin } from '@/lib/rbac';
 import { Card, CardBody, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
@@ -15,10 +15,27 @@ async function addConnector(formData: FormData) {
   const name = (formData.get('name') as string | null)?.trim();
   const transport = (formData.get('transport') as string | null)?.trim();
   const endpoint = (formData.get('endpoint') as string | null)?.trim();
+  const secret = (formData.get('authSecret') as string | null)?.trim();
   if (!name || !transport || !endpoint) return;
 
+  // Optional: plenty of MCP servers are open, and requiring a token would make
+  // the common case harder for no benefit. Stored encrypted when given —
+  // `authRef` holds the ciphertext, never the token.
+  let authRef: string | null = null;
+  if (secret) {
+    const masterKey = process.env['ENCRYPTION_KEY'];
+    if (!masterKey) {
+      redirect(
+        `/admin/mcp?tested=${encodeURIComponent(name)}&ok=false&detail=${encodeURIComponent(
+          'ENCRYPTION_KEY is not set on this environment, so a connector secret cannot be stored.',
+        )}`,
+      );
+    }
+    authRef = encryptSecret(secret, masterKey);
+  }
+
   await prisma.mcpConnector.create({
-    data: { name, transport, endpoint, enabled: false },
+    data: { name, transport, endpoint, authRef, enabled: false },
   });
   revalidatePath('/admin/mcp');
 }
@@ -45,10 +62,26 @@ async function testConnector(formData: FormData) {
   const connector = await prisma.mcpConnector.findUnique({ where: { id } });
   if (!connector) return;
 
-  // Actually connect to the MCP server and list its tools.
+  // Actually connect to the MCP server and list its tools — authenticating the
+  // same way a run will, so a green Test means the estimate path will work
+  // rather than only that the host answers.
+  let authSecret: string | undefined;
+  if (connector.authRef) {
+    const masterKey = process.env['ENCRYPTION_KEY'];
+    if (!masterKey) {
+      redirect(
+        `/admin/mcp?tested=${encodeURIComponent(connector.name)}&ok=false&detail=${encodeURIComponent(
+          'This connector has a stored secret but ENCRYPTION_KEY is not set on this environment.',
+        )}`,
+      );
+    }
+    authSecret = decryptSecret(connector.authRef, masterKey);
+  }
+
   const result = await new LiveMcpProvider().testConnector(
     connector.endpoint,
     connector.transport,
+    authSecret,
   );
   await prisma.mcpConnector.update({ where: { id }, data: { lastTestOk: result.ok } });
 
@@ -125,6 +158,17 @@ export default async function McpAdminPage({
               <FieldLabel htmlFor="endpoint">Endpoint</FieldLabel>
               <Input id="endpoint" name="endpoint" required placeholder="https://…" className="num" />
             </div>
+            <div className="min-w-[180px]">
+              <FieldLabel htmlFor="authSecret">Token (optional)</FieldLabel>
+              <Input
+                id="authSecret"
+                name="authSecret"
+                type="password"
+                autoComplete="off"
+                placeholder="leave blank if open"
+                data-testid="connector-secret"
+              />
+            </div>
             <Button type="submit" data-testid="add-connector">
               Add connector
             </Button>
@@ -163,7 +207,19 @@ export default async function McpAdminPage({
                     className="border-b border-line-soft last:border-0"
                     data-testid={`connector-row-${c.id}`}
                   >
-                    <td className="px-4 py-3 text-ink">{c.name}</td>
+                    <td className="px-4 py-3 text-ink">
+                      {c.name}
+                      {/* Whether a token is stored, never the token. */}
+                      {c.authRef && (
+                        <span
+                          className="ml-2 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase"
+                          title="A bearer token is stored for this connector, encrypted at rest"
+                          data-testid={`connector-authed-${c.id}`}
+                        >
+                          Token
+                        </span>
+                      )}
+                    </td>
                     <td className="num px-4 py-3 text-ink-2">{c.transport}</td>
                     <td className="px-4 py-3" data-testid={`connector-test-${c.id}`}>
                       {c.lastTestOk == null ? (

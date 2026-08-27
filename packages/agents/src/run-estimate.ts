@@ -5,7 +5,7 @@ import type {
   ISearchProvider,
   IMcpProvider,
 } from '@repo/providers';
-import { createSearchProvider, StubMcpProvider } from '@repo/providers';
+import { createSearchProvider, buildMcpProvider } from '@repo/providers';
 import type { ArchivistMatch, MenuItem, Requirement, RiskFinding, SpecialistOutput } from '@repo/shared';
 import { RequirementSchema } from '@repo/shared';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
@@ -94,7 +94,22 @@ export async function runEstimate(
   // without callers having to know which. An explicit dep still wins (tests
   // pass a stub deliberately).
   const searchProvider = deps.searchProvider ?? createSearchProvider();
-  const mcpProvider = deps.mcpProvider ?? new StubMcpProvider();
+  // Same contract as `createSearchProvider` above: the caller may inject one
+  // (tests do), and otherwise the run uses whatever the admin has actually
+  // configured. Until AEH-253 this line always built a stub, so a connector an
+  // admin had added, tested and enabled influenced exactly zero estimates.
+  //
+  // Unwrapped rather than inside a step: it is one cheap idempotent read, and
+  // only rows already marked enabled are considered.
+  const mcpProvider =
+    deps.mcpProvider ??
+    buildMcpProvider(
+      await db.mcpConnector.findMany({
+        where: { enabled: true },
+        select: { id: true, name: true, transport: true, endpoint: true, authRef: true, enabled: true },
+      }),
+      { masterKey: process.env['ENCRYPTION_KEY'] },
+    );
   // Progress is awaited so ticks can't interleave; pct weights are coarse but
   // monotonic so the UI bar only ever moves forward.
   const report = async (stage: string, pct: number): Promise<void> => {

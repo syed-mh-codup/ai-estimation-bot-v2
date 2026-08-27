@@ -43,7 +43,7 @@ describe('WS4-01: McpProvider tool discovery', () => {
       ['c1', SAMPLE_TOOLS],
       ['c2', SAMPLE_TOOLS],
     ]);
-    const provider = buildMcpProvider(connectors, stubbedTools);
+    const provider = buildMcpProvider(connectors, { stubbedTools });
     const allTools = await provider.listAllTools();
     const connectorIds = allTools.map((t) => t.connectorId);
     expect(connectorIds).toContain('c1');

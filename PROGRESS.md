@@ -59,7 +59,7 @@ type-decl count for NOTHING.
 - [x] C3  LineItemDTO envelope  (24 -> 21 fields)
 - [x] C4  PresetVersion metadata  (21 -> 14 fields)
 - [x] C5  version history (getChangeLog + per-entity lists)  (14 -> 10 fields, 16 -> 9 exports)
-- [ ] C6  MCP provider/auth/wiring
+- [x] C6  MCP provider/auth/wiring  (10 -> 9 fields, 9 -> 6 exports)
 - [ ] C7  diagnostics panel + agentState column read
 - [ ] C8  runDetective parses DetectiveInputSchema
 - [ ] C9  annotations + knip baseline, against the FINAL register
@@ -207,3 +207,29 @@ REMAINING 10 fields: 7 agentState (C7), authRef (C6), beHours/feHours (C9).
 REMAINING 9 exports: 3 MCP (C6), DetectiveInput (C8), reorderSections +
 DEFAULT_COMPLEXITY_RULES + DEFAULT_PROCESS_OVERHEAD + recordActuals +
 embedPromotedPresets (C9).
+
+### C6 done — MCP: the half-integration finished
+
+  fields 10 -> 9 (McpConnector.authRef). exports 9 -> 6 (encryptSecret,
+  decryptSecret, buildMcpProvider).
+  tests 3 failed / 340 passed (+13 new). typecheck + lint clean.
+
+Build order mattered and was followed:
+  1. IMcpProvider.testConnector widened to take an optional DECRYPTED secret.
+     Mandatory first: listTools delegates to it, so without the widening a live
+     provider returns [] for every authenticated connector — indistinguishable
+     from a server with no tools.
+  2. LiveMcpProvider takes an optional masterKey; connect() puts the token in
+     requestInit.headers (and SSE's own fetch, which is a separate path).
+  3. TIMEOUT (12s default). listAllTools walks connectors SERIALLY inside an
+     Inngest step and Vercel Hobby has a hard 300s ceiling. An erroring server
+     already degraded to []; a HANGING one had nothing stopping it.
+  4. buildMcpProvider returns a real LiveMcpProvider. Falls back to the stub on
+     zero enabled connectors OR a stored secret with no key — connecting
+     unauthenticated to a server that needs a token succeeds and reports zero
+     tools, which is a lie that looks like data.
+  5. Admin form takes an optional token, type=password, NEVER echoed back. The
+     table shows a "Token" chip, not the value.
+
+CI has no ENCRYPTION_KEY and admin-mcp.spec.ts does a live open-server test —
+both still work, because the secret is optional end to end.
