@@ -267,3 +267,185 @@ describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {
     }
   });
 });
+
+// ─── WS15-04: the hidden-work stage, running inside the real pipeline ─────────
+
+/**
+ * The stage had tests from the day it was written and none of them proved the
+ * thing that actually mattered: that it runs. Every export was reachable only
+ * from ws15.test.ts, so the unit tests passed for years while no estimate ever
+ * went through the stage. That is the failure this describe exists to catch, so
+ * it deliberately goes through `runEstimate` rather than calling the audit
+ * directly.
+ *
+ * Its own stub and its own estimate: the shared stub's Detective returns no
+ * risks at all, and the two suites above assert on exactly two menu items, so a
+ * third injected card would break them. That coupling is the point — it is what
+ * makes this a genuine addition rather than a variant of the same assertion.
+ */
+const riskyStubModelProvider: IModelProvider = {
+  async chat({ messages }) {
+    const content = messages.map((m) => m.content).join('\n');
+    if (content.includes('Decompose this SOW')) {
+      return JSON.stringify({
+        requirements: [
+          {
+            text: 'Sync orders from Shopify',
+            category: 'Integration / Celigo',
+            reqType: 'Data Sync',
+            platforms: ['Shopify'],
+            projectSize: 'Mid-market',
+            dataVolume: 'High',
+            integrationCount: 2,
+            candidateMenuCardId: 'MC-INT-ORDER-SYNC',
+            taxonomyKey: null,
+            sourceRef: 'SOW §3.2',
+            ambiguities: [],
+            blocksEstimation: false,
+          },
+        ],
+      });
+    }
+    if (content.includes('Investigate the risky and unknown parts')) {
+      return JSON.stringify({
+        risks: [
+          {
+            requirementId: 'REQ-001',
+            claim: 'Shopify throttles the Admin API at 2 requests per second',
+            riskFlags: ['rate-limits'],
+            citation: 'SOW §3.2',
+            spikeRecommended: false,
+          },
+          {
+            requirementId: 'REQ-001',
+            claim: 'Client requires SOC2 evidence for the integration',
+            riskFlags: ['soc2-audit'],
+            citation: 'SOW §9.1',
+            spikeRecommended: false,
+          },
+        ],
+        questions: [],
+      });
+    }
+    if (content.includes('Estimate') && content.includes('effort for this requirement')) {
+      // Claims nothing, so both flags stay uncovered. 3.5h is deliberately not
+      // 8 — the flat DEV default this ticket deleted — so the injected card's
+      // hours prove the council actually ran.
+      return JSON.stringify({
+        lineItems: [{ description: 'stub line item', hours: 3.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+        assumptions: [],
+        coversRiskFlags: [],
+      });
+    }
+    if (content.includes('Synthesise the specialists')) {
+      return JSON.stringify({
+        narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
+        cards: [{ menuCardId: 'MC-INT-ORDER-SYNC', phase: 'Core', thinSlice: false }],
+      });
+    }
+    return '{}';
+  },
+  async embed() {
+    return [[0, 0, 0]];
+  },
+};
+
+describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
+  let riskyEstimateId = '';
+
+  beforeAll(async () => {
+    const est = await db.estimate.create({
+      data: {
+        title: 'Hidden Work Test',
+        sowText: 'Sync orders from Shopify into the warehouse system every fifteen minutes.',
+        sowHash: '',
+        status: 'DRAFT',
+        taxonomyVersionsPinned: {},
+        configVersion,
+        promptVersionsPinned: {},
+        modelConfig: {},
+        narrative: [],
+        assumptions: [],
+        agentState: {},
+        ownerId: userId,
+      },
+    });
+    riskyEstimateId = est.id;
+    await runEstimate(riskyEstimateId, { db, modelProvider: riskyStubModelProvider });
+  });
+
+  afterAll(async () => {
+    const items = await db.menuItem.findMany({ where: { estimateId: riskyEstimateId }, select: { id: true } });
+    await db.roleLineItem.deleteMany({ where: { menuItemId: { in: items.map((i) => i.id) } } });
+    await db.menuItem.deleteMany({ where: { estimateId: riskyEstimateId } });
+    await db.estimate.delete({ where: { id: riskyEstimateId } });
+  });
+
+  it('costs an unclaimed known flag into a card marked injected', async () => {
+    const injected = await db.menuItem.findMany({
+      where: { estimateId: riskyEstimateId, injected: true },
+      include: { lineItems: true },
+    });
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.taxonomyKey).toBe('infra.rate-limit');
+  });
+
+  it('gives the injected card the council hours, not a flat default', async () => {
+    const card = await db.menuItem.findFirstOrThrow({
+      where: { estimateId: riskyEstimateId, injected: true },
+      include: { lineItems: true },
+    });
+    const dev = card.lineItems.find((li) => li.role === 'DEV')!;
+    // The deleted default was DEV 8 regardless of anything. 3.5 is the stub's.
+    expect(dev.baseHours).toBe(3.5);
+    expect(dev.baseHours).not.toBe(8);
+  });
+
+  it('taxes injected hours like any other card', async () => {
+    const card = await db.menuItem.findFirstOrThrow({
+      where: { estimateId: riskyEstimateId, injected: true },
+      include: { lineItems: true },
+    });
+    // Injection runs BEFORE taxation precisely so this holds. The old injectors
+    // set taxedHours = baseHours and skipped tax entirely.
+    const qa = card.lineItems.find((li) => li.role === 'QA')!;
+    expect(qa.taxedHours).toBeGreaterThan(qa.baseHours);
+  });
+
+  it('raises the off-list flag for a human instead of dropping it', async () => {
+    const findings = await db.hiddenWorkFinding.findMany({
+      where: { estimateId: riskyEstimateId },
+      orderBy: { riskFlag: 'asc' },
+    });
+    expect(findings.map((f) => f.riskFlag)).toEqual(['rate-limits', 'soc2-audit']);
+
+    const soc2 = findings.find((f) => f.riskFlag === 'soc2-audit')!;
+    expect(soc2.known).toBe(false);
+    expect(soc2.outcome).toBe('OPEN');
+    // The argument travels with it, or a human cannot decide anything.
+    expect(soc2.claim).toContain('SOC2');
+    expect(soc2.citation).toBe('SOW §9.1');
+
+    const rate = findings.find((f) => f.riskFlag === 'rate-limits')!;
+    expect(rate.outcome).toBe('AUTO_COST');
+    expect(rate.menuItemId).not.toBeNull();
+  });
+
+  it('does not re-raise or overwrite findings when the estimate is re-run', async () => {
+    await db.hiddenWorkFinding.updateMany({
+      where: { estimateId: riskyEstimateId, riskFlag: 'soc2-audit' },
+      data: { outcome: 'DISMISSED', dismissReason: 'Client already SOC2 certified' },
+    });
+
+    await runEstimate(riskyEstimateId, { db, modelProvider: riskyStubModelProvider });
+
+    const findings = await db.hiddenWorkFinding.findMany({
+      where: { estimateId: riskyEstimateId },
+    });
+    expect(findings).toHaveLength(2);
+    const soc2 = findings.find((f) => f.riskFlag === 'soc2-audit')!;
+    // A re-run re-detects the risk. It must not un-decide it.
+    expect(soc2.outcome).toBe('DISMISSED');
+    expect(soc2.dismissReason).toBe('Client already SOC2 certified');
+  });
+});
