@@ -249,14 +249,29 @@ export function presetEmbeddingText(v: {
   name: string;
   description: string;
   keywords: string[];
+  notes: string;
+  userStoryTags: string[];
 }): string {
-  return [v.name, v.description, ...v.keywords].join(' ');
+  // `notes` and `userStoryTags` carry meaning the other three don't. Notes is
+  // where an admin writes what a preset actually assumes and excludes ("P21
+  // order history API must be available", "template-level only, formal audit
+  // excluded"); userStoryTags names whose journey the work serves. Both were
+  // written on every preset and read by nothing — including, until now, the one
+  // function that decides what a preset MEANS to the matcher. AEH-253.
+  return [v.name, v.description, ...v.keywords, ...v.userStoryTags, v.notes].join(' ');
 }
 
 /** Embed one active version and store the vector alongside its source text. */
 async function embedVersionRow(
   db: PrismaClient,
-  row: { id: string; name: string; description: string; keywords: string[] },
+  row: {
+    id: string;
+    name: string;
+    description: string;
+    keywords: string[];
+    notes: string;
+    userStoryTags: string[];
+  },
   embeddingProvider: IEmbeddingProvider,
 ): Promise<boolean> {
   const text = presetEmbeddingText(row);
@@ -287,7 +302,7 @@ export async function embedPromotedPresets(
   for (const presetId of presetIds) {
     const version = await db.presetVersion.findFirst({
       where: { presetId, active: true },
-      select: { id: true, name: true, description: true, keywords: true },
+      select: { id: true, name: true, description: true, keywords: true, notes: true, userStoryTags: true },
     });
     if (!version) continue;
     await embedVersionRow(db, version, embeddingProvider);
@@ -335,6 +350,8 @@ export async function backfillPresetEmbeddings(
       name: true,
       description: true,
       keywords: true,
+      notes: true,
+      userStoryTags: true,
       embeddingText: true,
     },
     orderBy: { presetId: 'asc' },

@@ -113,6 +113,8 @@ async function report(db: PrismaClient, presetIds: string[], force: boolean): Pr
       name: true,
       description: true,
       keywords: true,
+      notes: true,
+      userStoryTags: true,
       embeddingText: true,
     },
     orderBy: { presetId: 'asc' },

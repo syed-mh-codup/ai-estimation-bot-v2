@@ -76,6 +76,7 @@ export const PlatformSchema = z.string().trim().min(1);
 
 /** Menu-card phase (Title Case — distinct from the DB enum's casing). */
 export const PhaseSchema = z.enum(['Foundation', 'Core', 'Enhancement']);
+export type Phase = z.infer<typeof PhaseSchema>;
 
 export const ProjectSizeSchema = z.enum(['SMB', 'Mid-market', 'Enterprise']);
 
@@ -234,6 +235,20 @@ export const ArchivistMatchSchema = z.object({
   /** Specific rationale, e.g. "matches B2B contextual pricing via @inContext, but adds volume tiers not in P28". */
   rationale: z.string(),
   sequencing: SequencingSchema.default({ requires: [], blocks: [], canParallel: true }),
+  /**
+   * What the matched preset records about DELIVERING this kind of work, as
+   * opposed to sizing it: its notes (assumptions and exclusions an admin typed),
+   * whether it historically needed a discovery spike, and what its sequencing
+   * implies. These are statements about the estimate, so the Architect folds
+   * them into `assumptions` rather than into hours.
+   */
+  presetCaveats: z.array(z.string()).default([]),
+  /**
+   * The matched preset's delivery phase, in the menu-card vocabulary. A prior,
+   * not a verdict: the Architect's own LLM judgment wins where it has one, and
+   * this fills the gap where it doesn't.
+   */
+  presetPhase: PhaseSchema.optional(),
 });
 export type ArchivistMatch = z.infer<typeof ArchivistMatchSchema>;
 

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider, IModelProvider } from '@repo/providers';
-import type { ArchivistOutput, ArchivistMatch, Requirement, Coverage, ImpactLevel } from '@repo/shared';
+import type { ArchivistOutput, ArchivistMatch, Requirement, Coverage, ImpactLevel, Phase } from '@repo/shared';
 import { ArchivistOutputSchema } from '@repo/shared';
 import { queryPresetsByVector, type RankedPreset } from './rag-retriever';
 
@@ -22,6 +22,54 @@ const LLMRerankSchema = z.object({
 function toImpactLevel(dbLevel: string): ImpactLevel {
   const s = dbLevel.charAt(0) + dbLevel.slice(1).toLowerCase();
   return (s === 'Low' || s === 'Medium' || s === 'High' ? s : 'Medium') as ImpactLevel;
+}
+
+/** DB PresetPhase ('FOUNDATION'|'CORE'|'ENHANCEMENT') -> menu-card Phase. */
+function toCardPhase(dbPhase: string): Phase | undefined {
+  const s = dbPhase.charAt(0) + dbPhase.slice(1).toLowerCase();
+  return s === 'Foundation' || s === 'Core' || s === 'Enhancement' ? (s as Phase) : undefined;
+}
+
+/**
+ * How well the matched preset's historical project sizes cover this
+ * requirement's.
+ *
+ * This field used to be filled with the match score restated as a sentence,
+ * which is what `score` already says. `projectSizeFit` — the column that exists
+ * precisely to answer this — was written on all 45 seeded presets and read by
+ * nothing. A preset proven at SMB being anchored to an Enterprise requirement is
+ * a real reason to distrust its hours, and the Specialists get to see it now.
+ */
+function describeProjectSizeFit(requirementSize: string, fit: string[]): string {
+  if (fit.length === 0) return 'no recorded project-size fit for this preset';
+  if (fit.includes(requirementSize)) return `proven at ${requirementSize}`;
+  return `proven at ${fit.join(', ')} — this requirement is ${requirementSize}, expect drift`;
+}
+
+/**
+ * The delivery caveats a matched preset carries. Statements about the estimate
+ * rather than about its size, so they end up in `assumptions`.
+ */
+function presetCaveatsFor(meta: {
+  presetId: string;
+  notes: string;
+  spikeNeeded: boolean;
+  blocks: string[];
+  canParallel: boolean;
+}): string[] {
+  const out: string[] = [];
+  const notes = meta.notes.trim();
+  if (notes) out.push(`${meta.presetId}: ${notes}`);
+  if (meta.spikeNeeded) {
+    out.push(`${meta.presetId} has historically needed a discovery spike before delivery.`);
+  }
+  if (meta.blocks.length > 0) {
+    out.push(`${meta.presetId} blocks ${meta.blocks.join(', ')} — schedule it ahead of them.`);
+  }
+  if (!meta.canParallel) {
+    out.push(`${meta.presetId} has not been delivered in parallel with other work.`);
+  }
+  return out;
 }
 
 /** Coverage per the ARCHIVIST prompt: state it honestly, never fabricate a preset. */
@@ -45,6 +93,7 @@ function noMatchFor(req: Requirement): ArchivistMatch {
     },
     rationale: 'No historical analogue found — net-new scope, build up from first principles.',
     sequencing: { requires: [], blocks: [], canParallel: true },
+    presetCaveats: [],
   };
 }
 
@@ -104,6 +153,10 @@ export async function runArchivist(
         blocks: true,
         canParallel: true,
         name: true,
+        notes: true,
+        spikeNeeded: true,
+        phase: true,
+        projectSizeFit: true,
       },
     });
 
@@ -123,7 +176,7 @@ export async function runArchivist(
       touchesFrontend: meta.touchesFrontend,
       touchesBackend: meta.touchesBackend,
       adjustments: {
-        projectSizeDelta: `preset "${meta.name}" matched at ${(best.score * 100).toFixed(0)}%`,
+        projectSizeDelta: describeProjectSizeFit(req.projectSize, meta.projectSizeFit),
         dataVolume: req.dataVolume,
         integrationCount: req.integrationCount,
         aiAssist: toImpactLevel(meta.aiAssist),
@@ -134,6 +187,8 @@ export async function runArchivist(
           ? `Closely matches preset "${meta.name}" (${meta.presetId}).`
           : `Partially matches preset "${meta.name}" (${meta.presetId}) — verify coverage gap before anchoring fully.`,
       sequencing: { requires: meta.requires, blocks: meta.blocks, canParallel: meta.canParallel },
+      presetCaveats: presetCaveatsFor(meta),
+      presetPhase: toCardPhase(meta.phase),
     });
   }
 

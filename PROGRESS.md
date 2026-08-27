@@ -57,7 +57,7 @@ type-decl count for NOTHING.
 - [x] C1  deletions, driven to a knip fixpoint  (33->31 fields, 4->2 contract, 57->16 exports)
 - [x] C2  MenuItem card DTO + setItemEnabled guard  (31 -> 24 fields)
 - [x] C3  LineItemDTO envelope  (24 -> 21 fields)
-- [ ] C4  PresetVersion metadata
+- [x] C4  PresetVersion metadata  (21 -> 14 fields)
 - [ ] C5  version history (getChangeLog + per-entity lists)
 - [ ] C6  MCP provider/auth/wiring
 - [ ] C7  diagnostics panel + agentState column read
@@ -163,3 +163,24 @@ match or from nothing.
   taxedHours, role) did NOT re-attribute — nesting held, exactly the failure
   mode R1 exists to prevent.
   tests 3 failed / 314 passed. typecheck + lint clean.
+
+### C4 done — PresetVersion metadata
+
+  fields 21 -> 14. Seven cleared: notes, userStoryTags (presetEmbeddingText),
+  projectSizeFit (a REAL projectSizeDelta), blocks + canParallel + spikeNeeded
+  + notes again (presetCaveats -> assumptions), phase (card phase fallback).
+  Only beHours/feHours remain from PresetVersion — the @backend-only pair.
+  tests 3 failed / 327 passed (+13 new). typecheck + lint clean.
+
+PresetVersion.requires did NOT become an orphan. The Plan review was right and
+the ticket's own prediction was wrong: `requires` is consumed by
+computeRequiredRequirementIds (architect.ts:53) and only dies if the new
+blocks/canParallel consumer REPLACES that function. It extends around it.
+
+Note `Phase` had to come BACK as a type alias — deleted in C1 as unused, needed
+again by archivist.ts's toCardPhase. Same class as DetectiveInput, which C1
+deliberately kept for C8.
+
+DATA: presetEmbeddingText changed, so every one of the 45 active presets is now
+STALE by backfillPresetEmbeddings' own comparison. `pnpm db:embed:presets` must
+run on all 3 DBs before the Archivist sees the new text. NOT DONE YET.

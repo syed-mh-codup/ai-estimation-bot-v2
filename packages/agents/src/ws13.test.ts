@@ -53,6 +53,7 @@ const sampleMatch: ArchivistMatch = {
   },
   rationale: 'matches B2B checkout preset',
   sequencing: { requires: [], blocks: [], canParallel: true },
+  presetCaveats: [],
 };
 
 const sampleInput: SpecialistInput = {

@@ -129,18 +129,33 @@ function computeConsistencyFlags(cards: CardDraft[]): string[] {
 // ─── WS16-02: Deterministic Assumption Set ───────────────────────────────────
 
 /** Deduplicate and collate specialist assumptions into a stable, alphabetical list. */
-export function collateAssumptions(specialistOutputs: SpecialistOutput[]): string[] {
+export function collateAssumptions(
+  specialistOutputs: SpecialistOutput[],
+  archivistMatches: ArchivistMatch[] = [],
+): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
 
+  const add = (raw: string): void => {
+    const assumption = raw.trim();
+    if (!assumption) return;
+    const key = assumption.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(assumption);
+  };
+
   for (const output of specialistOutputs) {
-    for (const assumption of output.assumptions) {
-      const key = assumption.trim().toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        result.push(assumption.trim());
-      }
-    }
+    for (const assumption of output.assumptions) add(assumption);
+  }
+
+  // What the historical analogue says about DELIVERING this work — the notes an
+  // admin typed on the preset, whether it has needed a discovery spike, and what
+  // its sequencing implies. Every one of those was written on all 45 seeded
+  // presets and read by nothing, so the estimate never inherited a caveat its
+  // own matched preset already recorded. AEH-253.
+  for (const match of archivistMatches) {
+    for (const caveat of match.presetCaveats) add(caveat);
   }
 
   return result.sort();
@@ -245,7 +260,10 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
       id: card.id,
       taxonomyKey: card.id,
       category: card.category,
-      phase: meta?.phase,
+      // The Architect's own judgment wins. Where it has none, the matched preset's
+      // recorded phase is a better answer than null — it is how this kind of work
+      // has actually been sequenced before.
+      phase: meta?.phase ?? bestMatch?.presetPhase,
       requirementIds: card.requirementIds,
       sourcePresetId: bestMatch?.presetId,
       matchScore: bestMatch?.score,
@@ -260,7 +278,7 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
 
   return ArchitectOutputSchema.parse({
     narrative: llmResult.narrative,
-    assumptions: collateAssumptions(specialistOutputs),
+    assumptions: collateAssumptions(specialistOutputs, archivistMatches),
     openQuestions,
     consistencyFlags,
     menuItems,

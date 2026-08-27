@@ -176,6 +176,7 @@ describe('runArchitect — narrative + card assembly', () => {
         adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
         rationale: 'n/a',
         sequencing: { requires: ['REQ-001'], blocks: [], canParallel: true },
+        presetCaveats: [],
       },
     ];
 
@@ -213,6 +214,7 @@ describe('runArchitect — narrative + card assembly', () => {
         adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
         rationale: 'Closely matches preset "B2B cart logic" (P32).',
         sequencing: { requires: [], blocks: [], canParallel: true },
+        presetCaveats: [],
       },
     ];
 
@@ -232,6 +234,7 @@ describe('runArchitect — narrative + card assembly', () => {
         adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
         rationale: 'No historical analogue found.',
         sequencing: { requires: [], blocks: [], canParallel: true },
+        presetCaveats: [],
       },
     ];
 
