@@ -31,11 +31,3 @@ export function checkServerEnv(): EnvCheck {
   const presentOptional = OPTIONAL_SERVER_ENV.filter((k) => !!process.env[k]);
   return { ok: missingRequired.length === 0, missingRequired, presentOptional };
 }
-
-/** Throw on missing required env — call from a boot path in production. */
-export function assertServerEnv(): void {
-  const { ok, missingRequired } = checkServerEnv();
-  if (!ok) {
-    throw new Error(`Missing required environment variables: ${missingRequired.join(', ')}`);
-  }
-}

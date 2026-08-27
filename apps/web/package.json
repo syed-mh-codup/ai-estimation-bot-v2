@@ -21,7 +21,6 @@
     "@radix-ui/react-slot": "^1.2.5",
     "@radix-ui/react-toast": "^1.2.16",
     "@repo/agents": "workspace:*",
-    "@repo/core": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/providers": "workspace:*",
     "@repo/shared": "workspace:*",

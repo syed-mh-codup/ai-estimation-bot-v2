@@ -54,7 +54,7 @@ type-decl count for NOTHING.
 
 ## Execution order (delete -> wire -> annotate; measure after every step)
 
-- [ ] C1  deletions, driven to a knip fixpoint
+- [x] C1  deletions, driven to a knip fixpoint  (33->31 fields, 4->2 contract, 57->16 exports)
 - [ ] C2  MenuItem card DTO + setItemEnabled guard
 - [ ] C3  LineItemDTO envelope
 - [ ] C4  PresetVersion metadata
@@ -97,4 +97,43 @@ type-decl count for NOTHING.
 
 ## Log
 
-(nothing yet)
+### C1 done — deletions (commit below)
+
+Measured after, not predicted:
+  fields   33 -> 31   (parentItemId, perItemMultiplierDefault)
+  contract  4 -> 2    (changedMenuItemIds, taxonomyVersionPin — both by deletion)
+  exports  57 -> 16   at the knip fixpoint
+  canaries files=113 (>100) audited=150 (>80) reads=1448 (>500)
+           attribution=99.0% (>0.8) contractFields=174 (>150)  ALL CLEAR
+  tests    3 failed / 303 passed — the 3 ARE the gates. run-estimate passes alone.
+  typecheck + lint clean.
+
+NO new orphans appeared: the 4 cache columns were DROPPED, not orphaned.
+
+The knip cascade went two rounds, as predicted:
+  round 1 (57->22) exposed the 6 mirrored enum schemas (AgentKindSchema,
+  EstimateStatusSchema, ChangeMotivationSchema, DataVolumeSchema,
+  PresetPhaseSchema, LevelSchema) — their z.infer alias was the only in-file
+  use keeping them unreported. Every consumer imports the Prisma type from
+  @repo/db instead. Deleted -> 16.
+
+MIGRATION 20260827040000 APPLIED TO ALL FOUR DBs:
+  Neon dev/main, local docker ai_estimation, local docker ai_estimation_test,
+  Neon test. TRAP: `pnpm --filter @repo/db exec prisma migrate deploy` uses
+  packages/db/.env, which points at NEON, not local docker. The local DBs need
+  an explicit DATABASE_URL/DIRECT_URL override or the suite fails with
+  "Null constraint violation on sowHash".
+
+Tests rewritten rather than deleted, so coverage moved instead of vanishing:
+  ws17  toggleMenuItem -> computeRollup/computeRoleProjections directly
+  ws15  taxonomyKeyForRiskFlag -> asserted through detectHiddenWork
+  ws14  parseTaxationConfig test dropped (field-for-field passthrough)
+  vector.test  vectorToSql -> a local const in the fixture
+  email.test   emailConfigured -> asserted through sendEmail's degrade path.
+               Worth recording: emailConfigured() DISAGREED with the gate that
+               actually runs — it required EMAIL_FROM, getTransport() checks
+               only user+password.
+
+Remaining 16 exports all have a disposition:
+  C5 getChangeLog | C6 encryptSecret/decryptSecret/buildMcpProvider
+  C8 DetectiveInput | C9 the rest (baseline-with-ticket or delete)

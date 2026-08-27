@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from './generated/client/index.js';
-import { findNearestPresets, vectorToSql } from './vector.js';
+import { findNearestPresets } from './vector.js';
+
+/** pgvector literal. Local to the fixture: `findNearestPresets` inlines the
+ *  same expression, and a one-line exported helper with no production caller
+ *  is exactly what the AEH-228 export gate exists to catch. */
+const vectorToSql = (v: number[]): string => `[${v.join(',')}]`;
 
 const DB_URL =
   process.env['DATABASE_URL'] ??
@@ -66,9 +71,5 @@ describe('WS1-08: pgvector ANN nearest-neighbour query', () => {
     expect(match.presetId).toBe(PRESET_ID);
     expect(typeof match.distance).toBe('number');
     expect(match.distance).toBeCloseTo(0, 4);
-  });
-
-  it('vectorToSql formats array correctly', () => {
-    expect(vectorToSql([1, 2, 3])).toBe('[1,2,3]');
   });
 });

@@ -2,16 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   assembleCardsFromSpecialists,
   collateAssumptions,
-  getAffectedChildren,
   runArchitect,
   type ArchitectContext,
   type ArchitectDeps,
 } from './architect';
 import type { IModelProvider } from '@repo/providers';
 import {
-  MenuItemSchema,
   SpecialistLineItemSchema,
-  type MenuItem,
   type SpecialistOutput,
   type Requirement,
   type SpecialistLineItem,
@@ -133,27 +130,6 @@ describe('collateAssumptions — dedupe + stable ordering', () => {
       makeSpecialistOutput('QA', [makeLineItem()], []),
     ]);
     expect(assumptions).toHaveLength(0);
-  });
-});
-
-// ─── getAffectedChildren (unchanged UI helper) ────────────────────────────────
-
-describe('getAffectedChildren', () => {
-  function makeMenuItem(id: string, parentItemId?: string): MenuItem {
-    return MenuItemSchema.parse({ id, taxonomyKey: id, title: id, enabled: true, parentItemId, lineItems: [] });
-  }
-
-  it('returns children of a given parent', () => {
-    const items = [
-      makeMenuItem('parent-1'),
-      makeMenuItem('child-1', 'parent-1'),
-      makeMenuItem('child-2', 'parent-1'),
-      makeMenuItem('unrelated'),
-    ];
-
-    const children = getAffectedChildren(items, 'parent-1');
-    expect(children).toHaveLength(2);
-    expect(children.every((c) => c.parentItemId === 'parent-1')).toBe(true);
   });
 });
 

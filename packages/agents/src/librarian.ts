@@ -141,19 +141,3 @@ export async function runLibrarian(
 
   return LibrarianOutputSchema.parse({ requirements });
 }
-
-/**
- * RAG retriever: load taxonomy entries from the DB filtered by query similarity.
- * Uses pre-computed embeddings or falls back to keyword match.
- */
-export async function loadTaxonomy(db: {
-  taxonomyNodeVersion: {
-    findMany: (args: { where: { active: boolean }; select: { nodeKey: boolean; label: boolean; keywords: boolean } }) => Promise<Array<{ nodeKey: string; label: string; keywords: string[] }>>;
-  };
-}): Promise<TaxonomyEntry[]> {
-  const nodes = await db.taxonomyNodeVersion.findMany({
-    where: { active: true },
-    select: { nodeKey: true, label: true, keywords: true },
-  });
-  return nodes.map((n) => ({ key: n.nodeKey, label: n.label, keywords: n.keywords }));
-}

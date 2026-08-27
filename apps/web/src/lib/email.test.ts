@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { emailConfigured, sendEmail, appBaseUrl, estimateUrl } from './email';
+import { sendEmail, appBaseUrl, estimateUrl } from './email';
 
 const KEYS = ['SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM', 'SMTP_HOST', 'SMTP_PORT', 'APP_URL', 'AUTH_URL'];
 
@@ -19,18 +19,10 @@ describe('email (SMTP integration is optional + best-effort)', () => {
     }
   });
 
-  it('reports not configured when SMTP creds are absent', () => {
-    expect(emailConfigured()).toBe(false);
-  });
-
-  it('reports configured only when user + password + from are all present', () => {
-    process.env['SMTP_USER'] = 'resend';
-    process.env['SMTP_PASSWORD'] = 're_test';
-    expect(emailConfigured()).toBe(false); // still missing EMAIL_FROM
-    process.env['EMAIL_FROM'] = 'AI Estimation <a@b.com>';
-    expect(emailConfigured()).toBe(true);
-  });
-
+  // `emailConfigured()` used to be asserted here directly. It was exported for
+  // no caller, and it disagreed with the gate that actually runs: it required
+  // EMAIL_FROM, while getTransport() checks only user + password. The behaviour
+  // worth pinning is the one below — unconfigured must degrade, never throw.
   it('sendEmail is a no-op (never throws) when unconfigured', async () => {
     const res = await sendEmail({ to: 'owner@example.com', subject: 'Ready', html: '<p>hi</p>' });
     expect(res).toEqual({ sent: false });

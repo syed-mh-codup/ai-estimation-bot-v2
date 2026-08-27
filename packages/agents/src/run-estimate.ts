@@ -8,7 +8,6 @@ import type {
 import { createSearchProvider, StubMcpProvider } from '@repo/providers';
 import type { ArchivistMatch, MenuItem, Requirement, RiskFinding, SpecialistOutput } from '@repo/shared';
 import { RequirementSchema } from '@repo/shared';
-import { hashSOW, normaliseSOW } from './sow-utils';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
 import { runDetective } from './detective';
 import { runArchivist } from './archivist';
@@ -397,7 +396,6 @@ export async function runEstimate(
         await tx.estimate.update({
           where: { id: estimateId },
           data: {
-            sowHash: hashSOW(normaliseSOW(est.sowText)),
             status: 'REVIEW',
             complexityScore: complexity.score,
             narrative: arch.narrative,

@@ -11,11 +11,16 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from './generated/client/index.js';
 // Required prompt set (side-effect-free) — shared with the e2e global-setup.
 import { SEED_PROMPTS } from './seed-prompts.js';
+// The WS26-01 sample SOW fixtures, seeded as DRAFT estimates so they're ready
+// to Run from the dashboard. Imported rather than mirrored: the texts used to
+// be duplicated here and hand-synchronised with the copy whose complexity
+// bands agents/fixtures.test.ts asserts, which is two sources of truth for
+// one fixture.
+import { SAMPLE_SOWS } from '@repo/shared';
 
 // tsx does not auto-load .env, and Prisma Client does not load it at runtime.
 // Read packages/db/.env ourselves (dependency-free) if DATABASE_URL is unset.
@@ -34,44 +39,11 @@ if (!process.env['DATABASE_URL']) {
 }
 
 const SALT_ROUNDS = 12;
-const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const SEED_USERS = {
   admin: { email: 'admin@codup.co', password: 'admin1234', role: 'ADMIN' as const },
   estimator: { email: 'estimator@codup.co', password: 'estimator1234', role: 'ESTIMATOR' as const },
 };
-
-// The WS26-01 sample SOW fixtures (simple / integration-heavy / legacy-heavy),
-// seeded as DRAFT estimates so they're ready to Run from the dashboard. Texts
-// mirror @repo/shared SAMPLE_SOWS (whose expected complexity bands are asserted
-// in agents/fixtures.test.ts).
-const SAMPLE_SOWS = [
-  {
-    id: 'sow-simple',
-    title: 'Marketing Landing Page',
-    sowText:
-      'Build a single marketing landing page with a hero section, a features list, ' +
-      'testimonials, and a contact form that emails submissions to the team. ' +
-      'No user accounts and no integrations — just a static, responsive page with a small form.',
-  },
-  {
-    id: 'sow-integration',
-    title: 'Multi-System Order Hub',
-    sowText:
-      'Build an order hub that integrates with five external services. Connect to the ' +
-      'Stripe payment gateway via its API, sync inventory through a third-party SDK, ' +
-      'push fulfilment events to a shipping webhook, pull pricing from an external service API, ' +
-      'and expose a public REST API for partners. Each integration needs retry and rate-limit handling.',
-  },
-  {
-    id: 'sow-legacy',
-    title: 'Mainframe Modernisation',
-    sowText:
-      'Migrate a legacy COBOL mainframe monolith to a modern web stack. This is a ' +
-      'data migration of millions of records from the end-of-life system, including a ' +
-      'rewrite of core business rules currently locked in the mainframe.',
-  },
-];
 
 // (SEED_PROMPTS imported at the top from ./seed-prompts.js)
 
@@ -130,7 +102,6 @@ async function main() {
         dataVolumeMultipliers: { NONE: 1.0, LOW: 1.1, HIGH: 1.5 },
         aiKeywords: ['machine learning', 'ai assist', 'neural', 'prediction model', 'llm', 'nlp'],
         aiScoreBonus: 1.3,
-        perItemMultiplierDefault: 1.0,
       },
       pmCommunicationTaxPct: 15,
       baCommunicationTaxPct: 10,
@@ -177,12 +148,8 @@ async function main() {
             id: s.id,
             title: s.title,
             sowText: s.sowText,
-            sowHash: sha256(s.sowText),
             status: 'DRAFT',
             configVersion: config.version,
-            taxonomyVersionsPinned: {},
-            promptVersionsPinned: {},
-            modelConfig: {},
             agentState: {},
             ownerId: users['estimator']!.id,
           },

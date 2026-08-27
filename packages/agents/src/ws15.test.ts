@@ -3,7 +3,6 @@ import {
   detectHiddenWork,
   claimedRiskFlags,
   buildInjectedMenuItem,
-  taxonomyKeyForRiskFlag,
 } from './audit';
 import {
   SpecialistOutputSchema,
@@ -93,9 +92,11 @@ describe('WS15-01: Hidden-Work Audit — detection', () => {
 
   it('every known flag resolves to a seeded taxonomy key', () => {
     // api-quota is the one the prompt taught for months with no mapping at all.
-    expect(taxonomyKeyForRiskFlag('api-quota')).toBe('infra.api-quota');
-    expect(taxonomyKeyForRiskFlag('webhook-reliability')).toBe('infra.webhook');
-    expect(taxonomyKeyForRiskFlag('soc2-audit')).toBeNull();
+    const keyOf = (flag: string): string | null =>
+      detectHiddenWork([risk({ riskFlags: [flag] })], [])[0]?.taxonomyKey ?? null;
+    expect(keyOf('api-quota')).toBe('infra.api-quota');
+    expect(keyOf('webhook-reliability')).toBe('infra.webhook');
+    expect(keyOf('soc2-audit')).toBeNull();
   });
 });
 

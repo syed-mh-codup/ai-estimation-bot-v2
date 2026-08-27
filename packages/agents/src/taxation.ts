@@ -29,7 +29,6 @@ export const ProcessOverheadItemSchema = z.object({
   /** Percent of each role's asked-for hours. Omit a role to charge it nothing. */
   pct: z.record(z.enum(['DEV', 'QA', 'PM', 'BA']), z.number().min(0).max(100)),
 });
-export type ProcessOverheadItem = z.infer<typeof ProcessOverheadItemSchema>;
 
 export const ProcessOverheadSchema = z.object({
   items: z.array(ProcessOverheadItemSchema),
@@ -155,23 +154,6 @@ export function injectProcessOverhead(
   }
 
   return [...menuItems, ...cards];
-}
-
-// ─── WS14-03: Read from active EstimationConfig ──────────────────────────────
-
-/**
- * Parse taxation config from EstimationConfig DB record.
- */
-export function parseTaxationConfig(configRecord: {
-  pmCommunicationTaxPct: number;
-  baCommunicationTaxPct: number;
-  qaRegressionBufferPct: number;
-}): TaxationConfig {
-  return {
-    pmCommunicationTaxPct: configRecord.pmCommunicationTaxPct,
-    baCommunicationTaxPct: configRecord.baCommunicationTaxPct,
-    qaRegressionBufferPct: configRecord.qaRegressionBufferPct,
-  };
 }
 
 /**

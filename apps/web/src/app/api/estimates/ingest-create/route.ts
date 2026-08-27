@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@repo/db';
 import { auth } from '@/lib/auth';
@@ -7,7 +6,6 @@ import { inngest } from '@/lib/inngest';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
  * Create a DRAFT estimate from pasted text and/or uploaded client material.
@@ -49,12 +47,8 @@ export async function POST(req: Request) {
     data: {
       title,
       sowText: pasted,
-      sowHash: sha(pasted),
       status: 'DRAFT',
       configVersion: activeConfig?.version ?? 0,
-      taxonomyVersionsPinned: {},
-      promptVersionsPinned: {},
-      modelConfig: {},
       agentState: {},
       ownerId: session.user.id,
       ingestStatus: hasFiles ? 'RUNNING' : 'IDLE',

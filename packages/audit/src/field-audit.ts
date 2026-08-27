@@ -193,10 +193,11 @@ function buildTargets(
     // No discoverable keys — the column is written as `{}`, or through a
     // variable rather than an inline literal. Audit it as a plain column rather
     // than skipping it: silently dropping a column would be a coverage hole in
-    // the very detector that exists to stop silent failures. Today this covers
-    // Estimate.taxonomyVersionsPinned / promptVersionsPinned / modelConfig, all
-    // written as `{}` at ingest-create and read as property accesses in
-    // packages/agents/src/cache.ts.
+    // the very detector that exists to stop silent failures. The three columns
+    // this used to cover (Estimate.taxonomyVersionsPinned / promptVersionsPinned
+    // / modelConfig) were dropped in AEH-253 along with the cache layer that was
+    // their only reader; the branch stays because the next such column will not
+    // announce itself.
     if (!sources || sources.length === 0) {
       targets.push({
         id,

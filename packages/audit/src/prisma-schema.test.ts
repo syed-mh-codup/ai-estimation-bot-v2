@@ -53,9 +53,6 @@ describe('AEH-228: prisma schema parser', () => {
     expect(ids).toEqual([
       'EstimationConfig.complexityRules',
       'EstimationConfig.infraBaseline',
-      'Estimate.taxonomyVersionsPinned',
-      'Estimate.promptVersionsPinned',
-      'Estimate.modelConfig',
       'Estimate.agentState',
       'MenuItem.meta',
       'RoleLineItem.meta',

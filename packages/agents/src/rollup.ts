@@ -101,29 +101,3 @@ export function computeRoleProjections(menuItems: MenuItem[]): RoleProjection[] 
     };
   });
 }
-
-// ─── WS17-03: Cost-optimisation toggle API ───────────────────────────────────
-
-/**
- * Toggle a menu item enabled/disabled and recompute projections + totals.
- * Returns updated menu items, projections, and rollup.
- */
-export function toggleMenuItem(
-  menuItems: MenuItem[],
-  itemId: string,
-  enabled: boolean,
-): {
-  menuItems: MenuItem[];
-  projections: RoleProjection[];
-  rollup: RollupResult;
-} {
-  const updated = menuItems.map((m) =>
-    m.id === itemId ? { ...m, enabled } : m,
-  );
-
-  return {
-    menuItems: updated,
-    projections: computeRoleProjections(updated),
-    rollup: computeRollup(updated),
-  };
-}

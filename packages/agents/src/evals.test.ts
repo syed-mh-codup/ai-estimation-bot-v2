@@ -105,12 +105,8 @@ async function makeEstimate(sowText: string): Promise<string> {
     data: {
       title: 'eval',
       sowText,
-      sowHash: '',
       status: 'DRAFT',
       configVersion,
-      taxonomyVersionsPinned: {},
-      promptVersionsPinned: {},
-      modelConfig: {},
       narrative: [],
       assumptions: [],
       agentState: {},

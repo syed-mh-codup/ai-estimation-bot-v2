@@ -29,7 +29,6 @@ export const ComplexityRulesSchema = z.object({
   dataVolumeMultipliers: z.object({ NONE: z.number(), LOW: z.number(), HIGH: z.number() }),
   aiKeywords: z.array(z.string()),
   aiScoreBonus: z.number(),
-  perItemMultiplierDefault: z.number().default(1.0),
 });
 
 export type ComplexityRules = z.infer<typeof ComplexityRulesSchema>;
@@ -224,5 +223,4 @@ export const DEFAULT_COMPLEXITY_RULES: ComplexityRules = {
   dataVolumeMultipliers: { NONE: 1.0, LOW: 1.1, HIGH: 1.5 },
   aiKeywords: ['machine learning', 'ai assist', 'neural', 'prediction model', 'llm', 'nlp'],
   aiScoreBonus: 1.3,
-  perItemMultiplierDefault: 1.0,
 };

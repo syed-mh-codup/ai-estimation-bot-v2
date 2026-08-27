@@ -26,9 +26,6 @@
       "@repo/db": [
         "../../packages/db/src/index.ts"
       ],
-      "@repo/core": [
-        "../../packages/core/src/index.ts"
-      ],
       "@repo/providers": [
         "../../packages/providers/src/index.ts"
       ]

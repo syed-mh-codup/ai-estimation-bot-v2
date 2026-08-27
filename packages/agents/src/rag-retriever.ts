@@ -1,12 +1,6 @@
 import type { PrismaClient } from '@repo/db';
 import { findNearestPresets } from '@repo/db';
 
-export type RankedTaxonomyNode = {
-  nodeKey: string;
-  label: string;
-  keywords: string[];
-  score: number;
-};
 
 export type RankedPreset = {
   presetId: string;
@@ -17,39 +11,6 @@ export type RankedPreset = {
   touchesBackend: boolean;
   score: number;
 };
-
-/**
- * Rank active taxonomy nodes by keyword overlap with the query text.
- * Returns all nodes, sorted by overlap score descending.
- */
-export async function queryTaxonomyByText(
-  db: PrismaClient,
-  queryText: string,
-): Promise<RankedTaxonomyNode[]> {
-  const nodes = await db.taxonomyNodeVersion.findMany({
-    // Same three gates as loadTaxonomyEntries, kept in step deliberately: this
-    // function ranks nodes to classify against, so surfacing a PROPOSED or
-    // non-classifiable node here would reintroduce exactly what those gates
-    // prevent, just through a different door. AEH-263.
-    where: { active: true, node: { status: 'ACTIVE', classifiable: true } },
-    select: { nodeKey: true, label: true, keywords: true },
-  });
-
-  const queryTokens = queryText.toLowerCase().split(/\s+/).filter(Boolean);
-
-  const scored = nodes.map((n) => {
-    const nodeTokens = [
-      ...n.keywords.map((k) => k.toLowerCase()),
-      ...n.label.toLowerCase().split(/\s+/),
-      n.nodeKey.toLowerCase().split('.').join(' '),
-    ];
-    const hits = queryTokens.filter((t) => nodeTokens.some((nt) => nt.includes(t) || t.includes(nt)));
-    const score = queryTokens.length > 0 ? hits.length / queryTokens.length : 0;
-    return { nodeKey: n.nodeKey, label: n.label, keywords: n.keywords, score };
-  });
-
-  return scored.sort((a, b) => b.score - a.score);
-}
 
 /**
  * Find nearest presets by vector similarity using pgvector ANN.

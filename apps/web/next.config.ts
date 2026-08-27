@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PrismaPlugin } from '@prisma/nextjs-monorepo-workaround-plugin';
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@repo/shared', '@repo/db', '@repo/core', '@repo/providers', '@repo/agents'],
+  transpilePackages: ['@repo/shared', '@repo/db', '@repo/providers', '@repo/agents'],
   // Monorepo: trace from the repo root so the standalone/function bundles can
   // reference files outside apps/web (e.g. @repo/db).
   outputFileTracingRoot: path.join(__dirname, '..', '..'),

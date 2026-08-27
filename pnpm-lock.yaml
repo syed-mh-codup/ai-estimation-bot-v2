@@ -77,9 +77,6 @@ importers:
       '@repo/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@repo/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@repo/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -208,25 +205,6 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
-      typescript:
-        specifier: ^5.5.4
-        version: 5.9.3
-      vitest:
-        specifier: ^2.0.5
-        version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
-
-  packages/core:
-    dependencies:
-      '@repo/db':
-        specifier: workspace:*
-        version: link:../db
-      '@repo/shared':
-        specifier: workspace:*
-        version: link:../shared
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-    devDependencies:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3

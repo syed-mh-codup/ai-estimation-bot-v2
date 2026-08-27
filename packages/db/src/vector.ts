@@ -33,7 +33,3 @@ export async function findNearestPresets(
   );
   return rows;
 }
-
-export function vectorToSql(v: number[]): string {
-  return `[${v.join(',')}]`;
-}

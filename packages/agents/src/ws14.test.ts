@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   applyTaxation,
   injectProcessOverhead,
-  parseTaxationConfig,
   DEFAULT_PROCESS_OVERHEAD,
   type TaxationConfig,
 } from './taxation';
@@ -145,24 +144,6 @@ describe('WS14-02: Delivery overhead — scales with the work it attaches to', (
 // ─── WS14-03: Config-driven (no hardcoding) ───────────────────────────────────
 
 describe('WS14-03: All percentages from active EstimationConfig (no hardcoding)', () => {
-  it('parseTaxationConfig reads from DB-shaped record', () => {
-    const dbRecord = {
-      pmCommunicationTaxPct: 0.20,
-      baCommunicationTaxPct: 0.12,
-      qaRegressionBufferPct: 0.25,
-      id: 'cfg-1',
-      version: 1,
-      active: true,
-      complexityRules: {},
-      infraBaseline: {},
-      changeMotivation: 'OTHER' as const,
-      createdAt: new Date(),
-    };
-    const cfg = parseTaxationConfig(dbRecord);
-    expect(cfg.pmCommunicationTaxPct).toBe(0.20);
-    expect(cfg.qaRegressionBufferPct).toBe(0.25);
-  });
-
   it('changing config changes output without code change', () => {
     const lineItems = [makeLineItem('PM', 10)];
 

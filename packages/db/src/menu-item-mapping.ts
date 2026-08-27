@@ -53,7 +53,6 @@ type MenuItemColumnKey =
   | 'title'
   | 'enabled'
   | 'injected'
-  | 'parentItemId'
   | 'lineItems';
 
 /** Domain fields with no column, carried in `MenuItem.meta`. */
@@ -157,7 +156,6 @@ export function toMenuItem(row: MenuItemRowWithLineItems): MenuItem {
     title: row.title,
     enabled: row.enabled,
     injected: row.injected,
-    parentItemId: row.parentItemId ?? undefined,
     lineItems: row.lineItems.map(toLineItem),
   });
 }

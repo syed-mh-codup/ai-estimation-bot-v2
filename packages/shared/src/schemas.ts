@@ -5,42 +5,12 @@ import { z } from 'zod';
 export const RoleKindSchema = z.enum(['DEV', 'QA', 'PM', 'BA']);
 export type RoleKind = z.infer<typeof RoleKindSchema>;
 
-export const AgentKindSchema = z.enum([
-  'SUPERVISOR',
-  'LIBRARIAN',
-  'DETECTIVE',
-  'ARCHIVIST',
-  'SPECIALIST_DEV',
-  'SPECIALIST_QA',
-  'SPECIALIST_PM',
-  'SPECIALIST_BA',
-  'ARCHITECT',
-]);
-export type AgentKind = z.infer<typeof AgentKindSchema>;
-
-export const EstimateStatusSchema = z.enum(['DRAFT', 'REVIEW', 'FINALISED']);
-export type EstimateStatus = z.infer<typeof EstimateStatusSchema>;
-
-export const ChangeMotivationSchema = z.enum([
-  'UPSKILL',
-  'TECH_ADVANCEMENT',
-  'NEW_PROCESS',
-  'POST_DELIVERY_VALIDATION',
-  'CORRECTION',
-  'OTHER',
-]);
-export type ChangeMotivation = z.infer<typeof ChangeMotivationSchema>;
-
-// Preset-library enums (DB/admin data, upper-case — distinct from the LLM
-// envelope vocabulary below, which the live prompts dictate in Title Case).
-export const DataVolumeSchema = z.enum(['NONE', 'LOW', 'HIGH']);
-export type DataVolume = z.infer<typeof DataVolumeSchema>;
-
-export const PresetPhaseSchema = z.enum(['FOUNDATION', 'CORE', 'ENHANCEMENT']);
-export type PresetPhase = z.infer<typeof PresetPhaseSchema>;
-
-export const LevelSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
-export type Level = z.infer<typeof LevelSchema>;
+// The preset-library / audit enums (AgentKind, EstimateStatus, ChangeMotivation,
+// DataVolume, PresetPhase, Level) used to be mirrored here as zod enums. They are
+// Prisma enums, and every consumer imports the generated type from @repo/db — the
+// mirrors had no reader at all. Deleted in AEH-253. The LLM-envelope vocabulary
+// below is NOT the same thing: it is Title Case because the live prompts say so,
+// and it genuinely needs zod because it parses model output.
 
 // ─── Classification vocabulary ─────────────────────────────────────────────
 // category/req_type/platform are open, LLM-assigned labels (same pattern as
@@ -98,26 +68,22 @@ export const REQ_TYPE_EXAMPLES = [
 ] as const;
 
 export const ReqTypeSchema = z.string().trim().min(1);
-export type ReqType = z.infer<typeof ReqTypeSchema>;
 
 /** Example platforms seen in past (ecommerce/B2B) engagements — not exhaustive. */
 export const PLATFORM_EXAMPLES = ['Shopify', 'Celigo', 'Contentful', 'Klevu', 'P21', 'Act-On', 'Vercel', 'PIM'] as const;
 
 export const PlatformSchema = z.string().trim().min(1);
-export type Platform = z.infer<typeof PlatformSchema>;
 
-/** Menu-card phase (Title Case — distinct from PresetPhaseSchema's DB casing). */
+/** Menu-card phase (Title Case — distinct from the DB enum's casing). */
 export const PhaseSchema = z.enum(['Foundation', 'Core', 'Enhancement']);
-export type Phase = z.infer<typeof PhaseSchema>;
 
 export const ProjectSizeSchema = z.enum(['SMB', 'Mid-market', 'Enterprise']);
-export type ProjectSize = z.infer<typeof ProjectSizeSchema>;
 
-/** Requirement-level data_volume (None/Low/High — distinct from DataVolumeSchema's DB casing). */
+/** Requirement-level data_volume (None/Low/High — distinct from the DB enum's casing). */
 export const DataVolumeLevelSchema = z.enum(['None', 'Low', 'High']);
 export type DataVolumeLevel = z.infer<typeof DataVolumeLevelSchema>;
 
-/** ai_assist / risk (Low/Medium/High — distinct from LevelSchema's DB casing). */
+/** ai_assist / risk (Low/Medium/High — distinct from the DB enum's casing). */
 export const ImpactLevelSchema = z.enum(['Low', 'Medium', 'High']);
 export type ImpactLevel = z.infer<typeof ImpactLevelSchema>;
 
@@ -125,26 +91,9 @@ export const CoverageSchema = z.enum(['full', 'partial', 'none']);
 export type Coverage = z.infer<typeof CoverageSchema>;
 
 export const ComplexityTierSchema = z.enum(['base', 'elevated', 'high']);
-export type ComplexityTier = z.infer<typeof ComplexityTierSchema>;
 
 /** Hard cap from the FOUR-HOUR RULE global invariant: every line item ≤4.0h. */
 export const FOUR_HOUR_CAP = 4.0;
-
-// ─── Supervisor IO ────────────────────────────────────────────────────────────
-
-export const SupervisorInputSchema = z.object({
-  estimateId: z.string(),
-  sowText: z.string(),
-  mode: z.enum(['full', 'refine']),
-  changedMenuItemIds: z.array(z.string()).optional(),
-});
-export type SupervisorInput = z.infer<typeof SupervisorInputSchema>;
-
-export const SupervisorOutputSchema = z.object({
-  estimateId: z.string(),
-  status: EstimateStatusSchema,
-});
-export type SupervisorOutput = z.infer<typeof SupervisorOutputSchema>;
 
 // ─── Librarian IO ────────────────────────────────────────────────────────────
 
@@ -170,12 +119,6 @@ export const RequirementSchema = z.object({
   blocksEstimation: z.boolean().default(false),
 });
 export type Requirement = z.infer<typeof RequirementSchema>;
-
-export const LibrarianInputSchema = z.object({
-  sowText: z.string(),
-  taxonomyVersionPin: z.number().optional(),
-});
-export type LibrarianInput = z.infer<typeof LibrarianInputSchema>;
 
 export const LibrarianOutputSchema = z.object({
   requirements: z.array(RequirementSchema),
@@ -263,7 +206,6 @@ export const SequencingSchema = z.object({
   blocks: z.array(z.string()).default([]),
   canParallel: z.boolean().default(true),
 });
-export type Sequencing = z.infer<typeof SequencingSchema>;
 
 export const ArchivistAdjustmentsSchema = z.object({
   /** Free-text rationale: how the preset's fit size compares to this requirement's project_size. */
@@ -273,7 +215,6 @@ export const ArchivistAdjustmentsSchema = z.object({
   aiAssist: ImpactLevelSchema,
   risk: ImpactLevelSchema,
 });
-export type ArchivistAdjustments = z.infer<typeof ArchivistAdjustmentsSchema>;
 
 export const ArchivistMatchSchema = z.object({
   requirementId: z.string(),
@@ -295,11 +236,6 @@ export const ArchivistMatchSchema = z.object({
   sequencing: SequencingSchema.default({ requires: [], blocks: [], canParallel: true }),
 });
 export type ArchivistMatch = z.infer<typeof ArchivistMatchSchema>;
-
-export const ArchivistInputSchema = z.object({
-  requirements: z.array(RequirementSchema),
-});
-export type ArchivistInput = z.infer<typeof ArchivistInputSchema>;
 
 export const ArchivistOutputSchema = z.object({
   matches: z.array(ArchivistMatchSchema),
@@ -362,12 +298,6 @@ export const SpecialistOutputSchema = z.object({
 export type SpecialistOutput = z.infer<typeof SpecialistOutputSchema>;
 
 // ─── Complexity IO ────────────────────────────────────────────────────────────
-
-export const ComplexityInputSchema = z.object({
-  requirements: z.array(RequirementSchema),
-  riskFindings: z.array(RiskFindingSchema),
-});
-export type ComplexityInput = z.infer<typeof ComplexityInputSchema>;
 
 export const ComplexityOutputSchema = z.object({
   score: z.number().min(1).max(5),
@@ -433,20 +363,9 @@ export const MenuItemSchema = z.object({
    * an `id` string prefix that persistence discards. See AEH-227.
    */
   injected: z.boolean().default(false),
-  parentItemId: z.string().optional(),
   lineItems: z.array(RoleLineItemSchema),
 });
 export type MenuItem = z.infer<typeof MenuItemSchema>;
-
-export const ArchitectInputSchema = z.object({
-  estimateId: z.string(),
-  requirements: z.array(RequirementSchema),
-  archivistMatches: z.array(ArchivistMatchSchema),
-  riskFindings: z.array(RiskFindingSchema),
-  specialistOutputs: z.array(SpecialistOutputSchema),
-  complexityScore: z.number().min(1).max(5),
-});
-export type ArchitectInput = z.infer<typeof ArchitectInputSchema>;
 
 export const ArchitectOutputSchema = z.object({
   /** Sentences of ONE cohesive 8–15 sentence narrative (kept as an array — DB/UI already render narrative as a bullet list). */

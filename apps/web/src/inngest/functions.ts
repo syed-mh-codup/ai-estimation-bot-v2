@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
@@ -15,7 +14,6 @@ import {
 } from '@/lib/inngest';
 import { sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
  * Best-effort owner notification. Runs as its own durable step *after* the
@@ -187,7 +185,6 @@ const ingestFn = inngest.createFunction(
         where: { id: estimateId },
         data: {
           sowText: combined,
-          sowHash: sha(combined),
           ingestStatus: 'DONE',
           ingestStage: 'Done',
           ingestPct: 100,

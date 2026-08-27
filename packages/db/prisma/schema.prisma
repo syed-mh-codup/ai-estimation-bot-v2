@@ -350,13 +350,9 @@ model Estimate {
   id                     String              @id @default(cuid())
   title                  String
   sowText                String
-  sowHash                String
   status                 EstimateStatus      @default(DRAFT)
   complexityScore        Int?
-  taxonomyVersionsPinned Json
   configVersion          Int
-  promptVersionsPinned   Json
-  modelConfig            Json
   narrative              String[]
   assumptions            String[]
   agentState             Json
@@ -382,8 +378,6 @@ model Estimate {
   ingestStage  String?
   ingestPct    Int       @default(0)
   ingestError  String?
-
-  @@index([sowHash])
 }
 
 // User-editable grouping of menu items on an estimate. Purely presentational
@@ -477,7 +471,6 @@ model MenuItem {
   /// this replaces keyed on an `id` string prefix that persistence discards
   /// (Prisma mints a cuid), so it was dead and nothing noticed. See AEH-227.
   injected       Boolean          @default(false)
-  parentItemId   String?
   /// User-assigned section grouping (null = Ungrouped). Presentational only.
   sectionId      String?
   section        EstimateSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)

@@ -146,11 +146,6 @@ export function collateAssumptions(specialistOutputs: SpecialistOutput[]): strin
   return result.sort();
 }
 
-/** Menu items sharing a `parentItemId` with the given parent — used by the UI to warn before disabling a card. */
-export function getAffectedChildren(menuItems: MenuItem[], parentItemId: string): MenuItem[] {
-  return menuItems.filter((m) => m.parentItemId === parentItemId);
-}
-
 // ─── LLM judgment: one cohesive narrative + per-card phase/thin-slice tag ────
 
 const LLMCardMetaSchema = z.object({

@@ -1,16 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SupervisorInputSchema,
-  SupervisorOutputSchema,
-  LibrarianInputSchema,
   LibrarianOutputSchema,
   DetectiveInputSchema,
   DetectiveOutputSchema,
-  ArchivistInputSchema,
   ArchivistOutputSchema,
   SpecialistInputSchema,
   SpecialistOutputSchema,
-  ComplexityInputSchema,
   ComplexityOutputSchema,
   ArchitectOutputSchema,
   SearchResultSchema,
@@ -34,27 +29,12 @@ const sampleRequirement = {
 };
 
 describe('shared schemas — round-trip parse', () => {
-  it('SupervisorInput', () => {
-    const v = SupervisorInputSchema.parse({
-      estimateId: 'e1',
-      sowText: 'build a store',
-      mode: 'full',
-    });
-    expect(v.mode).toBe('full');
-  });
-
-  it('SupervisorOutput', () => {
-    const v = SupervisorOutputSchema.parse({ estimateId: 'e1', status: 'DRAFT' });
-    expect(v.status).toBe('DRAFT');
-  });
-
   it('Requirement', () => {
     const r = RequirementSchema.parse(sampleRequirement);
     expect(r.candidateMenuCardId).toBe('MC-B2B-PRICING');
   });
 
-  it('LibrarianInput/Output', () => {
-    LibrarianInputSchema.parse({ sowText: 'test' });
+  it('LibrarianOutput', () => {
     const o = LibrarianOutputSchema.parse({ requirements: [sampleRequirement] });
     expect(o.requirements).toHaveLength(1);
   });
@@ -89,8 +69,7 @@ describe('shared schemas — round-trip parse', () => {
     expect(o.questions[0]?.blocksEstimation).toBe(true);
   });
 
-  it('ArchivistInput/Output', () => {
-    ArchivistInputSchema.parse({ requirements: [] });
+  it('ArchivistOutput', () => {
     const o = ArchivistOutputSchema.parse({
       matches: [
         {
@@ -160,8 +139,7 @@ describe('shared schemas — round-trip parse', () => {
     expect(o.success).toBe(false);
   });
 
-  it('ComplexityInput/Output', () => {
-    ComplexityInputSchema.parse({ requirements: [sampleRequirement], riskFindings: [] });
+  it('ComplexityOutput', () => {
     const o = ComplexityOutputSchema.parse({
       score: 3,
       perItemMultipliers: { 'b2b.checkout': 1.2 },

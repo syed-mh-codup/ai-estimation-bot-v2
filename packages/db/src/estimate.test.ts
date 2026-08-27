@@ -39,12 +39,8 @@ describe('WS1-07: Estimate → MenuItem → 4 RoleLineItems', () => {
       data: {
         title: 'Test Estimate',
         sowText: 'Build a B2B checkout',
-        sowHash: 'abc123',
         status: 'DRAFT',
-        taxonomyVersionsPinned: {},
         configVersion: 1,
-        promptVersionsPinned: {},
-        modelConfig: {},
         narrative: [],
         assumptions: [],
         agentState: {},
@@ -52,7 +48,7 @@ describe('WS1-07: Estimate → MenuItem → 4 RoleLineItems', () => {
       },
     });
     estimateId = est.id;
-    expect(est.sowHash).toBe('abc123');
+    expect(est.title).toBe('Test Estimate');
 
     const item = await db.menuItem.create({
       data: {

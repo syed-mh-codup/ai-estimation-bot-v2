@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   computeRollup,
   computeRoleProjections,
-  toggleMenuItem,
 } from './rollup';
 import { MenuItemSchema, type MenuItem } from '@repo/shared';
 
@@ -133,10 +132,13 @@ describe('WS17-02: Per-role WBS projection — four projections sharing item ide
 // ─── WS17-03: Toggle API ─────────────────────────────────────────────────────
 
 describe('WS17-03: Toggle menu item → updated projections + totals', () => {
+  // The toggle itself is a server action (setItemEnabled); what belongs here is
+  // that the rollup and projections follow `enabled`.
   it('disabling an item removes it from totals', () => {
     const items = [makeMenuItem('item-a'), makeMenuItem('item-b')];
 
-    const { rollup } = toggleMenuItem(items, 'item-b', false);
+    const toggled = items.map((m) => (m.id === 'item-b' ? { ...m, enabled: false } : m));
+    const rollup = computeRollup(toggled);
 
     const devTotal = rollup.perRole.find((r) => r.role === 'DEV');
     expect(devTotal?.totalBaseHours).toBe(40); // only item-a
@@ -145,7 +147,8 @@ describe('WS17-03: Toggle menu item → updated projections + totals', () => {
   it('re-enabling an item adds it back to totals', () => {
     const items = [makeMenuItem('item-a'), makeMenuItem('item-b', false)];
 
-    const { rollup } = toggleMenuItem(items, 'item-b', true);
+    const toggled = items.map((m) => (m.id === 'item-b' ? { ...m, enabled: true } : m));
+    const rollup = computeRollup(toggled);
 
     const devTotal = rollup.perRole.find((r) => r.role === 'DEV');
     expect(devTotal?.totalBaseHours).toBe(80); // both items
@@ -154,7 +157,8 @@ describe('WS17-03: Toggle menu item → updated projections + totals', () => {
   it('toggle returns updated per-role projections', () => {
     const items = [makeMenuItem('item-a'), makeMenuItem('item-b')];
 
-    const { projections } = toggleMenuItem(items, 'item-a', false);
+    const toggled = items.map((m) => (m.id === 'item-a' ? { ...m, enabled: false } : m));
+    const projections = computeRoleProjections(toggled);
 
     const devProj = projections.find((p) => p.role === 'DEV')!;
     const disabledItem = devProj.items.find((i) => i.menuItemId === 'item-a');

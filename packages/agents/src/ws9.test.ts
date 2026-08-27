@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
-import { queryTaxonomyByText, queryPresetsByVector } from './rag-retriever';
+import { queryPresetsByVector } from './rag-retriever';
 import { runLibrarian, type LibrarianContext, type TaxonomyEntry } from './librarian';
 import type { IModelProvider } from '@repo/providers';
 
@@ -163,23 +163,6 @@ afterAll(async () => {
 // ─── WS9-01: RAG retriever ───────────────────────────────────────────────────
 
 describe('WS9-01: RAG retriever over taxonomy + preset corpus', () => {
-  it('queryTaxonomyByText returns nodes ranked by keyword relevance', async () => {
-    const results = await queryTaxonomyByText(db, 'checkout payment cart');
-    expect(results.length).toBeGreaterThan(0);
-    // Robust to other taxonomy in the shared DB: assert the relevant checkout
-    // node ranks ABOVE the unrelated auth node (tests ranking, not global #1).
-    const rankCheckout = results.findIndex((r) => r.nodeKey === TAX_KEY1);
-    const rankAuth = results.findIndex((r) => r.nodeKey === TAX_KEY2);
-    expect(rankCheckout).toBeGreaterThanOrEqual(0);
-    expect(rankCheckout).toBeLessThan(rankAuth);
-  });
-
-  it('queryTaxonomyByText returns all active nodes when query has no match', async () => {
-    const results = await queryTaxonomyByText(db, 'xyzzy impossible query');
-    // Should still return nodes even with low relevance
-    expect(results.length).toBeGreaterThanOrEqual(0);
-  });
-
   it('queryPresetsByVector returns presets ordered by cosine similarity', async () => {
     // Query with dim=0 unit vector → PRESET_ID1 (dim=0) should be first
     const queryVec = makeVec(0);

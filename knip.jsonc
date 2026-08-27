@@ -68,7 +68,6 @@
       // baseline fills with hundreds of Prisma symbols.
       "project": ["src/**/*.ts!", "!src/generated/**"]
     },
-    "packages/core": { "entry": [], "project": ["src/**/*.ts!"] },
     "packages/providers": { "entry": [], "project": ["src/**/*.ts!"] },
     "packages/shared": { "entry": [], "project": ["src/**/*.ts!"] },
     "packages/audit": { "entry": ["src/cli.ts!"], "project": ["src/**/*.ts!"] }

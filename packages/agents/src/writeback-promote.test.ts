@@ -67,12 +67,8 @@ beforeEach(async () => {
     data: {
       title: 'Promotion test',
       sowText: 'x',
-      sowHash: '',
       status: 'REVIEW',
       configVersion: 1,
-      taxonomyVersionsPinned: {},
-      promptVersionsPinned: {},
-      modelConfig: {},
       narrative: [],
       assumptions: [],
       agentState: {},

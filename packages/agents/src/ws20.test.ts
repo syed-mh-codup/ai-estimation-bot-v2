@@ -40,12 +40,8 @@ beforeAll(async () => {
     data: {
       title: 'WS20 Write-Back Test',
       sowText: 'Build checkout and auth',
-      sowHash: '',
       status: 'REVIEW',
-      taxonomyVersionsPinned: {},
       configVersion: 1,
-      promptVersionsPinned: {},
-      modelConfig: {},
       narrative: [],
       assumptions: [],
       agentState: {},

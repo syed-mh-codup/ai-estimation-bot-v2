@@ -172,12 +172,8 @@ beforeEach(async () => {
     data: {
       title: 'Round-trip guard',
       sowText: 'B2B checkout with volume pricing tiers',
-      sowHash: '',
       status: 'REVIEW',
       configVersion: 1,
-      taxonomyVersionsPinned: {},
-      promptVersionsPinned: {},
-      modelConfig: {},
       narrative: [],
       assumptions: [],
       agentState: {},

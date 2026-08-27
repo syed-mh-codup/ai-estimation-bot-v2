@@ -3,7 +3,6 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/db" },
-    { "path": "./packages/core" },
     { "path": "./packages/providers" },
     { "path": "./packages/agents" },
     { "path": "./apps/web" }

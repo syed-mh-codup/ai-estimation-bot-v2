@@ -14,11 +14,6 @@ export type SendEmailArgs = {
   text?: string;
 };
 
-/** True when enough SMTP env is present to actually send. */
-export function emailConfigured(): boolean {
-  return Boolean(process.env['SMTP_USER'] && process.env['SMTP_PASSWORD'] && process.env['EMAIL_FROM']);
-}
-
 function getTransport(): nodemailer.Transporter | null {
   const user = process.env['SMTP_USER'];
   const pass = process.env['SMTP_PASSWORD'];

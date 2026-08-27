@@ -25,11 +25,6 @@ const HIDDEN_WORK_FLAGS: Record<KnownRiskFlag, { title: string; taxonomyKey: str
   'webhook-reliability': { title: 'Webhook Reliability & Dead Letter Queue', taxonomyKey: 'infra.webhook' },
 };
 
-/** The taxonomy key a known flag costs against, or null if the flag is off-list. */
-export function taxonomyKeyForRiskFlag(flag: string): string | null {
-  return isKnownRiskFlag(flag) ? HIDDEN_WORK_FLAGS[flag].taxonomyKey : null;
-}
-
 /**
  * A risk the Detective raised that no specialist costed.
  *
