@@ -40,7 +40,46 @@ type Role = 'DEV' | 'QA' | 'PM' | 'BA';
 export type LineItemDTO = Pick<
   RoleLineItemRow,
   'id' | 'role' | 'title' | 'baseHours' | 'taxedHours' | 'edited' | 'touchesFrontend' | 'touchesBackend'
->;
+> & { envelope: LineEnvelope };
+
+/**
+ * What the Specialist council recorded about a line item beyond its hours.
+ *
+ * Nested for the same reason `CardFlags` is — see the note there. Flattening
+ * `complexity` onto `LineItemDTO` would be worse than a missed clear: every
+ * existing read of `baseHours`/`taxedHours`/`role` on this DTO would
+ * re-attribute to the `RoleLineItem.meta` pseudo-model, orphaning three columns
+ * that are consumed today.
+ */
+export type LineEnvelope = {
+  /** The tier the Specialist priced at: base | elevated | high. */
+  complexity: string | null;
+  /** The Specialist discounted these hours for AI-assisted delivery. */
+  aiAssistApplied: boolean;
+  /** Historical presets the Specialist anchored the number to. */
+  anchorPresetIds: string[];
+};
+
+const EMPTY_ENVELOPE: LineEnvelope = {
+  complexity: null,
+  aiAssistApplied: false,
+  anchorPresetIds: [],
+};
+
+/**
+ * Read the Specialist's envelope off a persisted line item.
+ *
+ * Permissive like `cardFlags`: a hand-added row has no council judgment behind
+ * it, and saying so plainly beats inventing a tier for it.
+ */
+export function lineEnvelope(meta: RoleLineItemRow['meta']): LineEnvelope {
+  const m = (meta ?? {}) as Partial<LineEnvelope>;
+  return {
+    complexity: typeof m.complexity === 'string' ? m.complexity : null,
+    aiAssistApplied: m.aiAssistApplied === true,
+    anchorPresetIds: Array.isArray(m.anchorPresetIds) ? m.anchorPresetIds : [],
+  };
+}
 export type ItemDTO = Pick<
   MenuItemRow,
   | 'id'
@@ -309,7 +348,8 @@ export async function createLineItem(menuItemId: string, role: RoleKind): Promis
     data: { menuItemId, role, title: '', baseHours: 0, taxedHours: 0, edited: true },
     select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
   });
-  return li;
+  // Typed by hand, so there is no council judgment to carry.
+  return { ...li, envelope: EMPTY_ENVELOPE };
 }
 
 export async function updateLineItem(
@@ -341,9 +381,9 @@ export async function updateLineItem(
   const li = await prisma.roleLineItem.update({
     where: { id },
     data,
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true, meta: true },
   });
-  return li;
+  return { ...li, envelope: lineEnvelope(li.meta) };
 }
 
 /**
@@ -361,11 +401,12 @@ export async function setLineItemSide(
   await requireSession();
   const { estimateId } = await estimateIdForLineItem(id);
   await assertEditable(estimateId);
-  return prisma.roleLineItem.update({
+  const li = await prisma.roleLineItem.update({
     where: { id },
     data: { touchesFrontend: side.touchesFrontend, touchesBackend: side.touchesBackend, edited: true },
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true, meta: true },
   });
+  return { ...li, envelope: lineEnvelope(li.meta) };
 }
 
 export async function deleteLineItem(id: string): Promise<void> {

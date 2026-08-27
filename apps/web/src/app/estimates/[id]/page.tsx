@@ -21,7 +21,7 @@ import { LedgerProvider } from './ledger-context';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { ContentsCard } from './ContentsCard';
-import { updateNarrative, updateAssumptions, deleteEstimate, cardFlags } from './actions';
+import { updateNarrative, updateAssumptions, deleteEstimate, cardFlags, lineEnvelope } from './actions';
 import type { ItemDTO, SectionDTO } from './actions';
 
 type Role = 'DEV' | 'QA' | 'PM' | 'BA';
@@ -180,6 +180,7 @@ export default async function EstimateDetailPage({
       edited: li.edited,
       touchesFrontend: li.touchesFrontend,
       touchesBackend: li.touchesBackend,
+      envelope: lineEnvelope(li.meta),
     })),
   }));
 

@@ -703,6 +703,47 @@ function ItemProvenance({ item }: { item: ItemDTO }) {
  * sideways. The role tag carries identity instead, and the taxed figure is
  * pinned to the Total column's width so it still lands under Total.
  */
+/**
+ * The Specialist's own reasoning about a line item: the complexity tier it
+ * priced at, whether it discounted the hours for AI-assisted delivery, and the
+ * historical presets it anchored to.
+ *
+ * `aiAssistApplied` is the one that earns its place. It means the number in the
+ * box is already a discount, which is exactly the sort of thing an estimator
+ * needs to know before "correcting" it upwards. It was recorded on every line
+ * item since the council shipped and shown to nobody.
+ *
+ * Deliberately quiet — lowercase, ink-4, hidden on narrow screens. A row that
+ * shouted its provenance would compete with the hours, which are the point.
+ */
+function LineEnvelopeTag({ li }: { li: LineItemDTO }) {
+  const tier = li.envelope.complexity;
+  const anchors = li.envelope.anchorPresetIds;
+  if (!tier && !li.envelope.aiAssistApplied && anchors.length === 0) return null;
+
+  const label = [tier, li.envelope.aiAssistApplied ? 'ai-assisted' : null]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <span
+      className="hidden shrink-0 text-[10px] text-ink-4 lg:inline"
+      title={
+        [
+          tier ? `Priced at ${tier} complexity` : null,
+          li.envelope.aiAssistApplied ? 'Hours already discounted for AI-assisted delivery' : null,
+          anchors.length > 0 ? `Anchored to ${anchors.join(', ')}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n') || undefined
+      }
+      data-testid={`line-envelope-${li.id}`}
+    >
+      {label || `anchored ${anchors.length}`}
+    </span>
+  );
+}
+
 function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDTO }) {
   const { taxPercents, isFinalised, onEditLineTitle, onSetLineSide, onEditLineHours, onDeleteLineItem } =
     useLedger();
@@ -739,6 +780,9 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
         className="min-w-0 flex-1 text-[12.5px] text-ink-2 disabled:opacity-100"
         data-testid={`line-title-${li.id}`}
       />
+
+      {/* What the council priced against, before a human touched it. */}
+      <LineEnvelopeTag li={li} />
 
       {/* A human overrode the crew's number here. */}
       {li.edited && (

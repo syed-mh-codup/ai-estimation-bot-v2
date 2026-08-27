@@ -56,7 +56,7 @@ type-decl count for NOTHING.
 
 - [x] C1  deletions, driven to a knip fixpoint  (33->31 fields, 4->2 contract, 57->16 exports)
 - [x] C2  MenuItem card DTO + setItemEnabled guard  (31 -> 24 fields)
-- [ ] C3  LineItemDTO envelope
+- [x] C3  LineItemDTO envelope  (24 -> 21 fields)
 - [ ] C4  PresetVersion metadata
 - [ ] C5  version history (getChangeLog + per-entity lists)
 - [ ] C6  MCP provider/auth/wiring
@@ -155,3 +155,11 @@ sourcePresetId + matchScore were the two FALSE ORPHANS. They now have honest UI
 consumers (the provenance line) rather than being argued away — an estimator
 questioning a number can finally see whether it came from a close historical
 match or from nothing.
+
+### C3 done — line-item envelope
+
+  fields 24 -> 21. RoleLineItem.meta.complexity / aiAssistApplied /
+  anchorPresetIds cleared. Verified the RoleLineItem COLUMNS (baseHours,
+  taxedHours, role) did NOT re-attribute — nesting held, exactly the failure
+  mode R1 exists to prevent.
+  tests 3 failed / 314 passed. typecheck + lint clean.
