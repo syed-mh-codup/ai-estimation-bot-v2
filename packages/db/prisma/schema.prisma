@@ -309,17 +309,26 @@ model PromptVersion {
 // ─── Estimation Config ────────────────────────────────────────────────────────
 
 model EstimationConfig {
-  id                    String           @id @default(cuid())
-  version               Int              @unique
-  active                Boolean          @default(false)
-  complexityRules       Json
-  pmCommunicationTaxPct Float
-  baCommunicationTaxPct Float
-  qaRegressionBufferPct Float
-  infraBaseline         Json
-  changeReason          String?
-  changeMotivation      ChangeMotivation @default(OTHER)
-  createdAt             DateTime         @default(now())
+  id                       String           @id @default(cuid())
+  version                  Int              @unique
+  active                   Boolean          @default(false)
+  complexityRules          Json
+  pmCommunicationTaxPct    Float
+  baCommunicationTaxPct    Float
+  qaRegressionBufferPct    Float
+  /// Does an unresolved hidden-work finding stop an estimate being finalised,
+  /// or merely say so?
+  ///
+  /// Defaults to false — warn — deliberately. A blocking gate is only as good as
+  /// the Detective's precision, and nobody has run this stage against real SOWs
+  /// yet. Starting in warn mode lets a team see what it actually catches before
+  /// deciding it may stand between them and sending an estimate; flipping it on
+  /// is one admin edit and no deploy. AEH-263.
+  hiddenWorkBlocksFinalise Boolean          @default(false)
+  infraBaseline            Json
+  changeReason             String?
+  changeMotivation         ChangeMotivation @default(OTHER)
+  createdAt                DateTime         @default(now())
 }
 
 // ─── MCP Connectors ───────────────────────────────────────────────────────────

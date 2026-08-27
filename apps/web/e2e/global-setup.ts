@@ -126,6 +126,7 @@ export default async function globalSetup() {
         pmCommunicationTaxPct: 15,
         baCommunicationTaxPct: 10,
         qaRegressionBufferPct: 20,
+        hiddenWorkBlocksFinalise: false,
         infraBaseline: {},
         changeReason: 'e2e bootstrap',
       },

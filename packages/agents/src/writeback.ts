@@ -97,17 +97,6 @@ export async function promoteMenuItemsToPresets(
   });
 
   for (const item of enabled) {
-    // Injected placeholders (hidden-work audit) aren't features and must never
-    // enter the library.
-    //
-    // This used to read `item.id.startsWith('baseline-') || 'hidden-'`, which
-    // could never match here: `run-estimate` creates cards without passing
-    // `id`, so Prisma mints a cuid and the pipeline's synthetic id is gone by
-    // the time promotion reads the row back. `baseline-` was minted nowhere at
-    // all. The check only ever passed in tests that called this function with
-    // in-memory items. Now a column. AEH-227.
-    if (item.injected) continue;
-
     // Already promoted from this estimate — don't stack duplicate versions on a
     // re-finalise. Keyed on (estimate, menu item) rather than on a synthesised
     // preset id: ids are cuids now, so there is nothing to reconstruct.
@@ -223,10 +212,24 @@ export async function promoteEstimate(
 ): Promise<PromoteResult> {
   const est = await db.estimate.findUnique({
     where: { id: estimateId },
-    // Injected placeholders are excluded in the query rather than loaded and
-    // then skipped. The in-loop `item.injected` guard stays for callers that
-    // pass menu items in directly. AEH-227.
-    include: { menuItems: { where: { injected: false }, include: { lineItems: true } } },
+    // Injected cards are NOT excluded any more.
+    //
+    // AEH-227 excluded every `injected` row, correctly: back then an injected
+    // card carried invented flat hours, and letting that into the library would
+    // have poisoned the anchor every future estimate reads. Those hours are now
+    // the Specialist council's, produced the same way as any other card's.
+    //
+    // Promotion still only ever sees a FINALISED estimate, and only `enabled`
+    // cards survive the filter in promoteMenuItemsToPresets. That is the human
+    // acceptance: an estimator who finalises with an inferred card present and
+    // switched on has reviewed it and stood behind it — they could have deleted
+    // or disabled it, and disabling is exactly how they say no. So the library
+    // finally learns what rate limiting and data migrations actually cost,
+    // instead of re-deriving them from first principles on every estimate.
+    //
+    // `injected` stays true on the row forever regardless: it is what makes
+    // "work we inferred" versus "work they asked for" answerable later. AEH-263.
+    include: { menuItems: { include: { lineItems: true } } },
   });
   if (!est) return { promoted: [], skipped: [], versioned: [], created: [] };
 

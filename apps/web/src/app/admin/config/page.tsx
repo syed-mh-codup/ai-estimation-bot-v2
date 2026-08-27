@@ -23,6 +23,7 @@ async function saveConfig(formData: FormData) {
   const pm = Number(formData.get('pmCommunicationTaxPct'));
   const ba = Number(formData.get('baCommunicationTaxPct'));
   const qa = Number(formData.get('qaRegressionBufferPct'));
+  const hiddenWorkBlocksFinalise = formData.get('hiddenWorkBlocksFinalise') === 'on';
   const complexityRules = parseJsonField(formData.get('complexityRules'));
   const infraBaseline = parseJsonField(formData.get('infraBaseline'));
 
@@ -52,6 +53,7 @@ async function saveConfig(formData: FormData) {
         pmCommunicationTaxPct: pm,
         baCommunicationTaxPct: ba,
         qaRegressionBufferPct: qa,
+        hiddenWorkBlocksFinalise,
         complexityRules,
         infraBaseline,
         changeReason: 'edited via admin',
@@ -143,6 +145,33 @@ export default async function ConfigAdminPage() {
                 />
               </div>
             </div>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Eyebrow>Hidden work</Eyebrow>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              Risks the Detective raised that nobody costed. Known ones are costed
+              automatically; anything it invented a name for is raised for a person to decide.
+            </p>
+            <label className="mt-3.5 flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                name="hiddenWorkBlocksFinalise"
+                defaultChecked={config.hiddenWorkBlocksFinalise}
+                className="mt-0.5"
+                data-testid="hidden-work-blocks-finalise"
+              />
+              <span className="text-[13px] text-ink-2">
+                Block finalising until every flagged risk is resolved
+                <span className="block text-[12px] text-ink-3">
+                  Off, an estimate can be finalised with risks still open and the count is
+                  shown alongside the button. On, each one has to be costed, marked covered,
+                  or dismissed with a reason first.
+                </span>
+              </span>
+            </label>
           </CardBody>
         </Card>
 

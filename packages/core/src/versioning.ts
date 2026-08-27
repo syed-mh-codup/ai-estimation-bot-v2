@@ -181,6 +181,7 @@ export async function createConfigVersion(
     pmCommunicationTaxPct: number;
     baCommunicationTaxPct: number;
     qaRegressionBufferPct: number;
+    hiddenWorkBlocksFinalise: boolean;
     infraBaseline: Record<string, unknown>;
   },
   meta: VersionMetadata = {},

@@ -221,28 +221,30 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     expect(all).toHaveLength(2); // v1 + one promotion, not three
   });
 
-  it('never promotes injected placeholders', async () => {
+  it('promotes an inferred card — reviewed work is delivered work', async () => {
     const result = await promoteMenuItemsToPresets(db, estimateId, [card({ injected: true })]);
-    expect(result.promoted).toEqual([]);
+    result.promoted.forEach((p) => createdPresetIds.add(p));
+    expect(result.promoted).toHaveLength(1);
   });
 
   /**
-   * The regression that motivated AEH-227's `injected` column.
+   * AEH-227 excluded every injected row here, and was right to: those cards
+   * carried invented flat hours (DEV 8 / QA 4 / PM 2 / BA 2 regardless of
+   * anything), and letting that into the library would have poisoned the anchor
+   * every future estimate reads.
    *
-   * The exclusion used to key on an `id` string prefix ('baseline-',
-   * 'hidden-'). Every test of it — including this file's previous version —
-   * called `promoteMenuItemsToPresets` directly with in-memory cards whose ids
-   * still carried that prefix, so the guard passed. On the only production path
-   * it could never fire: `run-estimate` creates cards without passing `id`, so
-   * Prisma mints a cuid and the synthetic id is gone before promotion reads the
-   * row back.
+   * The hours are the Specialist council's now, so the exclusion inverted. What
+   * carries the safety instead is `enabled`: promotion only ever runs on a
+   * FINALISED estimate, and an estimator who finalises with an inferred card
+   * switched on has reviewed it and stood behind it. Switching it off is how
+   * they say no, and the case below proves that still holds.
    *
-   * So this goes through `promoteEstimate` — reading real rows — which is the
-   * one path the old test could not reach. Asserting the good card DID promote
-   * matters as much: a filter that excludes everything would pass a
-   * `toEqual([])` check.
+   * Goes through `promoteEstimate` — reading real rows — because that is the
+   * only path that exercises the query filter. Asserting the ordinary card
+   * promotes too matters as much: a filter that excluded everything would pass
+   * a bare length check.
    */
-  it('excludes injected placeholders when reading rows back from the database', async () => {
+  it('promotes an inferred card read back from the database, alongside an ordinary one', async () => {
     await db.menuItem.create({
       data: {
         estimateId,
@@ -267,9 +269,26 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     const result = await promoteEstimate(db, estimateId);
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
-    expect(result.promoted).toHaveLength(1);
-    const v = await activeVersion(result.promoted[0]!);
-    expect(v!.name).toBe('Real delivered feature');
+    expect(result.promoted).toHaveLength(2);
+    const names = await Promise.all(result.promoted.map(async (id) => (await activeVersion(id))!.name));
+    expect(names.sort()).toEqual(['Data Remediation & Migration', 'Real delivered feature']);
+  });
+
+  it('still excludes an inferred card the estimator switched off', async () => {
+    await db.menuItem.create({
+      data: {
+        estimateId,
+        taxonomyKey: 'infra.rate-limit',
+        title: 'Rate Limit Management & Throttling',
+        enabled: false,
+        injected: true,
+        lineItems: { create: [{ role: 'DEV', baseHours: 6, taxedHours: 6 }] },
+      },
+    });
+
+    const result = await promoteEstimate(db, estimateId);
+    result.promoted.forEach((p) => createdPresetIds.add(p));
+    expect(result.promoted).toEqual([]);
   });
 
   it('skips disabled cards — work switched off is not delivered work', async () => {

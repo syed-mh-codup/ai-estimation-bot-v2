@@ -89,6 +89,7 @@ describe('WS1-05: EstimationConfig active-version uniqueness', () => {
         pmCommunicationTaxPct: 0.1,
         baCommunicationTaxPct: 0.1,
         qaRegressionBufferPct: 0.2,
+        hiddenWorkBlocksFinalise: false,
         infraBaseline: { envSetup: 8, cicd: 16, deploymentHypercare: 8 },
         changeMotivation: 'OTHER',
       },

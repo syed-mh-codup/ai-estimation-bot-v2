@@ -135,6 +135,7 @@ async function main() {
       pmCommunicationTaxPct: 15,
       baCommunicationTaxPct: 10,
       qaRegressionBufferPct: 20,
+      hiddenWorkBlocksFinalise: false,
       infraBaseline: { devops: 24, environments: ['dev', 'staging', 'prod'] },
       changeReason: 'bootstrap seed',
     };
