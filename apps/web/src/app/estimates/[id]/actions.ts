@@ -43,7 +43,7 @@ export type LineItemDTO = Pick<
 >;
 export type ItemDTO = Pick<
   MenuItemRow,
-  'id' | 'title' | 'enabled' | 'taxonomyKey' | 'sectionId' | 'order'
+  'id' | 'title' | 'enabled' | 'taxonomyKey' | 'sectionId' | 'order' | 'injected'
 > & { lineItems: LineItemDTO[] };
 export type SectionDTO = Pick<EstimateSectionRow, 'id' | 'title' | 'order'>;
 
@@ -160,7 +160,19 @@ export async function createMenuItem(estimateId: string, sectionId: string | nul
       enabled: true,
       order: (max._max.order ?? -1) + 1,
     },
-    select: { id: true, title: true, enabled: true, taxonomyKey: true, sectionId: true, order: true },
+    // `injected` is not passed on create — a card someone typed is by definition
+    // not one the pipeline inferred, so the column default (false) is correct.
+    // Selected here because ItemDTO requires it, and the editor renders inferred
+    // rows differently.
+    select: {
+      id: true,
+      title: true,
+      enabled: true,
+      taxonomyKey: true,
+      sectionId: true,
+      order: true,
+      injected: true,
+    },
   });
   return { ...item, lineItems: [] };
 }

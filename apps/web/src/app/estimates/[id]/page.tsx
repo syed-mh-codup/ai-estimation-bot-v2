@@ -19,6 +19,7 @@ import { EditableList } from './EditableList';
 import { CollapseAllButton } from './CollapseAllButton';
 import { LedgerProvider } from './ledger-context';
 import { RollupCard } from './RollupCard';
+import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { ContentsCard } from './ContentsCard';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import type { ItemDTO, SectionDTO } from './actions';
@@ -68,6 +69,22 @@ async function finaliseAction(formData: FormData) {
   await requireSession();
   const id = formData.get('id');
   if (typeof id !== 'string') return;
+
+  // The disabled button is a courtesy; this is the gate. A server action is
+  // reachable without the page that rendered it, and finalising is irreversible
+  // here — it locks every edit and feeds the estimate to the preset library.
+  const gate = await prisma.estimationConfig.findFirst({
+    where: { active: true },
+    orderBy: { version: 'desc' },
+    select: { hiddenWorkBlocksFinalise: true },
+  });
+  if (gate?.hiddenWorkBlocksFinalise) {
+    const open = await prisma.hiddenWorkFinding.count({
+      where: { estimateId: id, outcome: 'OPEN' },
+    });
+    if (open > 0) return;
+  }
+
   await prisma.estimate.update({ where: { id }, data: { status: 'FINALISED' } });
   revalidatePath(`/estimates/${id}`);
 
@@ -119,6 +136,18 @@ export default async function EstimateDetailPage({
   if (!estimate) notFound();
 
   const isFinalised = estimate.status === 'FINALISED';
+  // The gate. Warn or block is an admin switch, not a hardcoded stance: a
+  // blocking gate is only as good as the Detective's precision, and nobody has
+  // watched this stage run against real SOWs yet.
+  const [openHiddenWork, gateConfig] = await Promise.all([
+    prisma.hiddenWorkFinding.count({ where: { estimateId: id, outcome: 'OPEN' } }),
+    prisma.estimationConfig.findFirst({
+      where: { active: true },
+      orderBy: { version: 'desc' },
+      select: { hiddenWorkBlocksFinalise: true },
+    }),
+  ]);
+  const finaliseBlocked = (gateConfig?.hiddenWorkBlocksFinalise ?? false) && openHiddenWork > 0;
   const pct = await taxPercents();
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
@@ -133,6 +162,7 @@ export default async function EstimateDetailPage({
     id: m.id,
     title: m.title,
     enabled: m.enabled,
+    injected: m.injected,
     taxonomyKey: m.taxonomyKey,
     sectionId: m.sectionId,
     order: m.order,
@@ -245,6 +275,7 @@ export default async function EstimateDetailPage({
                  controls that act on them, never scroll away ──────────────── */}
           <aside className="flex flex-col gap-3.5 lg:sticky lg:top-4 max-lg:order-first">
             {hasMenu && <RollupCard />}
+            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Actions</Eyebrow>
@@ -253,9 +284,28 @@ export default async function EstimateDetailPage({
                 {hasMenu && !isFinalised && (
                   <form action={finaliseAction}>
                     <input type="hidden" name="id" value={estimate.id} />
-                    <Button type="submit" full data-testid="finalise-estimate">
+                    <Button
+                      type="submit"
+                      full
+                      disabled={finaliseBlocked}
+                      data-testid="finalise-estimate"
+                    >
                       Finalise estimate
                     </Button>
+                    {openHiddenWork > 0 && (
+                      // Says the same thing either way; only the button changes.
+                      // Naming the count beats a generic warning — the estimator
+                      // can see whether it is one loose end or ten.
+                      <p
+                        className="mt-1.5 text-[11.5px] leading-snug text-bronze-ink"
+                        data-testid="finalise-hidden-work-note"
+                      >
+                        {finaliseBlocked ? 'Resolve ' : 'Still open: '}
+                        <span className="num">{openHiddenWork}</span> flagged risk
+                        {openHiddenWork === 1 ? '' : 's'}
+                        {finaliseBlocked ? ' first.' : '.'}
+                      </p>
+                    )}
                   </form>
                 )}
                 {hasMenu && (

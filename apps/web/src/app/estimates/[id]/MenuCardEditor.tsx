@@ -477,6 +477,12 @@ function ItemRow({
         // "excluded" without hiding numbers you might switch back on.
         !item.enabled &&
           'bg-[repeating-linear-gradient(135deg,transparent,transparent_5px,rgba(148,143,129,0.05)_5px,rgba(148,143,129,0.05)_10px)]',
+        // Inferred work gets a rule in the margin, the way a bookkeeper annotates
+        // an entry that wasn't on the invoice. Deliberately not the hatch above —
+        // that means "switched off", a state an inferred row can also be in — and
+        // deliberately not a tint, so a run's inferred rows read as a group at a
+        // glance without any of them shouting. AEH-263.
+        item.injected && 'border-l-2 border-l-bronze-line',
       )}
       data-testid={`menu-item-${item.id}`}
     >
@@ -530,6 +536,17 @@ function ItemRow({
           {!item.enabled && (
             <span className="shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
               Off
+            </span>
+          )}
+          {item.injected && (
+            // Colour never travels alone here, so the label does the work and
+            // the tone only reinforces it.
+            <span
+              className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
+              title="Implied by the source material, not stated in it — costed by the estimator council"
+              data-testid={`item-inferred-${item.id}`}
+            >
+              Inferred
             </span>
           )}
         </div>

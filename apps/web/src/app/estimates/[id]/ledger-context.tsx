@@ -62,6 +62,13 @@ type Ledger = {
     itemsOn: number;
     itemsOff: number;
     lineItemCount: number;
+    /**
+     * Hours inside `grand` that came from work the source material implied but
+     * never stated. Counted, taxed and charged like anything else — kept
+     * separate only so the total can say how much of itself was inferred.
+     */
+    inferred: number;
+    inferredOn: number;
   };
   sectionsSorted: SectionDTO[];
   itemsIn: (sectionId: string | null) => ItemDTO[];
@@ -157,6 +164,12 @@ export function LedgerProvider({
     let excluded = 0;
     let itemsOn = 0;
     let lineItemCount = 0;
+    // Work the SOW never asked for, counted separately. Same hours, same
+    // taxation, same total — but a client reading "412h" deserves to know how
+    // much of it they did not write down, and an estimator deciding whether to
+    // argue for it needs the figure by itself.
+    let inferred = 0;
+    let inferredOn = 0;
 
     for (const it of items) {
       lineItemCount += it.lineItems.length;
@@ -165,14 +178,25 @@ export function LedgerProvider({
         continue;
       }
       itemsOn += 1;
+      if (it.injected) inferredOn += 1;
       for (const li of it.lineItems) {
         if ((ROLES as readonly string[]).includes(li.role)) {
           totals[li.role as Role] += li.taxedHours;
           grand += li.taxedHours;
+          if (it.injected) inferred += li.taxedHours;
         }
       }
     }
-    return { totals, grand, excluded, itemsOn, itemsOff: items.length - itemsOn, lineItemCount };
+    return {
+      totals,
+      grand,
+      excluded,
+      itemsOn,
+      itemsOff: items.length - itemsOn,
+      lineItemCount,
+      inferred,
+      inferredOn,
+    };
   }, [items]);
 
   const optimistic = useCallback(

@@ -16,7 +16,8 @@ import { ROLES, round, useLedger } from './ledger-context';
  */
 export function RollupCard() {
   const { rollup, taxPercents, sections } = useLedger();
-  const { totals, grand, excluded, itemsOn, itemsOff, lineItemCount } = rollup;
+  const { totals, grand, excluded, itemsOn, itemsOff, lineItemCount, inferred, inferredOn } =
+    rollup;
 
   const share = (v: number) => (grand > 0 ? Math.round((v / grand) * 100) : 0);
 
@@ -59,6 +60,34 @@ export function RollupCard() {
           </span>
         </div>
       ))}
+
+      {/* The split the whole hidden-work feature exists to make visible. Both
+          figures are in the headline above — these hours are as real and as
+          taxed as any other. But a client reading one number deserves to know
+          how much of it they never wrote down, and an estimator about to defend
+          the total needs that figure by itself. Same disclosure pattern as
+          switched-off work below, because it answers the same kind of question
+          about the same headline number. AEH-263. */}
+      {inferredOn > 0 && (
+        <div
+          className="mt-2.5 border-t border-dashed border-line pt-2.5 text-[11.5px]"
+          data-testid="rollup-inferred"
+        >
+          <div className="flex justify-between gap-2 text-ink-3">
+            <span>asked for</span>
+            <span className="num">{round(grand - inferred)}h</span>
+          </div>
+          <div className="mt-1 flex justify-between gap-2 text-bronze-ink">
+            <span>
+              inferred ·{' '}
+              <span className="num">{inferredOn}</span> item{inferredOn === 1 ? '' : 's'}
+            </span>
+            <span className="num" data-testid="total-inferred">
+              {round(inferred)}h
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Switched-off work is still priced. Saying so stops the total reading
           like the whole scope. */}
