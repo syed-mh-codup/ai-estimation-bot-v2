@@ -99,13 +99,13 @@ started it. Without it 18 suites cannot even load.
 
 ## Work plan (phases; all land together under AEH-263)
 
-1. [ ] Taxonomy governance: status + collapsedIntoKey + migration; filter
+1. [x] Taxonomy governance: status + collapsedIntoKey + migration; filter
        loadTaxonomyEntries to ACTIVE; seed infra.* + process.*; /admin/taxonomy
        with the proposal accept/collapse queue. Evals before AND after.
-2. [ ] Vocabulary: shared const interpolated into detective.ts:99; reconcile the
+2. [x] Vocabulary: shared const interpolated into detective.ts:99; reconcile the
        3-way drift; complexity.ts:91-92 exact membership; invert audit.ts:25.
-3. [ ] Coverage contract: coversRiskFlags on SpecialistOutput + prompt + persist.
-4. [ ] Pipeline wiring: between Architect (:224) and taxation (:235).
+3. [~] Coverage contract: schema field done; specialist PROMPT still to do. coversRiskFlags on SpecialistOutput + prompt + persist.
+4. [ ] Pipeline wiring (NEXT): between Architect (:224) and taxation (:235).
 5. [ ] injectInfraBaseline: migrate the stored infraBaseline SHAPE first, then
        seed process.* items and wire.
 6. [ ] Promotion: writeback.ts:229 filters on outcome, not `injected`.
@@ -188,3 +188,49 @@ master is 1 commit ahead of github/master (1e9fbb4, the grooming notes).
 bitbucket origin/master also behind. Nothing deployed — .github/workflows/ci.yml
 has lint/typecheck/test only, no deploy step; prod deploys come from Vercel's git
 integration on push. Awaiting the user's go-ahead to push.
+
+
+## DONE SO FAR (2026-08-27) — commits on master
+
+  df83d0a  taxonomy governance: status + classifiable + infra.*/process.* seed
+  b2a86bb  taxonomy admin UI: review queue, versioned edits, audit trail
+  d523b37  one risk-flag vocabulary; coverage as a claim; flat defaults deleted
+  (+ HiddenWorkFinding table, uncommitted at time of writing)
+
+### Deviations from the approved plan, and why
+
+- ADDED `TaxonomyNode.classifiable` (a second migration, 20260827010000).
+  The plan only had `status`. Snapshotting the live taxonomy made it obvious the
+  taxonomy has TWO consumers that were never distinguished: the Librarian's
+  classification vocabulary (SOW requirement -> key) and the label space for
+  injected cards. `process.code-review` belongs only to the second — nobody
+  writes it in a SOW, so offering it to the Librarian just gives a real
+  requirement somewhere wrong to land. `infra.*` belongs to both. Without this
+  the plan's own "seed both branches" step would have expanded the Librarian's
+  vocabulary by 12 semantically-wrong entries. Blast radius is now +7 (infra
+  only, all legitimately askable), verified 37 -> 44.
+- DROPPED `runValidationAudit`, `acknowledgeUnreconciled`, `AcknowledgementRecord`
+  and `ValidationAuditOutputSchema`. The DB (HiddenWorkFinding.outcome) is the
+  state now, so these pure in-memory functions had no job left. WS15-03 still
+  ships — as dismiss-with-a-reason in the UI, with a real table behind it.
+- DROPPED the planned `MenuItem.injectedOutcome` column. Finalising an estimate
+  with an injected card present and enabled IS the human acceptance — the
+  estimator could have deleted or disabled it. Promotion therefore just stops
+  excluding `injected` rows rather than needing a second mirrored column, which
+  also keeps the field audit clean. FLAG TO USER: the option they picked showed
+  `injectedOutcome` in its preview; substance is identical, machinery is less.
+- Taxonomy "New node" is its own /admin/taxonomy/new route behind a header
+  button (user feedback: mirror the presets pattern, not an always-open form).
+
+### Verified along the way
+
+- Live DETECTIVE v3 body read from Neon: contains NO risk-flag list. The
+  vocabulary really does live only in code. Phase 2 needed no DB prompt bump.
+- Field-audit orphans 38 -> 35: the taxonomy admin UI gave changeReason,
+  changeMotivation and createdBy their first consuming reads.
+- Tests 3 failed / 338 passed (baseline was 3 / 337). The 3 are the known
+  AEH-228 gates. run-estimate.test.ts flaked ONCE in a full run and passes
+  consistently since — it shares a DB and estimate id with evals.test.ts.
+  Pre-existing isolation smell, not caused by this work.
+- Migrations applied to all three DBs each time (local docker, Neon dev/main,
+  Neon test): 20260827000000, 20260827010000, 20260827020000.

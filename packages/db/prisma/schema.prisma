@@ -80,6 +80,24 @@ enum RoleKind {
   BA
 }
 
+/// What happened to a risk the Detective raised.
+///
+/// A column rather than a derived state, because the whole point of the feature
+/// is being able to ask later: what did we spot, what did we cost, and what did
+/// we knowingly walk away from. That is a query, not a reconstruction.
+enum HiddenWorkOutcome {
+  /// Detected, nobody has decided yet. This is what the finalise gate counts.
+  OPEN
+  /// Known flag, costed automatically by the Specialist council.
+  AUTO_COST
+  /// A person costed it into a card by hand.
+  ACCEPTED
+  /// A person said existing work already covers it.
+  COVERED
+  /// A person decided not to cost it, and said why.
+  DISMISSED
+}
+
 /// Governance state of a taxonomy node. The taxonomy was originally derived
 /// wholesale from the preset library with no authoring surface; once nodes can
 /// be proposed by a run, "is this node real yet" has to be a queryable fact
@@ -108,12 +126,12 @@ enum PresetOrigin {
 // ─── Identity & Access ────────────────────────────────────────────────────────
 
 model User {
-  id        String     @id @default(cuid())
-  email     String     @unique
-  hash      String
-  name      String?
-  role      Role       @default(ESTIMATOR)
-  createdAt DateTime   @default(now())
+  id                String     @id @default(cuid())
+  email             String     @unique
+  hash              String
+  name              String?
+  role              Role       @default(ESTIMATOR)
+  createdAt         DateTime   @default(now())
   /// When set, this account can no longer sign in AND its live sessions stop
   /// working. Blocking `authorize()` alone would only stop NEW logins — with
   /// `session: { strategy: 'jwt' }` there is no session table to revoke, so an
@@ -123,26 +141,26 @@ model User {
   ///
   /// Disabling is the answer when ownership history should be preserved;
   /// delete-and-reassign is the answer when it shouldn't. Both exist.
-  disabledAt DateTime?
+  disabledAt        DateTime?
   /// Set when the password changes, so live sessions issued before that can be
   /// rejected by the same DB-backed jwt callback. Without it, changing a
   /// password does not sign other devices out.
   passwordChangedAt DateTime?
-  estimates Estimate[]
+  estimates         Estimate[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
 
 model TaxonomyNode {
-  id       String               @id @default(cuid())
-  key      String               @unique
-  label    String
-  parentKey String?
+  id               String                @id @default(cuid())
+  key              String                @unique
+  label            String
+  parentKey        String?
   /// Governance state. Only ACTIVE nodes reach the Librarian's classification
   /// vocabulary (run-estimate.ts loadTaxonomyEntries), so a PROPOSED node
   /// changes no estimate until an admin accepts it. That filter is what bounds
   /// the blast radius of adding nodes at all. AEH-263.
-  status   TaxonomyStatus       @default(ACTIVE)
+  status           TaxonomyStatus        @default(ACTIVE)
   /// Set when an admin collapses a proposal into an existing node instead of
   /// accepting it. Bare key like parentKey (no relation) — same idiom, and the
   /// admin action validates the target exists. Reads resolve through it.
@@ -157,8 +175,8 @@ model TaxonomyNode {
   /// `infra.rate-limit` is the opposite: a client absolutely can ask for rate
   /// limiting, and when they do it is asked-for work under that key, which is
   /// also how the hidden-work audit sees it is already covered. AEH-263.
-  classifiable Boolean @default(true)
-  versions TaxonomyNodeVersion[]
+  classifiable     Boolean               @default(true)
+  versions         TaxonomyNodeVersion[]
 }
 
 model TaxonomyNodeVersion {
@@ -201,11 +219,11 @@ model Preset {
 }
 
 model PresetVersion {
-  id               String           @id @default(cuid())
-  presetId         String
-  preset           Preset           @relation(fields: [presetId], references: [id])
-  version          Int
-  active           Boolean          @default(false)
+  id       String  @id @default(cuid())
+  presetId String
+  preset   Preset  @relation(fields: [presetId], references: [id])
+  version  Int
+  active   Boolean @default(false)
 
   category         String
   name             String
@@ -216,8 +234,8 @@ model PresetVersion {
   devHours         Int
   /// Which sides of the stack this preset's work covers. Reference only: they
   /// describe `devHours`, they never divide it.
-  touchesFrontend  Boolean @default(false)
-  touchesBackend   Boolean @default(false)
+  touchesFrontend  Boolean     @default(false)
+  touchesBackend   Boolean     @default(false)
   /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
   /// in `docs/Estimate Presets (ISM).xlsx`, retained because the decision to
   /// estimate as one figure may be revisited and this data can't be recovered.
@@ -241,14 +259,14 @@ model PresetVersion {
   spikeNeeded      Boolean
   notes            String
 
-  taxonomyKey      String?
+  taxonomyKey   String?
   /// pgvector embedding for Archivist similarity search
-  embedding        Unsupported("vector(1536)")?
+  embedding     Unsupported("vector(1536)")?
   /// The exact text `embedding` was generated from. Present so staleness is
   /// decidable: an admin edit carries the old vector forward (never
   /// de-indexing the preset) and the backfill re-embeds any row whose current
   /// text no longer matches this. Null means "never embedded".
-  embeddingText    String?
+  embeddingText String?
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -320,11 +338,11 @@ model McpConnector {
 // ─── Estimates ────────────────────────────────────────────────────────────────
 
 model Estimate {
-  id                     String         @id @default(cuid())
+  id                     String              @id @default(cuid())
   title                  String
   sowText                String
   sowHash                String
-  status                 EstimateStatus @default(DRAFT)
+  status                 EstimateStatus      @default(DRAFT)
   complexityScore        Int?
   taxonomyVersionsPinned Json
   configVersion          Int
@@ -334,20 +352,21 @@ model Estimate {
   assumptions            String[]
   agentState             Json
   ownerId                String
-  owner                  User           @relation(fields: [ownerId], references: [id])
+  owner                  User                @relation(fields: [ownerId], references: [id])
   sections               EstimateSection[]
   menuItems              MenuItem[]
   uploadedFiles          UploadedFile[]
+  hiddenWork             HiddenWorkFinding[]
   sheetUrl               String?
-  createdAt              DateTime       @default(now())
+  createdAt              DateTime            @default(now())
 
   // ── Run progress (background job + reload-safe polling) ──────────────────────
-  runStatus      RunStatus @default(IDLE)
-  runStage       String?
-  runPct         Int       @default(0)
-  runError       String?
-  runStartedAt   DateTime?
-  runFinishedAt  DateTime?
+  runStatus     RunStatus @default(IDLE)
+  runStage      String?
+  runPct        Int       @default(0)
+  runError      String?
+  runStartedAt  DateTime?
+  runFinishedAt DateTime?
 
   // ── Ingestion progress (uploaded client material → SOW) ──────────────────────
   ingestStatus RunStatus @default(IDLE)
@@ -390,10 +409,47 @@ model UploadedFile {
   @@index([estimateId])
 }
 
+/// A risk the Detective raised, and what became of it.
+///
+/// RiskFindings were never persisted at all — a run kept only
+/// `agentState.detectiveRiskCount`, so the reasoning behind an estimate died
+/// with the run that produced it. This table is what makes "hidden work versus
+/// work that was asked for" answerable in SQL, and it is the corpus Oracle
+/// (AEH-263 / AEH-259) reads to say which risks were claimed.
+///
+/// Keyed unique per (estimate, flag): the same worry raised against two
+/// requirements is one piece of work, and a re-run must not duplicate a row or
+/// overwrite a decision a human already made about it.
+model HiddenWorkFinding {
+  id            String            @id @default(cuid())
+  estimateId    String
+  estimate      Estimate          @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  /// Free-form by design — off-list flags are exactly the ones a human must see.
+  riskFlag      String
+  /// Whether the pipeline had a taxonomy key and could cost it without asking.
+  known         Boolean           @default(false)
+  /// The Detective's own words, so whoever decides has the argument in front of them.
+  claim         String
+  citation      String
+  requirementId String
+  taxonomyKey   String?
+  outcome       HiddenWorkOutcome @default(OPEN)
+  /// The card this became, when it was costed. Cleared by a re-run, which
+  /// deletes and recreates every menu item; the outcome deliberately survives.
+  menuItemId    String?
+  dismissReason String?
+  dismissedById String?
+  dismissedAt   DateTime?
+  createdAt     DateTime          @default(now())
+
+  @@unique([estimateId, riskFlag])
+  @@index([estimateId])
+}
+
 model MenuItem {
-  id             String       @id @default(cuid())
+  id             String           @id @default(cuid())
   estimateId     String
-  estimate       Estimate     @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  estimate       Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
   taxonomyKey    String
   /// Controlled-vocabulary category (see @repo/shared CategorySchema); optional
   /// for legacy/injected items (baseline, hidden-work) predating the envelope.
@@ -403,7 +459,7 @@ model MenuItem {
   sourcePresetId String?
   matchScore     Float?
   title          String
-  enabled        Boolean      @default(true)
+  enabled        Boolean          @default(true)
   /// Injected placeholder (hidden-work audit), not delivered feature work.
   /// Promotion reads this to keep placeholders out of the preset library.
   ///
@@ -411,13 +467,13 @@ model MenuItem {
   /// on READING it: `meta` is write-only everywhere in this repo, and the guard
   /// this replaces keyed on an `id` string prefix that persistence discards
   /// (Prisma mints a cuid), so it was dead and nothing noticed. See AEH-227.
-  injected       Boolean      @default(false)
+  injected       Boolean          @default(false)
   parentItemId   String?
   /// User-assigned section grouping (null = Ungrouped). Presentational only.
   sectionId      String?
   section        EstimateSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   /// Manual ordering within a section (drag-and-drop). Ascending.
-  order          Int          @default(0)
+  order          Int              @default(0)
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
@@ -427,18 +483,18 @@ model MenuItem {
 }
 
 model RoleLineItem {
-  id         String   @id @default(cuid())
-  menuItemId String
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  role       RoleKind
+  id              String   @id @default(cuid())
+  menuItemId      String
+  menuItem        MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  role            RoleKind
   /// Short description of this atomic (<=4h) unit of work. Many rows per
   /// (menuItemId, role) now — the FOUR-HOUR RULE decomposes each role's
   /// scope into multiple line items instead of one lump number.
-  title      String?
-  baseHours  Float
-  taxedHours Float
-  notes      String?
-  edited     Boolean  @default(false)
+  title           String?
+  baseHours       Float
+  taxedHours      Float
+  notes           String?
+  edited          Boolean  @default(false)
   /// Which side of the stack this unit of work touches. Only meaningful for
   /// role = DEV; the hours stay a SINGLE combined number — these say what the
   /// number covers, they do not split it.
@@ -448,11 +504,11 @@ model RoleLineItem {
   /// beHours/feHours separately, so summing DEV rows by these flags is what
   /// lets writeback map an estimate onto a preset exactly instead of
   /// fabricating the frontend share.
-  touchesFrontend Boolean @default(false)
-  touchesBackend  Boolean @default(false)
+  touchesFrontend Boolean  @default(false)
+  touchesBackend  Boolean  @default(false)
   /// Extra envelope structure: id (DEV-REQ003-04), requirementId, complexity
   /// tier, aiAssistApplied, dependsOn, anchorPresetIds.
-  meta       Json?
+  meta            Json?
 
   @@index([menuItemId, role])
 }
