@@ -1,29 +1,13 @@
 import { revalidatePath } from 'next/cache';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
-import { prisma } from '@repo/db';
-import type { AgentKind } from '@repo/db';
+import { isAgentKind, prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { Textarea, FieldLabel } from '@/components/ui/input';
 
-const AGENT_KINDS: AgentKind[] = [
-  'SUPERVISOR',
-  'LIBRARIAN',
-  'DETECTIVE',
-  'ARCHIVIST',
-  'SPECIALIST_DEV',
-  'SPECIALIST_QA',
-  'SPECIALIST_PM',
-  'SPECIALIST_BA',
-  'ARCHITECT',
-];
-
-function isAgentKind(v: string): v is AgentKind {
-  return (AGENT_KINDS as string[]).includes(v);
-}
 
 async function activateVersion(formData: FormData) {
   'use server';

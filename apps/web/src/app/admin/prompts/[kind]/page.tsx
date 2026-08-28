@@ -1,8 +1,8 @@
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { prisma } from '@repo/db';
-import type { AgentKind, ChangeMotivation } from '@repo/db';
+import { isAgentKind, prisma } from '@repo/db';
+import type { ChangeMotivation } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
@@ -22,21 +22,6 @@ function isMotivation(v: string): v is ChangeMotivation {
   return (MOTIVATIONS as string[]).includes(v);
 }
 
-const AGENT_KINDS: AgentKind[] = [
-  'SUPERVISOR',
-  'LIBRARIAN',
-  'DETECTIVE',
-  'ARCHIVIST',
-  'SPECIALIST_DEV',
-  'SPECIALIST_QA',
-  'SPECIALIST_PM',
-  'SPECIALIST_BA',
-  'ARCHITECT',
-];
-
-function isAgentKind(v: string): v is AgentKind {
-  return (AGENT_KINDS as string[]).includes(v);
-}
 
 async function savePrompt(formData: FormData) {
   'use server';

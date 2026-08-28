@@ -9,49 +9,64 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## Current: AEH-259 — Oracle
 
-**AEH-253 (clear the orphan register) is CLOSED and PUSHED.** Both remotes at
-`a1b21a0`; 18 commits, `8546214..a1b21a0`. The implementation record — what
-changed, why, and the findings worth keeping — is in AEH-253's description and
-comments, not here.
+Branch `feat/aeh-259-oracle` off `master` at `9e3c9fa`. Ticket is In Progress.
+**The approved plan is the spec — read it first:**
+`~/.claude/plans/crispy-skipping-pony.md`
 
-Follow-ups filed and linked: **AEH-276** (post-delivery actuals loop),
-**AEH-277** (field-audit attribution defect), **AEH-278** (runEstimate has no
-cache).
+Three workstreams under one ticket, commits scoped per workstream:
 
-## Verified state at that commit
+1. **Oracle** — read-only chat over one estimate's corpus, floating notch/FAB on
+   `/estimates/[id]`, SSE streaming, persisted threads, citation jump into `#sow`.
+2. **Model dropdown** — `/admin/prompts` model field becomes a searchable list of
+   live OpenRouter models instead of free text.
+3. **Agent catalogue** — one `AGENT_CATALOGUE` in `packages/db`, describing every
+   agent and grouping them by track (run crew / supplemental / reference).
 
-    pnpm audit:fields         0 findings, 2 exempt (PresetVersion beHours/feHours)
-    pnpm audit:exports        clean — 3 baseline entries, each reasoned
-    pnpm test                 48 files, 346 passed, 0 failed
-    pnpm --filter web build   exit 0 — every route compiles
-    typecheck, lint           clean
+## Done so far
 
-Migration `20260827040000` is applied to all four databases (Neon dev/main, local
-docker `ai_estimation`, local docker `ai_estimation_test`, Neon test). Presets
-re-embedded on Neon dev/main only — the other three have never been embedded at
-all, which predates this work.
+- Branch created, AEH-259 → In Progress.
+- **AEH-283 filed** (supervisor review) and linked "relates to" AEH-259. Explicitly
+  NOT built here — the user is dealing with the supervisor separately.
+- Scoping amendments posted as a comment on AEH-259 (comment 106401), read back
+  and verified clean.
 
-## Outstanding
+## Next step
 
-- [ ] **One e2e spec fix is UNCOMMITTED.** `apps/web/e2e/estimates-create.spec.ts`
-      line 24 — a fourth instance of the expect-budget trap below, on
-      `/estimates/new`, a route this ticket never touched. The three earlier
-      instances are committed in `a1b21a0`.
-- [ ] Full e2e re-run to confirm 40/40, then commit that fix and push.
-- [ ] AEH-253 close-out comment drafted but NOT posted — the draft is in this
-      session's scratchpad as `aeh-253-comment.txt`, already checked against the
-      `jira-text` comment constraints. Post with `jira_add_comment`, then read it
-      back and diff.
+Nothing committed yet. Start at plan §11 (`packages/db/src/agent-catalogue.ts`),
+because it collapses the four hardcoded `AgentKind` arrays and every later step
+adds `ORACLE` through it.
 
-## The one trap to know before touching the e2e suite
+## The three corrections that drove the plan
 
-`expect(...).toHaveURL / toHaveText / toHaveValue` use Playwright's **5s expect
-budget**, not the 60s per-test budget. Any such assertion on the first test to
-touch a route pays that route's cold compile and fails, while every later test
-passes because the first one warmed it. Four specs needed
-`{ timeout: COLD_COMPILE }`.
+The ticket description predates the tree on all three; verified, not assumed.
 
-Everything else worth carrying from this work is in the memories:
-`next-build-is-the-only-real-check`, `e2e-suite-notes`, `local-dev-env-traps`.
+- **`Estimate.sowHash` is gone** (dropped in `20260827040000` with the cache
+  layer). Hash `sowText` at message-write time and store it on the message.
+- **`promptVersionsPinned` is gone.** Nothing pins prompt versions, for any agent.
+- **`coversRiskFlags` is never persisted** — `specialist.ts` produces it,
+  `audit.ts:87` consumes it in memory, then it is discarded. Fix: add
+  `claimedRiskFlags` to the `agentState` literal at `run-estimate.ts:459-467`
+  (and the `RunDiagnostics` type at `:110-126`, and the persisted-key-set
+  assertion at `run-estimate.test.ts:270-280`).
+
+## Traps that will bite this ticket specifically
+
+- **`pnpm --filter web build` is the only real check.** Typecheck, lint and the
+  whole unit suite are blind to a `'use server'` module exporting a non-async
+  function. Hence `oracle-actions.ts` (actions only) vs `oracle-dto.ts` (mappers).
+- **Never run `pnpm db:seed`** to install Oracle's prompt — `seed.ts:168-183`
+  deactivates every active `PromptVersion` and overwrites v1's body. Use the new
+  targeted `pnpm db:seed:oracle`.
+- **Field audit is a vitest test**, so a new column nothing *reads* is a red
+  build. The `/admin/oracle` surfaces are the readers for the token columns.
+- **Oracle must mount OUTSIDE `LedgerProvider`** — it is keyed at `page.tsx:191`
+  on the joined item ids, so `router.refresh()` after a run remounts that whole
+  subtree and would wipe an open conversation. In-ledger entry points reach it by
+  `window` CustomEvent, the `CollapseAllButton.tsx:7` idiom.
+- **The 5s expect budget.** `/estimates/[id]` is the heaviest route; the first
+  Oracle assertion in e2e needs `{ timeout: COLD_COMPILE }`.
+
+See the memories `next-build-is-the-only-real-check`, `e2e-suite-notes`,
+`local-dev-env-traps`.

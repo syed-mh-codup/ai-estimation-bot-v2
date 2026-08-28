@@ -42,14 +42,6 @@ export function bootAgents(
   return agents;
 }
 
-export const AGENT_KINDS: AgentKind[] = [
-  'SUPERVISOR',
-  'LIBRARIAN',
-  'DETECTIVE',
-  'ARCHIVIST',
-  'SPECIALIST_DEV',
-  'SPECIALIST_QA',
-  'SPECIALIST_PM',
-  'SPECIALIST_BA',
-  'ARCHITECT',
-];
+// Re-exported from the catalogue rather than restated. This list used to be one
+// of four hand-maintained copies of the AgentKind set. See AEH-259.
+export { AGENT_KINDS } from '@repo/db';
