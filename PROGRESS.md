@@ -49,16 +49,29 @@ after the marker was added.
 not the repo's gates. Use the filtered form above. (The gates also run inside
 `pnpm test`, so a green `pnpm test` already covers them.)
 
-## Databases
+## Databases — all four migrated and seeded
 
-Migration `20260828000000_oracle` is applied to the local docker
-`ai_estimation`, the local `ai_estimation_test`, and the **Neon test** branch.
+Migration `20260828000000_oracle` is applied, both Oracle tables exist and the
+ORACLE enum value is present on all of:
 
-**NOT applied to Neon dev/main** — that is the shared dev database and nothing
-in this session touched it. Before running the app against Neon:
+    local docker  ai_estimation        ORACLE v1
+    local docker  ai_estimation_test   ORACLE v1
+    Neon test     (ep-wild-heart)      ORACLE v1
+    Neon dev/main (ep-polished-credit) ORACLE v1
 
-    DATABASE_URL=<neon> DIRECT_URL=<neon> pnpm --filter @repo/db exec prisma migrate deploy
-    pnpm db:seed:oracle      # NEVER pnpm db:seed — it reverts every live prompt
+Seeded with `pnpm db:seed:oracle` only — **never `pnpm db:seed`**. Neon dev/main
+carries hand-tuned prompts at v3 and v4 whose text exists nowhere in the repo
+(the AEH-233 finding), and the bootstrap seed would have reverted all nine to
+their two-sentence v1 bodies. Verified before and after: SUPERVISOR v4,
+ARCHITECT v4 and the other seven at v3, unchanged.
+
+The targeted script is idempotent — re-running it on an environment that
+already has ORACLE reports and exits without writing.
+
+⚠️ Local `ai_estimation` has TWO active LIBRARIAN rows (v143 and v1), which
+breaks the one-active-per-kind invariant. Pre-existing local test pollution:
+run-estimate and evals both upsert v1 active while deliberately skipping the
+bulk deactivate. Local only — Neon has exactly one active row per kind.
 
 ## Next steps
 
