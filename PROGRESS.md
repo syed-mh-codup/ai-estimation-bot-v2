@@ -9,15 +9,17 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-259 (Oracle) is DONE, but NOT PUSHED
+## Current: nothing in flight
 
-Branch `feat/aeh-259-oracle`, off `master` at `9e3c9fa`. Working tree clean. Ticket closed. Pushing is still the user's call — nothing has left this
-machine.
+**AEH-259 (Oracle) is CLOSED, MERGED and PUSHED.** Both remotes at `8a4af41`;
+the branch `feat/aeh-259-oracle` merged into `master` with `--no-ff`. The
+implementation record — what shipped, why, and the findings worth keeping — is
+in AEH-259's description and comments, not here.
 
-    git log --oneline master..feat/aeh-259-oracle
-
-Three workstreams shipped, one commit per concern: Oracle itself, the
-`/admin/prompts` model dropdown, and the agent catalogue.
+Follow-ups filed and linked: **AEH-283** (the Supervisor's prompt is never
+loaded and its gates only warn — AEH-259 labels it, does not fix it).
+**AEH-282** (the e2e suite) was already open and is why the Oracle specs were
+not re-run at tip.
 
 ## Verified
 
