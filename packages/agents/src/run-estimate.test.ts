@@ -285,6 +285,7 @@ describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {
 
     const declared: Array<keyof RunDiagnostics> = [
       'archivistMatchCount',
+      'claimedRiskFlags',
       'complexity',
       'detectiveQuestionCount',
       'detectiveRiskCount',
