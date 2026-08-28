@@ -508,20 +508,26 @@ function Turn({
   return (
     <div className="space-y-1.5" data-testid="oracle-answer">
       <div className="rounded-[8px] border border-line-soft bg-surface-2 p-3 text-[13px] leading-relaxed text-ink-2">
-        {renderSegments(message.content).map((seg, i) =>
-          seg.type === 'text' ? (
-            <span key={i} className="whitespace-pre-wrap">
-              {seg.value}
-            </span>
-          ) : (
+        {renderSegments(message.content).map((seg, i) => {
+          if (seg.type === 'text') {
+            return (
+              <span key={i} className="whitespace-pre-wrap">
+                {seg.value}
+              </span>
+            );
+          }
+          if (seg.type === 'assumption') {
+            return <SuggestedAssumption key={i} wording={seg.value.trim()} />;
+          }
+          return (
             <QuoteChip
               key={i}
               quote={seg.value}
               citation={message.citations.find((c) => c.quote === seg.value.trim())}
               onJump={onJump}
             />
-          ),
-        )}
+          );
+        })}
       </div>
 
       {message.stale && (
@@ -531,7 +537,6 @@ function Turn({
         </p>
       )}
 
-      <CopyAsAssumption content={message.content} />
     </div>
   );
 }
@@ -599,29 +604,52 @@ function QuoteChip({
 }
 
 /**
- * Copy, and nothing else.
+ * Wording Oracle suggests recording — as its own block, and copy is all it does.
  *
- * Oracle may recommend recording something as an assumption; it may not write
- * one. No prefill of the assumptions editor, no unsaved row, no server action —
- * the estimator decides what goes on the estimate, every time.
+ * Oracle may recommend an assumption; it may not write one. There is no prefill
+ * of the assumptions editor, no unsaved row and no server action behind this,
+ * and the estimator decides what goes on the estimate every time.
+ *
+ * It copies exactly the proposed sentence, which is why the model marks that
+ * sentence up rather than the UI guessing at it. The first version of this
+ * copied the whole answer and left the estimator to trim the explanation off —
+ * fine for a demo, wrong for something you paste into a client document.
  */
-function CopyAsAssumption({ content }: { content: string }) {
+function SuggestedAssumption({ wording }: { wording: string }) {
   const [copied, setCopied] = useState(false);
-  if (!/assumption/i.test(content)) return null;
 
   return (
-    <button
-      type="button"
-      data-testid="oracle-copy-assumption"
-      onClick={() => {
-        void navigator.clipboard.writeText(content.replace(/\[\[|\]\]/g, ''));
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1800);
-      }}
-      className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-green"
+    <span
+      data-testid="oracle-assumption"
+      className="my-1.5 flex items-start gap-2 rounded-[6px] border border-line bg-surface px-2.5 py-2"
     >
-      {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
-      {copied ? 'Copied — paste it into Assumptions' : 'Copy for the assumptions list'}
-    </button>
+      <span className="min-w-0 flex-1">
+        <span className="eyebrow block text-ink-4">Suggested assumption</span>
+        <span
+          className="mt-0.5 block text-[12.5px] leading-relaxed text-ink"
+          data-testid="oracle-assumption-text"
+        >
+          {wording}
+        </span>
+      </span>
+      <button
+        type="button"
+        title="Copy this wording"
+        aria-label="Copy this assumption wording"
+        data-testid="oracle-copy-assumption"
+        onClick={() => {
+          void navigator.clipboard.writeText(wording);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1800);
+        }}
+        className="shrink-0 rounded p-1 text-ink-3 hover:bg-surface-2 hover:text-green"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-green" aria-hidden />
+        ) : (
+          <Copy className="h-3.5 w-3.5" aria-hidden />
+        )}
+      </button>
+    </span>
   );
 }

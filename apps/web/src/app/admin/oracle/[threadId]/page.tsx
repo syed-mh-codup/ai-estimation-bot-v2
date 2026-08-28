@@ -95,6 +95,20 @@ export default async function AdminOracleThreadPage({
                       </span>
                     );
                   }
+                  if (seg.type === 'assumption') {
+                    // Rendered, not offered: an admin reading someone else's
+                    // investigation has nothing to copy it onto.
+                    return (
+                      <span
+                        key={i}
+                        title="Wording Oracle suggested the estimator record as an assumption."
+                        className="my-1 block rounded-[6px] border border-line bg-surface px-2.5 py-2 text-[13px] text-ink"
+                      >
+                        <span className="eyebrow block text-ink-4">Suggested assumption</span>
+                        {seg.value.trim()}
+                      </span>
+                    );
+                  }
                   const status =
                     m.citations.find((c) => c.quote === seg.value.trim())?.status ?? 'verified';
                   return (

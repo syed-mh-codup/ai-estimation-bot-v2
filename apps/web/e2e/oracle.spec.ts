@@ -75,6 +75,28 @@ test.describe('asking Oracle about an estimate', () => {
     await expect(page.getByTestId('oracle-panel')).toContainText(QUESTION);
   });
 
+  test('offers only the proposed wording to copy, not the whole answer', async ({ page }) => {
+    // The ticket asks for the suggested wording as a distinct block with a copy
+    // action. The first cut copied the entire answer and left the estimator to
+    // trim the explanation off before pasting it into a client document.
+    await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
+    await openEstimate(page);
+    await openOracle(page);
+
+    await ask(page, 'I know auth already exists, so can we skip it?');
+
+    const block = page.getByTestId('oracle-assumption');
+    await expect(block).toHaveCount(1);
+    await expect(page.getByTestId('oracle-copy-assumption')).toBeVisible();
+
+    // Just the sentence: no lead-in, and none of the surrounding explanation.
+    const wording = (await page.getByTestId('oracle-assumption-text').textContent()) ?? '';
+    expect(wording.trim()).toBe(
+      "The client's existing platform covers this, so no new work is costed for it in phase one.",
+    );
+    expect(wording).not.toContain('The source material addresses this');
+  });
+
   test('a signed-in stranger cannot see the thread', async ({ page }) => {
     // The estimate itself is a shared workspace — they can open it. The
     // conversation is not.

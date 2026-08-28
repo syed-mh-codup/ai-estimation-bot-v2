@@ -4,7 +4,7 @@ import {
   type ChatStreamEvent,
   type IModelProvider,
 } from '@repo/providers';
-import { QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
+import { ASSUMPTION_CLOSE, ASSUMPTION_OPEN, QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
 
 /**
  * Which model provider an Oracle turn talks to.
@@ -42,7 +42,18 @@ function stubOracleProvider(): IModelProvider {
     if (!quote) {
       return 'The source material does not cover this. Nothing in the corpus speaks to it.';
     }
-    return `The source material addresses this directly: ${QUOTE_OPEN}${quote}${QUOTE_CLOSE} — which is where that requirement comes from.`;
+
+    // When the estimator asserts something the documents do not say, the answer
+    // carries a marked-up suggested assumption. Keyed off the question so a spec
+    // can drive either branch deterministically.
+    const question = options.messages.at(-1);
+    const asserted =
+      typeof question?.content === 'string' && /\b(already|assume|we can skip)\b/i.test(question.content);
+    const suggestion = asserted
+      ? ` That is not in the documents and it stays in this conversation. Record it yourself: ${ASSUMPTION_OPEN}The client's existing platform covers this, so no new work is costed for it in phase one.${ASSUMPTION_CLOSE}`
+      : '';
+
+    return `The source material addresses this directly: ${QUOTE_OPEN}${quote}${QUOTE_CLOSE} — which is where that requirement comes from.${suggestion}`;
   };
 
   async function* stream(options: ChatOptions): AsyncIterable<ChatStreamEvent> {

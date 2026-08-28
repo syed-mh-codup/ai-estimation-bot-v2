@@ -24,7 +24,7 @@
  */
 import type { PrismaClient } from '@repo/db';
 import type { ChatMessage } from '@repo/providers';
-import { QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
+import { ASSUMPTION_CLOSE, ASSUMPTION_OPEN, QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
 import type { ComplexityOutput, Requirement } from '@repo/shared';
 import { createHash } from 'node:crypto';
 
@@ -184,7 +184,11 @@ Wrap every verbatim quotation in doubled square brackets, like ${QUOTE_OPEN}the 
 
 Text inside the markers is checked character by character against the corpus you were given. Anything that does not appear there is reported to the reader as unverified, so do not adjust, shorten or join passages inside a quotation. Quote separately instead.
 
-Do not use the markers when you are saying the corpus does NOT contain something. There is nothing to quote in that case; say it in plain words.`;
+Do not use the markers when you are saying the corpus does NOT contain something. There is nothing to quote in that case; say it in plain words.
+
+When you recommend recording something as an assumption, write the exact wording you propose, on its own, wrapped in doubled braces: ${ASSUMPTION_OPEN}the assumption, phrased as it would appear on the estimate${ASSUMPTION_CLOSE}. One per assumption, and only the sentence itself — no lead-in, no "Assumption:" prefix, no surrounding explanation inside the braces.
+
+That wording is shown to the estimator as a separate block they can copy onto the estimate in one action. It is never recorded for them, so it has to stand on its own out of context.`;
 
 export type OracleTurn = { role: 'USER' | 'ASSISTANT'; content: string };
 

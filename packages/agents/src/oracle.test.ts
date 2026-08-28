@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASSUMPTION_CLOSE,
+  ASSUMPTION_OPEN,
   QUOTE_CLOSE,
   QUOTE_OPEN,
   checkCitations,
@@ -75,6 +77,57 @@ describe('parsing an answer into prose and quotations', () => {
 
   it('finds no citations in an answer that only refuses', () => {
     expect(extractCitations('The source material does not specify a payment provider.')).toEqual([]);
+  });
+});
+
+describe('suggested assumptions are parsed apart from quotations', () => {
+  // The two markers are opposites: a quotation must already exist in the
+  // corpus, a suggested assumption by definition does not. Reading one as the
+  // other would be wrong in both directions — a fabricated-quote warning on
+  // proposed wording, or an unchecked invention rendered as a source quote.
+  const answer = `That is not in the documents. Record it: ${ASSUMPTION_OPEN}Auth already exists and is not costed.${ASSUMPTION_CLOSE} The brief only says ${QUOTE_OPEN}Payments must reconcile nightly${QUOTE_CLOSE}.`;
+
+  it('separates both marker kinds from the prose, in order', () => {
+    expect(splitAnswer(answer).map((s) => s.type)).toEqual([
+      'text',
+      'assumption',
+      'text',
+      'quote',
+      'text',
+    ]);
+  });
+
+  it('exposes only the proposed wording, not the paragraph around it', () => {
+    // The whole point of the change: copying used to hand over the entire
+    // answer and leave the estimator to trim the explanation off before
+    // pasting it into a client-facing document. This is what the UI copies.
+    const wording = splitAnswer(answer)
+      .filter((s) => s.type === 'assumption')
+      .map((s) => s.value.trim());
+    expect(wording).toEqual(['Auth already exists and is not costed.']);
+  });
+
+  it('keeps an assumption out of the citations', () => {
+    expect(extractCitations(answer)).toEqual(['Payments must reconcile nightly']);
+  });
+
+  it('does not check a suggested assumption against the corpus', () => {
+    // It is new information by definition; verifying it would flag every one
+    // as fabricated.
+    const checks = checkCitations(extractCitations(answer), renderCorpus(corpus()), SOW);
+    expect(checks.map((c) => c.quote)).toEqual(['Payments must reconcile nightly']);
+    expect(checks.every((c) => c.verified)).toBe(true);
+  });
+
+  it('renders an unterminated assumption opener as prose', () => {
+    expect(splitAnswer(`Record it: ${ASSUMPTION_OPEN}Auth alr`)).toEqual([
+      { type: 'text', value: `Record it: ${ASSUMPTION_OPEN}Auth alr` },
+    ]);
+  });
+
+  it('finds no assumption in an answer that suggests none', () => {
+    const segs = splitAnswer(`Only ${QUOTE_OPEN}a quote${QUOTE_CLOSE} here.`);
+    expect(segs.filter((s) => s.type === 'assumption')).toEqual([]);
   });
 });
 
@@ -266,10 +319,13 @@ describe('message assembly', () => {
     expect(messages[0]!.content).toContain('ADMIN PROMPT BODY');
   });
 
-  it('appends the citation wire format in code, not in the prompt', () => {
-    // The format must survive an admin rewriting the prompt body — otherwise a
-    // reworded prompt silently stops citations being extractable at all.
+  it('appends both wire formats in code, not in the prompt', () => {
+    // The formats must survive an admin rewriting the prompt body — otherwise a
+    // reworded prompt silently stops citations being extractable and the
+    // copy-an-assumption block from ever appearing, while answers still read
+    // perfectly well.
     expect(messages[0]!.content).toContain(QUOTE_OPEN);
+    expect(messages[0]!.content).toContain(ASSUMPTION_OPEN);
     expect(messages[0]!.content).toContain('OUTPUT FORMAT');
   });
 

@@ -1,6 +1,11 @@
 /**
- * Citations: the wire format Oracle quotes in, and the check that the quotes are
+ * The wire format Oracle marks things up in, and the check that its quotes are
  * real. AEH-259.
+ *
+ * Two markers, both owned by CODE rather than by the admin-editable prompt: a
+ * marker is a contract between the model and a parser, and an admin rewording
+ * the prompt must not be able to break extraction while the answers still look
+ * fine.
  *
  * This lives in @repo/shared rather than beside the rest of Oracle for a
  * concrete reason: the SOW renderer is a CLIENT component and needs the very
@@ -28,44 +33,89 @@
 export const QUOTE_OPEN = '[[';
 export const QUOTE_CLOSE = ']]';
 
-/** One piece of a rendered answer: prose, or a verbatim quotation. */
-export type AnswerSegment = { type: 'text'; value: string } | { type: 'quote'; value: string };
+/**
+ * And it wraps a suggested assumption in these.
+ *
+ * A separate pair rather than a prefix inside the quote markers, because the two
+ * are opposites and confusing them would be bad in both directions: a quotation
+ * is text that MUST already exist in the corpus, and a suggested assumption is
+ * text that by definition does not. A typed prefix would also break the moment a
+ * client document happened to quote a sentence beginning "assumption:".
+ */
+export const ASSUMPTION_OPEN = '{{';
+export const ASSUMPTION_CLOSE = '}}';
+
+/** One piece of a rendered answer. */
+export type AnswerSegment =
+  | { type: 'text'; value: string }
+  | { type: 'quote'; value: string }
+  /** Wording Oracle suggests the estimator record. Never written by Oracle. */
+  | { type: 'assumption'; value: string };
+
+const MARKERS = [
+  { type: 'quote' as const, open: QUOTE_OPEN, close: QUOTE_CLOSE },
+  { type: 'assumption' as const, open: ASSUMPTION_OPEN, close: ASSUMPTION_CLOSE },
+];
 
 /**
- * Split an answer into prose and quotations.
+ * Split an answer into prose, quotations and suggested assumptions.
  *
- * Also the parser the transcript UI uses, so what gets highlighted is exactly
- * what gets verified. Tolerant of an unterminated opener, which happens
- * mid-stream on every single turn: the tail is rendered as prose until the
- * closing marker arrives.
+ * Also the parser the transcript UI uses, so what gets rendered as a quotation
+ * is exactly what gets verified, and what gets offered for copying is exactly
+ * the wording the model proposed — not the paragraph around it.
+ *
+ * Tolerant of an unterminated opener, which every streamed turn passes through:
+ * the tail stays prose until the closing marker arrives. Scans for whichever
+ * marker comes first rather than one kind at a time, so the two cannot reorder
+ * each other's segments.
  */
 export function splitAnswer(text: string): AnswerSegment[] {
   const segments: AnswerSegment[] = [];
   let cursor = 0;
 
   for (;;) {
-    const open = text.indexOf(QUOTE_OPEN, cursor);
-    if (open === -1) break;
-    const close = text.indexOf(QUOTE_CLOSE, open + QUOTE_OPEN.length);
-    if (close === -1) break;
+    let next: { type: 'quote' | 'assumption'; open: number; close: number } | null = null;
 
-    if (open > cursor) segments.push({ type: 'text', value: text.slice(cursor, open) });
-    segments.push({ type: 'quote', value: text.slice(open + QUOTE_OPEN.length, close) });
-    cursor = close + QUOTE_CLOSE.length;
+    for (const marker of MARKERS) {
+      const open = text.indexOf(marker.open, cursor);
+      if (open === -1) continue;
+      const close = text.indexOf(marker.close, open + marker.open.length);
+      if (close === -1) continue;
+      if (!next || open < next.open) next = { type: marker.type, open, close };
+    }
+    if (!next) break;
+
+    const marker = MARKERS.find((m) => m.type === next!.type)!;
+    if (next.open > cursor) segments.push({ type: 'text', value: text.slice(cursor, next.open) });
+    segments.push({
+      type: next.type,
+      value: text.slice(next.open + marker.open.length, next.close),
+    });
+    cursor = next.close + marker.close.length;
   }
 
   if (cursor < text.length) segments.push({ type: 'text', value: text.slice(cursor) });
   return segments;
 }
 
-/** Every verbatim span an answer claims to quote, in order, deduplicated. */
-export function extractCitations(text: string): string[] {
-  const quotes = splitAnswer(text)
-    .filter((s): s is { type: 'quote'; value: string } => s.type === 'quote')
+function valuesOfType(text: string, type: AnswerSegment['type']): string[] {
+  const found = splitAnswer(text)
+    .filter((s) => s.type === type)
     .map((s) => s.value.trim())
     .filter((s) => s.length > 0);
-  return [...new Set(quotes)];
+  return [...new Set(found)];
 }
+
+/** Every verbatim span an answer claims to quote, in order, deduplicated. */
+export function extractCitations(text: string): string[] {
+  return valuesOfType(text, 'quote');
+}
+
+// Note there is deliberately no extractSuggestedAssumptions counterpart. A
+// suggested assumption is never persisted and never acted on — Oracle has no
+// write path — so the only consumer is the transcript, which renders it from
+// splitAnswer along with everything else.
+
 
 // ─── Quote matching ───────────────────────────────────────────────────────────
 
