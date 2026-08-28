@@ -15,7 +15,8 @@
     "db:seed": "tsx src/seed.ts",
     "db:seed:admin": "tsx src/seed-admin.ts",
     "db:seed:presets": "tsx src/seed-presets.ts",
-    "db:seed:taxonomy": "tsx src/seed-taxonomy.ts"
+    "db:seed:taxonomy": "tsx src/seed-taxonomy.ts",
+    "db:seed:oracle": "tsx src/seed-prompt-oracle.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",

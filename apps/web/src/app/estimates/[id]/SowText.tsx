@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { createQuoteMatcher } from '@repo/shared';
 import { ORACLE_CITE_EVENT, askOracle, onBus, type OracleCiteDetail } from './oracle-bus';
@@ -32,7 +32,12 @@ export function SowText({ sowText }: { sowText: string }) {
   // transcript marks verified is exactly one this can find. Two different
   // implementations here would mean a quote that renders as trustworthy and
   // then jumps nowhere.
-  const match = useCallback(createQuoteMatcher(sowText), [sowText]);
+  //
+  // useMemo, not useCallback: useCallback would still evaluate
+  // createQuoteMatcher(sowText) on every render and only memoise the reference
+  // afterwards, rebuilding the normalised copy of the whole document each time
+  // — the exact cost the one-pass matcher exists to avoid.
+  const match = useMemo(() => createQuoteMatcher(sowText), [sowText]);
 
   useEffect(
     () =>

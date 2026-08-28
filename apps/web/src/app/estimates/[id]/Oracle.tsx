@@ -52,9 +52,6 @@ import {
  * or on focus, and ⌘K opens it from anywhere.
  */
 
-const SHORTCUT_HINT = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
-  ? '⌘K'
-  : 'Ctrl K';
 
 export function Oracle({
   estimateId,
@@ -73,6 +70,16 @@ export function Oracle({
   const [streaming, setStreaming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Resolved after mount, never during render. Deriving it from navigator at
+  // module scope makes the server emit "Ctrl K" and a Mac client "⌘K", and React
+  // raises a BLOCKING error overlay for a hydration mismatch in dev that
+  // swallows clicks — the same failure shape as the dnd-kit id mismatch this
+  // suite hit before, which presented as an unrelated timeout.
+  const [shortcut, setShortcut] = useState('Ctrl K');
+  useEffect(() => {
+    if (/Mac|iPhone|iPad/i.test(navigator.userAgent)) setShortcut('⌘K');
+  }, []);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -127,10 +134,16 @@ export function Oracle({
     }
   }, []);
 
+  // Gated on which thread has been loaded, NOT on messages.length: a thread
+  // with no messages yet — exactly what the "New thread" button creates —
+  // would otherwise re-fetch forever, since loading it leaves the list empty
+  // and re-satisfies the condition.
+  const loadedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (open && activeId && messages.length === 0) void openThread(activeId);
-    // Only on opening or switching threads; openThread is stable.
-  }, [open, activeId, messages.length, openThread]);
+    if (!open || !activeId || loadedRef.current === activeId) return;
+    loadedRef.current = activeId;
+    void openThread(activeId);
+  }, [open, activeId, openThread]);
 
   // ── Asking ─────────────────────────────────────────────────────────────────
 
@@ -150,6 +163,10 @@ export function Oracle({
           threadId = created.id;
           setThreads((prev) => [created, ...prev]);
           setActiveId(created.id);
+          // Mark it loaded before the id lands in state, or the loader effect
+          // fires mid-stream and overwrites the question we just optimistically
+          // rendered with an empty server copy.
+          loadedRef.current = created.id;
         }
 
         // Show the question immediately. The server writes it before requesting
@@ -269,6 +286,7 @@ export function Oracle({
     const created = await createOracleThread(estimateId);
     setThreads((prev) => [created, ...prev]);
     setActiveId(created.id);
+    loadedRef.current = created.id;
     setMessages([]);
     setApproxTokens(0);
     inputRef.current?.focus();
@@ -292,7 +310,7 @@ export function Oracle({
         type="button"
         onClick={() => setOpen(true)}
         data-testid="oracle-notch"
-        aria-label={`Ask Oracle about this estimate (${SHORTCUT_HINT})`}
+        aria-label={`Ask Oracle about this estimate (${shortcut})`}
         className={cn(
           'group fixed right-0 bottom-16 z-40 flex items-center gap-2 rounded-l-full border border-r-0 border-line bg-surface text-ink shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-all duration-200',
           'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
@@ -312,7 +330,7 @@ export function Oracle({
           )}
         >
           Ask Oracle
-          <span className="num ml-2 text-[11px] text-ink-4">{SHORTCUT_HINT}</span>
+          <span className="num ml-2 text-[11px] text-ink-4">{shortcut}</span>
         </span>
       </button>
     );
@@ -360,6 +378,7 @@ export function Oracle({
                 type="button"
                 onClick={() => {
                   setMessages([]);
+                  loadedRef.current = t.id;
                   void openThread(t.id);
                 }}
                 className={cn(

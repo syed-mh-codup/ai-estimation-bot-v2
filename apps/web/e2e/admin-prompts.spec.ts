@@ -18,7 +18,9 @@ test.describe('WS24-05: prompts admin — edit creates a new active version', ()
     await login(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
 
     await page.goto('/admin/prompts');
-    await expect(page.getByTestId('prompts-table')).toBeVisible();
+    // One table per agent track since AEH-259, so the page container is the
+    // stable handle rather than a single table.
+    await expect(page.getByTestId('admin-prompts')).toBeVisible();
 
     // Open the LIBRARIAN prompt editor.
     await page.getByTestId('prompt-link-LIBRARIAN').click();
