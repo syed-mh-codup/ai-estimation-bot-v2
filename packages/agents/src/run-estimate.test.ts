@@ -8,7 +8,27 @@ const DB_URL =
   process.env['DATABASE_URL'] ??
   'postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public';
 
-const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
+/**
+ * These suites fight over the one shared local database.
+ *
+ * Both this file and its sibling replace the ACTIVE EstimationConfig in their
+ * beforeAll — deactivate every active row, then create one. Run in parallel,
+ * one suite's deactivate lands between the other's deactivate and create, and a
+ * pipeline run mid-flight throws "No EstimationConfig found". Pre-existing, and
+ * it surfaced once AEH-259 added enough test files to make the interleave
+ * likely.
+ *
+ * A Postgres session advisory lock serialises exactly these suites and costs
+ * every other file nothing. It has to be a SESSION lock held across the whole
+ * suite, which is why the pool is pinned to one connection: with the default
+ * pool Prisma could take the lock on one connection and release it on another,
+ * and the lock would leak until the process exited.
+ */
+const DB_LOCK_KEY = 725_901;
+
+// One connection, so the advisory lock is taken and released on the same one.
+const LOCKED_URL = `${DB_URL}${DB_URL.includes('?') ? '&' : '?'}connection_limit=1`;
+const db = new PrismaClient({ datasources: { db: { url: LOCKED_URL } } });
 
 // A stub LLM: returns valid JSON per agent based on the prompt content. Proves
 // the full pipeline WIRING offline — not the quality of real prompts/responses.
@@ -86,6 +106,7 @@ let configVersion = 0;
 
 beforeAll(async () => {
   await db.$connect();
+  await db.$executeRaw`SELECT pg_advisory_lock(${DB_LOCK_KEY})`;
 
   // Active config with rules in the shape the complexity engine expects.
   await db.estimationConfig.updateMany({ where: { active: true }, data: { active: false } });
@@ -154,6 +175,9 @@ afterAll(async () => {
   await db.menuItem.deleteMany({ where: { estimateId } });
   await db.estimate.delete({ where: { id: estimateId } });
   await db.user.delete({ where: { id: userId } });
+  // Released explicitly rather than left to process exit, so the sibling
+  // suite can start as soon as this one is done cleaning up.
+  await db.$executeRaw`SELECT pg_advisory_unlock(${DB_LOCK_KEY})`;
   await db.$disconnect();
 });
 

@@ -9,7 +9,7 @@ import { QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
 /**
  * Which model provider an Oracle turn talks to.
  *
- * Real OpenRouter everywhere except under ORACLE_STUB_MODEL, which
+ * Real OpenRouter everywhere except under OPENROUTER_STUB, which
  * playwright.config sets for the e2e run.
  *
  * A dedicated flag rather than the house "stub when the credentials are blank"
@@ -19,7 +19,7 @@ import { QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
  * no blast radius.
  */
 export function oracleModelProvider(): IModelProvider {
-  return process.env['ORACLE_STUB_MODEL'] === '1' ? stubOracleProvider() : createModelProvider();
+  return process.env['OPENROUTER_STUB'] === '1' ? stubOracleProvider() : createModelProvider();
 }
 
 /**
