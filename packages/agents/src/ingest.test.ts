@@ -8,6 +8,7 @@ const enc = (s: string) => new TextEncoder().encode(s);
 function stubProvider(chat: (o: ChatOptions) => Promise<string> | string): IModelProvider {
   return {
     chat: vi.fn(async (o: ChatOptions) => chat(o)),
+    chatStream: vi.fn(),
     embed: vi.fn(async () => [[0]]),
   };
 }

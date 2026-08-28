@@ -69,6 +69,12 @@ const stubModelProvider: IModelProvider = {
     }
     return '{}';
   },
+  // The run pipeline never streams; Oracle is the only caller of chatStream, and
+  // it does not go through runEstimate. Throwing beats returning an empty stream,
+  // which would look like a model that answered with nothing.
+  chatStream(): AsyncIterable<never> {
+    throw new Error('chatStream is not stubbed for the run pipeline');
+  },
   async embed() {
     return [[0, 0, 0]];
   },
@@ -372,6 +378,12 @@ const riskyStubModelProvider: IModelProvider = {
       });
     }
     return '{}';
+  },
+  // The run pipeline never streams; Oracle is the only caller of chatStream, and
+  // it does not go through runEstimate. Throwing beats returning an empty stream,
+  // which would look like a model that answered with nothing.
+  chatStream(): AsyncIterable<never> {
+    throw new Error('chatStream is not stubbed for the run pipeline');
   },
   async embed() {
     return [[0, 0, 0]];

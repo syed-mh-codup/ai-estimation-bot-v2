@@ -22,7 +22,7 @@ const PRESET_ID2 = `ws11-preset-b-${Date.now()}`;
 const PRESET_ID3 = `ws11-preset-c-${Date.now()}`;
 
 const mockEmbedding: IEmbeddingProvider = { embed: vi.fn(), dimension: 1536 };
-const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
+const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
 
 function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
   return {

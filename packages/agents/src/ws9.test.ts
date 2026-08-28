@@ -207,6 +207,7 @@ function makeLLMRequirement(overrides: Partial<Record<string, unknown>> = {}) {
 describe('WS9-02: Librarian agent SOW → requirements with the controlled envelope', () => {
   const mockModelProvider: IModelProvider = {
     chat: vi.fn(),
+    chatStream: vi.fn(),
     embed: vi.fn(),
   };
 
@@ -310,6 +311,7 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
 describe('WS9-03: Determinism — same SOW → identical requirement mapping across 3 runs', () => {
   const mockModelProvider: IModelProvider = {
     chat: vi.fn(),
+    chatStream: vi.fn(),
     embed: vi.fn(),
   };
 
