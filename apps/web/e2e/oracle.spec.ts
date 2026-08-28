@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { TEST_USERS, SEED_ESTIMATE } from './global-setup';
+import { TEST_USERS, SEED_ESTIMATE, COSTED_ESTIMATE } from './global-setup';
 
 /**
  * Oracle end to end — AEH-259.
@@ -84,6 +84,39 @@ test.describe('asking Oracle about an estimate', () => {
 
     await expect(page.getByTestId('oracle-panel')).not.toContainText(QUESTION);
     await expect(page.getByTestId('oracle-answer')).toHaveCount(0);
+  });
+});
+
+test.describe('Oracle is available whatever state the estimate is in', () => {
+  test.slow();
+
+  // The ticket lists DRAFT, REVIEW and FINALISED. Everything above runs against
+  // SEED_ESTIMATE, which is DRAFT. COSTED_ESTIMATE carries a menu card and has
+  // been through the refine spec by the time this runs, so it covers a costed
+  // estimate — and its status is asserted rather than assumed, because that
+  // spec finalises it and spec order is what decides which of the two states
+  // this lands on.
+  test('opens on a costed estimate, and the card affordance survives finalising', async ({
+    page,
+  }) => {
+    await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
+    await page.goto(`/estimates/${COSTED_ESTIMATE.id}`);
+    await expect(page.getByTestId('estimate-detail')).toBeVisible({ timeout: COLD_COMPILE });
+
+    const status = await page.getByTestId('estimate-status').textContent();
+    expect(['REVIEW', 'FINALISED']).toContain((status ?? '').trim());
+
+    await openOracle(page);
+    await expect(page.getByTestId('oracle-input')).toBeEnabled();
+    await page.getByTestId('oracle-close').click();
+
+    // "Ask about this card" must NOT be gated on !isFinalised — asking what
+    // drove a number is exactly what you do once an estimate is signed off.
+    const ask = page.getByTestId(`ask-oracle-item-${COSTED_ESTIMATE.itemIds[0]}`);
+    await expect(ask).toHaveCount(1);
+    await ask.click({ force: true });
+    await expect(page.getByTestId('oracle-panel')).toBeVisible();
+    await expect(page.getByTestId('oracle-input')).not.toHaveValue('');
   });
 });
 

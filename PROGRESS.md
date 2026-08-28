@@ -11,15 +11,14 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ## Current: AEH-259 (Oracle) is COMPLETE and VERIFIED, but NOT PUSHED
 
-Branch `feat/aeh-259-oracle`, 7 commits off `master` at `9e3c9fa`. Working tree
-clean. Ticket still In Progress — pushing and closing are the user's call.
+Branch `feat/aeh-259-oracle`, off `master` at `9e3c9fa`. Working tree clean. Ticket still In Progress — pushing and closing are the user's call.
 
     git log --oneline master..feat/aeh-259-oracle
 
 Three workstreams shipped, one commit per concern: Oracle itself, the
 `/admin/prompts` model dropdown, and the agent catalogue.
 
-## Verified at 50eb05e
+## Verified at tip (every figure below is from a run at the final commit)
 
     pnpm typecheck                            clean
     pnpm lint                                 clean
@@ -27,7 +26,7 @@ Three workstreams shipped, one commit per concern: Oracle itself, the
     pnpm --filter @repo/audit audit:fields    161 audited, 2 exempt, 0 findings
     pnpm --filter @repo/audit audit:exports   clean
     pnpm --filter web build                   exit 0
-    pnpm test:e2e                             47/47 (was 40; +7 Oracle)
+    pnpm test:e2e                             48/48 (was 40; +8 Oracle)
 
 Plus a **live** run against the real model on the local DB: quote-then-explain,
 a refusal that named the gap instead of guessing, ephemeral info correctly
@@ -54,9 +53,6 @@ in this session touched it. Before running the app against Neon:
 
 - [ ] Push, open a PR, or merge — not done, awaiting the user.
 - [ ] Apply the migration + `db:seed:oracle` to Neon dev/main when deploying.
-- [ ] Post the AEH-259 close-out comment. Draft is in this session's scratchpad
-      as `aeh-259-comment.txt`; check it against the `jira-text` comment rules
-      (no `_ * + ~ ^`, no lists, no backticks), post, then read it back and diff.
 - [ ] Transition AEH-259 to Done (id 41) once merged.
 
 ## Filed, not built
