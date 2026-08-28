@@ -4,7 +4,7 @@ import {
   type ChatStreamEvent,
   type IModelProvider,
 } from '@repo/providers';
-import { QUOTE_CLOSE, QUOTE_OPEN } from '@repo/agents';
+import { QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
 
 /**
  * Which model provider an Oracle turn talks to.

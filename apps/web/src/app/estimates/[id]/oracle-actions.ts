@@ -1,10 +1,16 @@
 'use server';
 
 import { prisma } from '@repo/db';
-import { deriveThreadTitle } from '@repo/agents';
+import { buildOracleCorpus, deriveThreadTitle, renderCorpus } from '@repo/agents';
 import { requireUser } from '@/lib/rbac';
-import { requireThreadAuthor } from '@/lib/oracle-access';
-import { toThreadDTO, type OracleThreadDTO } from './oracle-dto';
+import { requireThreadAuthor, requireThreadReader } from '@/lib/oracle-access';
+import {
+  estimateThreadTokens,
+  toMessageDTO,
+  toThreadDTO,
+  type OracleMessageDTO,
+  type OracleThreadDTO,
+} from './oracle-dto';
 
 /**
  * Thread housekeeping for Oracle.
@@ -64,14 +70,6 @@ export async function createOracleThread(
   return toThreadDTO(row);
 }
 
-/** Rename a thread. Author only. */
-export async function renameOracleThread(threadId: string, title: string): Promise<void> {
-  await requireThreadAuthor(threadId);
-  const clean = title.replace(/\s+/g, ' ').trim().slice(0, 120);
-  if (!clean) throw new Error('A thread needs a title');
-  await prisma.oracleThread.update({ where: { id: threadId }, data: { title: clean } });
-}
-
 /**
  * Delete a thread and its messages.
  *
@@ -82,4 +80,56 @@ export async function renameOracleThread(threadId: string, title: string): Promi
 export async function deleteOracleThread(threadId: string): Promise<void> {
   await requireThreadAuthor(threadId);
   await prisma.oracleThread.delete({ where: { id: threadId } });
+}
+
+export type LoadedThread = {
+  thread: OracleThreadDTO;
+  messages: OracleMessageDTO[];
+  /** Rough size of what gets replayed next turn, for the "start a new one" nudge. */
+  approxTokens: number;
+  /** True when the caller is reading someone else's thread as an admin. */
+  readOnly: boolean;
+};
+
+/**
+ * One thread, with every quotation re-checked against the estimate as it stands.
+ *
+ * The verification happens HERE rather than at write time, and rebuilding the
+ * corpus on each load is the cost of that. It buys the distinction the whole
+ * feature turns on: a quotation missing while the source hash is unchanged was
+ * fabricated, and one missing after the source moved is merely stale. A verdict
+ * frozen at write time could not tell the reader either thing later.
+ */
+export async function loadOracleThread(threadId: string): Promise<LoadedThread> {
+  const access = await requireThreadReader(threadId);
+
+  const [row, corpus] = await Promise.all([
+    prisma.oracleThread.findUniqueOrThrow({
+      where: { id: threadId },
+      select: {
+        id: true,
+        title: true,
+        updatedAt: true,
+        userId: true,
+        _count: { select: { messages: true } },
+        messages: { orderBy: { createdAt: 'asc' } },
+      },
+    }),
+    buildOracleCorpus(prisma, access.estimateId),
+  ]);
+  if (!corpus) throw new Error('Estimate not found');
+
+  const now = {
+    sowHash: corpus.sowHash,
+    runFinishedAt: corpus.runFinishedAt,
+    sowText: corpus.sowText,
+    corpusText: renderCorpus(corpus),
+  };
+
+  return {
+    thread: toThreadDTO(row),
+    messages: row.messages.map((m) => toMessageDTO(m, now)),
+    approxTokens: estimateThreadTokens(row.messages) + Math.round(now.corpusText.length / 4),
+    readOnly: row.userId !== access.user.id,
+  };
 }

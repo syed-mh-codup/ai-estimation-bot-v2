@@ -1,4 +1,4 @@
-import { createQuoteMatcher, splitAnswer, type AnswerSegment } from '@repo/agents';
+import { checkCitations, splitAnswer, type AnswerSegment } from '@repo/shared';
 
 /**
  * Shapes and pure mappers for the Oracle surface.
@@ -99,8 +99,6 @@ export function isStale(row: Pick<MessageRow, 'sowHash' | 'estimateRunAt'>, now:
  */
 export function toMessageDTO(row: MessageRow, now: CorpusNow): OracleMessageDTO {
   const stale = isStale(row, now);
-  const inCorpus = createQuoteMatcher(now.corpusText);
-  const inSource = createQuoteMatcher(now.sowText);
 
   return {
     id: row.id,
@@ -112,14 +110,11 @@ export function toMessageDTO(row: MessageRow, now: CorpusNow): OracleMessageDTO 
     promptTokens: row.promptTokens,
     completionTokens: row.completionTokens,
     costUsd: row.costUsd,
-    citations: row.citations.map((quote) => {
-      const verified = inCorpus(quote) !== null;
-      return {
-        quote,
-        status: verified ? 'verified' : stale ? 'source-moved' : 'fabricated',
-        location: inSource(quote),
-      };
-    }),
+    citations: checkCitations(row.citations, now.corpusText, now.sowText).map((c) => ({
+      quote: c.quote,
+      status: c.verified ? 'verified' : stale ? 'source-moved' : 'fabricated',
+      location: c.location,
+    })),
   };
 }
 

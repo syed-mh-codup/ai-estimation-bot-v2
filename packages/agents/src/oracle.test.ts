@@ -2,16 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   QUOTE_CLOSE,
   QUOTE_OPEN,
-  buildOracleMessages,
   checkCitations,
   createQuoteMatcher,
-  deriveThreadTitle,
   extractCitations,
-  findQuoteInSource,
-  hashSow,
   normalizeForMatch,
-  renderCorpus,
   splitAnswer,
+} from '@repo/shared';
+import {
+  buildOracleMessages,
+  deriveThreadTitle,
+  hashSow,
+  renderCorpus,
   type OracleCorpus,
 } from './oracle';
 
@@ -78,6 +79,8 @@ describe('parsing an answer into prose and quotations', () => {
 });
 
 describe('locating a quotation in the source', () => {
+  const findQuoteInSource = (quote: string, source: string) => createQuoteMatcher(source)(quote);
+
   it('finds an exact span and reports real offsets', () => {
     const at = findQuoteInSource('Payments must reconcile nightly', SOW);
     expect(at).not.toBeNull();

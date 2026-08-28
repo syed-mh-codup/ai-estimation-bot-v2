@@ -17,13 +17,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/auth', () => ({ auth: vi.fn() }));
 
 const threadFindUnique = vi.fn();
-const threadUpdate = vi.fn();
 const threadDelete = vi.fn();
 vi.mock('@repo/db', () => ({
   prisma: {
     oracleThread: {
       findUnique: (...a: unknown[]) => threadFindUnique(...a),
-      update: (...a: unknown[]) => threadUpdate(...a),
       delete: (...a: unknown[]) => threadDelete(...a),
     },
   },
@@ -32,7 +30,7 @@ vi.mock('@repo/db', () => ({
 import { auth } from '@/lib/auth';
 import { requireThreadAuthor, requireThreadReader } from '@/lib/oracle-access';
 import { AuthError } from '@/lib/errors';
-import { deleteOracleThread, renameOracleThread } from './oracle-actions';
+import { deleteOracleThread } from './oracle-actions';
 
 const mockAuth = auth as unknown as ReturnType<typeof vi.fn>;
 
@@ -48,7 +46,6 @@ const signedInAs = (id: string, role: 'ESTIMATOR' | 'ADMIN' = 'ESTIMATOR') =>
 beforeEach(() => {
   vi.clearAllMocks();
   threadFindUnique.mockResolvedValue({ id: THREAD, estimateId: ESTIMATE, userId: AUTHOR });
-  threadUpdate.mockResolvedValue({});
   threadDelete.mockResolvedValue({});
 });
 
@@ -109,27 +106,6 @@ describe('writing to a thread', () => {
 });
 
 describe('thread housekeeping actions enforce the same rules', () => {
-  it('lets the author rename their thread', async () => {
-    signedInAs(AUTHOR);
-    await renameOracleThread(THREAD, '  Multi-currency   questions ');
-    expect(threadUpdate).toHaveBeenCalledWith({
-      where: { id: THREAD },
-      data: { title: 'Multi-currency questions' },
-    });
-  });
-
-  it('does not rename for an admin', async () => {
-    signedInAs(ADMIN, 'ADMIN');
-    await expect(renameOracleThread(THREAD, 'Renamed')).rejects.toThrow(AuthError);
-    expect(threadUpdate).not.toHaveBeenCalled();
-  });
-
-  it('rejects an empty title without writing', async () => {
-    signedInAs(AUTHOR);
-    await expect(renameOracleThread(THREAD, '   ')).rejects.toThrow();
-    expect(threadUpdate).not.toHaveBeenCalled();
-  });
-
   it('lets the author delete their thread', async () => {
     signedInAs(AUTHOR);
     await deleteOracleThread(THREAD);

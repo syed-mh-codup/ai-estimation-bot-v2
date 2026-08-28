@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { PrismaClient } from '@repo/db';
 import { createModelProvider, type ChatStreamEvent, type IModelProvider } from '@repo/providers';
+import { QUOTE_CLOSE, QUOTE_OPEN, checkCitations, extractCitations } from '@repo/shared';
 import {
-  QUOTE_CLOSE,
-  QUOTE_OPEN,
   buildOracleMessages,
-  checkCitations,
-  extractCitations,
   hashSow,
   renderCorpus,
   type OracleCorpus,

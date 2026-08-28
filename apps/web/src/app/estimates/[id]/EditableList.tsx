@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AskOracleButton } from './AskOracleButton';
 
 /**
  * Editable bullet list for the estimate's narrative / assumptions (both are
@@ -17,6 +18,7 @@ export function EditableList({
   isFinalised,
   addLabel,
   testid,
+  askSubject,
 }: {
   estimateId: string;
   initialItems: string[];
@@ -24,6 +26,12 @@ export function EditableList({
   isFinalised: boolean;
   addLabel: string;
   testid: string;
+  /**
+   * What these lines ARE, for the Oracle question seeded from one of them.
+   * Narrative sentences and assumptions are the artifacts people trust least,
+   * because nothing else on this page traces them back to the document.
+   */
+  askSubject: string;
 }) {
   const [items, setItems] = useState<string[]>(initialItems);
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +59,15 @@ export function EditableList({
     return (
       <ul className="space-y-2" data-testid={testid}>
         {items.map((t, i) => (
-          <li key={i} className="flex items-start gap-2.5">
+          <li key={i} className="group flex items-start gap-2.5">
             <span className="mt-[9px] h-[5px] w-[5px] shrink-0 rounded-full bg-green-line" aria-hidden />
-            <span className="text-[13.5px] leading-relaxed text-ink-2">{t}</span>
+            <span className="flex-1 text-[13.5px] leading-relaxed text-ink-2">{t}</span>
+            <AskOracleButton
+              className="mt-1.5"
+              label={`Ask Oracle where this ${askSubject} came from`}
+              question={askOracleQuestion(askSubject, t)}
+              testid={`${testid}-ask-${i}`}
+            />
           </li>
         ))}
       </ul>
@@ -77,6 +91,12 @@ export function EditableList({
               className="-mx-1.5 -my-0.5 min-w-0 flex-1 resize-none rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[13.5px] leading-relaxed text-ink-2 hover:border-line hover:bg-surface focus:border-green focus:bg-surface focus:outline-none"
               data-testid={`${testid}-item-${i}`}
             />
+            <AskOracleButton
+              className="mt-1"
+              label={`Ask Oracle where this ${askSubject} came from`}
+              question={askOracleQuestion(askSubject, t)}
+              testid={`${testid}-ask-${i}`}
+            />
             <button
               type="button"
               onClick={() => removeAt(i)}
@@ -96,4 +116,8 @@ export function EditableList({
       {error && <p className="mt-1.5 text-xs font-medium text-brick">{error}</p>}
     </div>
   );
+}
+
+function askOracleQuestion(subject: string, line: string): string {
+  return `Where did this ${subject} come from?\n\n"${line}"\n\nQuote what in the source material supports it, or say plainly if nothing does.`;
 }

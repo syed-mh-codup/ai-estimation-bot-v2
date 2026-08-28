@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@repo/db';
-import { buildOracleCorpus, buildOracleMessages, extractCitations, type OracleTurn } from '@repo/agents';
+import {
+  buildOracleCorpus,
+  buildOracleMessages,
+  deriveThreadTitle,
+  type OracleTurn,
+} from '@repo/agents';
+import { extractCitations } from '@repo/shared';
 import type { TokenUsage } from '@repo/providers';
 import { AuthError } from '@/lib/errors';
 import { requireThreadAuthor } from '@/lib/oracle-access';
@@ -88,7 +94,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   ).map((m) => ({ role: m.role, content: m.content }));
 
   // The question lands first, and the thread's title with it when this is the
-  // opening turn — a thread called "New thread" forever is a worse list.
+  // opening turn — a thread created empty from the "new thread" button would
+  // otherwise be called "New thread" for ever, which makes the list useless.
   await prisma.$transaction([
     prisma.oracleMessage.create({
       data: {
@@ -100,7 +107,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         estimateRunAt: corpus.runFinishedAt,
       },
     }),
-    prisma.oracleThread.update({ where: { id: threadId }, data: { updatedAt: new Date() } }),
+    prisma.oracleThread.update({
+      where: { id: threadId },
+      data: {
+        updatedAt: new Date(),
+        ...(history.length === 0 ? { title: deriveThreadTitle(question) } : {}),
+      },
+    }),
   ]);
 
   const messages = buildOracleMessages({

@@ -23,6 +23,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronRight, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AskOracleButton } from './AskOracleButton';
 import { Button } from '@/components/ui/button';
 import { InlineText } from '@/components/ui/input';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
@@ -576,6 +577,14 @@ function ItemRow({
             </span>
           )}
           <ItemProvenance item={item} />
+          {/* Deliberately NOT in the hover cluster below: that whole cluster is
+              gated on !isFinalised, and asking what drove a number is exactly
+              what you want to do on an estimate that has been signed off. */}
+          <AskOracleButton
+            label={`Ask Oracle about ${item.title}`}
+            question={`Explain the menu card "${item.title}" (${item.taxonomyKey}). What in the source material drove it, and where did its hours come from?`}
+            testid={`ask-oracle-item-${item.id}`}
+          />
         </div>
 
         {ROLES.map((r) => (
