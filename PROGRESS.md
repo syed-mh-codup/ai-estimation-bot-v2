@@ -9,64 +9,74 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-259 — Oracle
+## Current: AEH-259 (Oracle) is COMPLETE and VERIFIED, but NOT PUSHED
 
-Branch `feat/aeh-259-oracle` off `master` at `9e3c9fa`. Ticket is In Progress.
-**The approved plan is the spec — read it first:**
-`~/.claude/plans/crispy-skipping-pony.md`
+Branch `feat/aeh-259-oracle`, 7 commits off `master` at `9e3c9fa`. Working tree
+clean. Ticket still In Progress — pushing and closing are the user's call.
 
-Three workstreams under one ticket, commits scoped per workstream:
+    git log --oneline master..feat/aeh-259-oracle
 
-1. **Oracle** — read-only chat over one estimate's corpus, floating notch/FAB on
-   `/estimates/[id]`, SSE streaming, persisted threads, citation jump into `#sow`.
-2. **Model dropdown** — `/admin/prompts` model field becomes a searchable list of
-   live OpenRouter models instead of free text.
-3. **Agent catalogue** — one `AGENT_CATALOGUE` in `packages/db`, describing every
-   agent and grouping them by track (run crew / supplemental / reference).
+Three workstreams shipped, one commit per concern: Oracle itself, the
+`/admin/prompts` model dropdown, and the agent catalogue.
 
-## Done so far
+## Verified at 50eb05e
 
-- Branch created, AEH-259 → In Progress.
-- **AEH-283 filed** (supervisor review) and linked "relates to" AEH-259. Explicitly
-  NOT built here — the user is dealing with the supervisor separately.
-- Scoping amendments posted as a comment on AEH-259 (comment 106401), read back
-  and verified clean.
+    pnpm typecheck                            clean
+    pnpm lint                                 clean
+    pnpm test                                 54 files, 429 passed, 9 skipped
+    pnpm --filter @repo/audit audit:fields    161 audited, 2 exempt, 0 findings
+    pnpm --filter @repo/audit audit:exports   clean
+    pnpm --filter web build                   exit 0
+    pnpm test:e2e                             47/47 (was 40; +7 Oracle)
 
-## Next step
+Plus a **live** run against the real model on the local DB: quote-then-explain,
+a refusal that named the gap instead of guessing, ephemeral info correctly
+declared as conversation-only with assumption wording offered, three citations
+stored and all three verbatim, resolved model + tokens + real cost recorded
+(~$0.019 for three turns), and the quote jump highlighting the right span.
 
-Nothing committed yet. Start at plan §11 (`packages/db/src/agent-catalogue.ts`),
-because it collapses the four hardcoded `AgentKind` arrays and every later step
-adds `ORACLE` through it.
+⚠️ `pnpm audit` and `pnpm run audit` BOTH hit pnpm's built-in security audit,
+not the repo's gates. Use the filtered form above. (The gates also run inside
+`pnpm test`, so a green `pnpm test` already covers them.)
 
-## The three corrections that drove the plan
+## Databases
 
-The ticket description predates the tree on all three; verified, not assumed.
+Migration `20260828000000_oracle` is applied to the local docker
+`ai_estimation`, the local `ai_estimation_test`, and the **Neon test** branch.
 
-- **`Estimate.sowHash` is gone** (dropped in `20260827040000` with the cache
-  layer). Hash `sowText` at message-write time and store it on the message.
-- **`promptVersionsPinned` is gone.** Nothing pins prompt versions, for any agent.
-- **`coversRiskFlags` is never persisted** — `specialist.ts` produces it,
-  `audit.ts:87` consumes it in memory, then it is discarded. Fix: add
-  `claimedRiskFlags` to the `agentState` literal at `run-estimate.ts:459-467`
-  (and the `RunDiagnostics` type at `:110-126`, and the persisted-key-set
-  assertion at `run-estimate.test.ts:270-280`).
+**NOT applied to Neon dev/main** — that is the shared dev database and nothing
+in this session touched it. Before running the app against Neon:
 
-## Traps that will bite this ticket specifically
+    DATABASE_URL=<neon> DIRECT_URL=<neon> pnpm --filter @repo/db exec prisma migrate deploy
+    pnpm db:seed:oracle      # NEVER pnpm db:seed — it reverts every live prompt
 
-- **`pnpm --filter web build` is the only real check.** Typecheck, lint and the
-  whole unit suite are blind to a `'use server'` module exporting a non-async
-  function. Hence `oracle-actions.ts` (actions only) vs `oracle-dto.ts` (mappers).
-- **Never run `pnpm db:seed`** to install Oracle's prompt — `seed.ts:168-183`
-  deactivates every active `PromptVersion` and overwrites v1's body. Use the new
-  targeted `pnpm db:seed:oracle`.
-- **Field audit is a vitest test**, so a new column nothing *reads* is a red
-  build. The `/admin/oracle` surfaces are the readers for the token columns.
-- **Oracle must mount OUTSIDE `LedgerProvider`** — it is keyed at `page.tsx:191`
-  on the joined item ids, so `router.refresh()` after a run remounts that whole
-  subtree and would wipe an open conversation. In-ledger entry points reach it by
-  `window` CustomEvent, the `CollapseAllButton.tsx:7` idiom.
-- **The 5s expect budget.** `/estimates/[id]` is the heaviest route; the first
-  Oracle assertion in e2e needs `{ timeout: COLD_COMPILE }`.
+## Next steps
+
+- [ ] Push, open a PR, or merge — not done, awaiting the user.
+- [ ] Apply the migration + `db:seed:oracle` to Neon dev/main when deploying.
+- [ ] Post the AEH-259 close-out comment. Draft is in this session's scratchpad
+      as `aeh-259-comment.txt`; check it against the `jira-text` comment rules
+      (no `_ * + ~ ^`, no lists, no backticks), post, then read it back and diff.
+- [ ] Transition AEH-259 to Done (id 41) once merged.
+
+## Filed, not built
+
+**AEH-283** — review and fix the Supervisor. Its prompt is never loaded at
+runtime and its gates warn rather than block. AEH-259 only LABELS it, in the
+catalogue's REFERENCE track. The user is handling it separately.
+
+## Traps this ticket proved
+
+- `pnpm --filter web build` caught a client component pulling `@repo/agents`
+  through to googleapis and `node:fs`; typecheck was clean. The pure citation
+  logic lives in `@repo/shared` for exactly this reason.
+- Three defects survived typecheck, lint and 429 unit tests and were only found
+  by reading the diff: a `useCallback` that memoised nothing, an empty-thread
+  fetch loop, and an SSR/client hydration mismatch invisible on Linux. See
+  commit `50eb05e`.
+- A PRE-EXISTING full-suite flake (run-estimate and evals both replacing the
+  active EstimationConfig) is fixed with a Postgres advisory lock. Racing lines
+  are verbatim on master; this branch's extra test files just widened the window.
 
 See the memories `next-build-is-the-only-real-check`, `e2e-suite-notes`,
 `local-dev-env-traps`.
