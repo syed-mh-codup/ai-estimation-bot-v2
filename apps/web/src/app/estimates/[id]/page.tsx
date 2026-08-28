@@ -9,6 +9,10 @@ import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { inngest, EVENT_PROMOTE } from '@/lib/inngest';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
+import { SowText } from './SowText';
+import { Oracle } from './Oracle';
+import { OracleAdminPanel } from './OracleAdminPanel';
+import { listOracleThreads } from './oracle-actions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Eyebrow } from '@/components/ui/card';
@@ -154,6 +158,9 @@ export default async function EstimateDetailPage({
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
   const canDelete = viewer.role === 'ADMIN' || viewer.id === estimate.ownerId;
+  // The viewer's own threads on this estimate. Nobody else's — a thread is
+  // private to whoever wrote it (lib/oracle-access.ts).
+  const oracleThreads = await listOracleThreads(estimate.id);
 
   const sectionDTOs: SectionDTO[] = estimate.sections.map((s) => ({
     id: s.id,
@@ -230,17 +237,17 @@ export default async function EstimateDetailPage({
             />
 
             <CollapsibleSection
+              id="sow"
               className="mt-3.5 scroll-mt-4"
               storageKey={`est:${estimate.id}:sow`}
               title="Statement of work"
               data-testid="section-sow"
             >
-              <p className="rounded-md border border-line-soft bg-surface-2 p-3.5 text-[13.5px] leading-relaxed whitespace-pre-wrap text-ink-2">
-                {estimate.sowText}
-              </p>
+              <SowText sowText={estimate.sowText} />
             </CollapsibleSection>
 
             <CollapsibleSection
+              id="narrative"
               className="mt-3.5 scroll-mt-4"
               storageKey={`est:${estimate.id}:narrative`}
               title="Narrative"
@@ -254,10 +261,12 @@ export default async function EstimateDetailPage({
                 isFinalised={isFinalised}
                 addLabel="Add point"
                 testid="narrative-list"
+                askSubject="narrative line"
               />
             </CollapsibleSection>
 
             <CollapsibleSection
+              id="assumptions"
               className="mt-3.5 scroll-mt-4"
               storageKey={`est:${estimate.id}:assumptions`}
               title="Assumptions"
@@ -270,6 +279,7 @@ export default async function EstimateDetailPage({
                 isFinalised={isFinalised}
                 addLabel="Add assumption"
                 testid="assumptions-list"
+                askSubject="assumption"
               />
             </CollapsibleSection>
 
@@ -285,6 +295,7 @@ export default async function EstimateDetailPage({
             {hasMenu && <RollupCard />}
             <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
             <RunDiagnosticsPanel estimateId={estimate.id} />
+            {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Actions</Eyebrow>
@@ -394,6 +405,13 @@ export default async function EstimateDetailPage({
           </aside>
         </div>
       </LedgerProvider>
+
+      {/* Outside LedgerProvider on purpose: that provider is keyed on the row
+          set and remounts its whole subtree on router.refresh(), which fires
+          the moment a run finishes. A conversation inside it would be wiped at
+          exactly the point somebody is asking about the results. Entry points
+          within the ledger reach Oracle through the window-event bus. */}
+      <Oracle estimateId={estimate.id} initialThreads={oracleThreads} />
     </div>
   );
 }

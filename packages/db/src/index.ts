@@ -13,3 +13,4 @@ export * from './vector';
 export * from './preset-code';
 export * from './changelog';
 export * from './menu-item-mapping';
+export * from './agent-catalogue';

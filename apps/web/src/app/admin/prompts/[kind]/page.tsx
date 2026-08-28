@@ -1,13 +1,15 @@
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { prisma } from '@repo/db';
-import type { AgentKind, ChangeMotivation } from '@repo/db';
+import { TRACK_META, agentProfile, isAgentKind, prisma } from '@repo/db';
+import type { ChangeMotivation } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { Input, Textarea, FieldLabel, Select } from '@/components/ui/input';
+import { Combobox } from '@/components/ui/combobox';
+import { fetchModelOptions } from '@/lib/openrouter-models';
 
 const MOTIVATIONS: ChangeMotivation[] = [
   'CORRECTION',
@@ -22,21 +24,6 @@ function isMotivation(v: string): v is ChangeMotivation {
   return (MOTIVATIONS as string[]).includes(v);
 }
 
-const AGENT_KINDS: AgentKind[] = [
-  'SUPERVISOR',
-  'LIBRARIAN',
-  'DETECTIVE',
-  'ARCHIVIST',
-  'SPECIALIST_DEV',
-  'SPECIALIST_QA',
-  'SPECIALIST_PM',
-  'SPECIALIST_BA',
-  'ARCHITECT',
-];
-
-function isAgentKind(v: string): v is AgentKind {
-  return (AGENT_KINDS as string[]).includes(v);
-}
 
 async function savePrompt(formData: FormData) {
   'use server';
@@ -109,6 +96,22 @@ export default async function PromptEditorPage({
     notFound();
   }
 
+  const agent = agentProfile(kind);
+  // Live catalogue, cached for an hour, and an empty list degrades the picker
+  // to free text rather than blocking the edit.
+  const models = await fetchModelOptions();
+  const modelOptions = models.map((m) => ({
+    value: m.id,
+    label: m.name,
+    hint: [
+      m.contextLength ? `${Math.round(m.contextLength / 1000)}k context` : null,
+      m.promptPrice !== null ? `$${(m.promptPrice * 1_000_000).toFixed(2)}/M in` : null,
+      m.completionPrice !== null ? `$${(m.completionPrice * 1_000_000).toFixed(2)}/M out` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
+
   return (
     <div data-testid="admin-prompt-editor">
       <Link
@@ -120,7 +123,7 @@ export default async function PromptEditorPage({
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <Heading level={1} className="min-w-0 break-words">
-          {kind}
+          {agent.label}
         </Heading>
         <div className="flex items-center gap-2">
           <Pill tone="green" dot={false} data-testid="prompt-active-version" className="num">
@@ -134,6 +137,38 @@ export default async function PromptEditorPage({
         the history below and can be reactivated from its detail page.
       </p>
 
+      <Card className="mt-4 max-w-3xl">
+        <CardBody>
+          <div className="flex flex-wrap items-center gap-2">
+            <Eyebrow>{TRACK_META[agent.track].label}</Eyebrow>
+            <span className="num text-[10.5px] text-ink-4">{kind}</span>
+          </div>
+
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-2">{agent.detail}</p>
+
+          <dl className="mt-3.5 grid gap-2 sm:grid-cols-2">
+            <div>
+              <dt className="eyebrow text-ink-4">Reads</dt>
+              <dd className="mt-1 text-[12.5px] text-ink-2">{agent.consumes.join(' · ')}</dd>
+            </div>
+            <div>
+              <dt className="eyebrow text-ink-4">Produces</dt>
+              <dd className="mt-1 text-[12.5px] text-ink-2">{agent.produces.join(' · ')}</dd>
+            </div>
+          </dl>
+
+          {/* What a save here will and will not change. The REFERENCE case is
+              the reason this line exists: without it an admin can spend an
+              afternoon tuning a prompt no code path loads. */}
+          <p
+            className="mt-3.5 border-t border-line-soft pt-3 text-[12.5px] text-ink-3"
+            data-testid="prompt-impact"
+          >
+            {IMPACT[agent.track]}
+          </p>
+        </CardBody>
+      </Card>
+
       <form action={savePrompt} className="mt-5 max-w-3xl">
         <input type="hidden" name="kind" value={kind} />
 
@@ -141,11 +176,14 @@ export default async function PromptEditorPage({
           <CardBody className="space-y-4 p-4 sm:p-5">
             <div className="max-w-md">
               <FieldLabel htmlFor="modelString">Model</FieldLabel>
-              <Input
+              <Combobox
                 id="modelString"
                 name="modelString"
-                defaultValue={active.modelString}
-                className="num text-[12.5px]"
+                value={active.modelString}
+                options={modelOptions}
+                placeholder="Choose a model"
+                emptyHint="Could not reach OpenRouter, so this is a plain text field. The value you type is saved as-is."
+                data-testid="model-combobox"
               />
             </div>
 
@@ -253,3 +291,13 @@ export default async function PromptEditorPage({
     </div>
   );
 }
+
+/** What saving a prompt on each track actually changes. */
+const IMPACT: Record<string, string> = {
+  RUN_CREW:
+    'This prompt is loaded on every estimate run. A change here takes effect on the next run and will change the hours it produces. Estimates already produced are untouched — nothing re-runs on its own.',
+  SUPPLEMENTAL:
+    'This prompt is loaded when somebody asks a question, not during a run. A change here affects the next answer given and cannot change any estimate.',
+  REFERENCE:
+    'Nothing loads this prompt at runtime. The behaviour it describes is implemented in code, so editing it is recorded and versioned but will not change a run. See AEH-283.',
+};

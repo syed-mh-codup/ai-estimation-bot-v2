@@ -21,7 +21,8 @@
     "db:embed:presets": "pnpm --filter @repo/agents embed:presets",
     "db:setup": "pnpm --filter @repo/db exec prisma migrate deploy && pnpm run db:seed",
     "test:e2e:setup": "bash scripts/setup-test-db.sh",
-    "test:e2e": "bash scripts/setup-test-db.sh && pnpm --filter web exec playwright test"
+    "test:e2e": "bash scripts/setup-test-db.sh && pnpm --filter web exec playwright test",
+    "db:seed:oracle": "pnpm --filter @repo/db db:seed:oracle"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

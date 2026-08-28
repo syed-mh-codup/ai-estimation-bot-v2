@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
  * Open/closed state persists in localStorage when `storageKey` is given.
  */
 export function CollapsibleSection({
+  id,
   title,
   children,
   defaultOpen = true,
@@ -21,6 +22,14 @@ export function CollapsibleSection({
   headingClassName,
   'data-testid': testId,
 }: {
+  /**
+   * Anchor for in-page links. ContentsCard has linked to #sow, #narrative and
+   * #assumptions since it was written, and none of them ever resolved: this
+   * component took no id and does not spread rest props, so only the menu card
+   * (which sets its own id) was reachable. Oracle's quote jump needs #sow to
+   * exist, which is what finally surfaced it. AEH-259.
+   */
+  id?: string;
   title: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
@@ -64,6 +73,26 @@ export function CollapsibleSection({
     return () => window.removeEventListener('estimate:collapse-all', onAll);
   }, [storageKey]);
 
+  // A deep link or a quote jump must be able to reveal this section — landing
+  // on a collapsed block and highlighting something inside it shows the reader
+  // nothing at all.
+  useEffect(() => {
+    if (!id) return;
+    const onExpand = (e: Event) => {
+      if ((e as CustomEvent<{ id: string }>).detail?.id !== id) return;
+      setOpen(true);
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(storageKey, '1');
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener('estimate:expand-section', onExpand);
+    return () => window.removeEventListener('estimate:expand-section', onExpand);
+  }, [id, storageKey]);
+
   function toggle() {
     setOpen((prev) => {
       const next = !prev;
@@ -80,6 +109,7 @@ export function CollapsibleSection({
 
   return (
     <section
+      id={id}
       className={cn('rounded-[10px] border border-line bg-surface', className)}
       data-testid={testId}
     >

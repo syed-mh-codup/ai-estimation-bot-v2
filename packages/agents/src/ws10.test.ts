@@ -5,7 +5,7 @@ import type { Requirement, RiskFinding } from '@repo/shared';
 
 // ─── Stubs ───────────────────────────────────────────────────────────────────
 
-const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
+const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
 const mockSearch: ISearchProvider = { name: 'mock', search: vi.fn() };
 const mockMcp: IMcpProvider = {
   listTools: vi.fn(),

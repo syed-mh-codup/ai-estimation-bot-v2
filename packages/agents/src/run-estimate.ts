@@ -121,6 +121,17 @@ export type RunDiagnostics = {
   complexity: ComplexityOutput;
   /** Deterministic gate warnings. Until now these reached console.warn and nothing else. */
   gateWarnings: string[];
+  /**
+   * Risk flags the Specialist council said its hours already cover.
+   *
+   * The mirror image of HiddenWorkFinding, and needed for the same reason that
+   * table exists. A claimed flag produces no finding row — detectHiddenWork
+   * skips it — so before this key the claimed half of the coverage question
+   * simply vanished at the end of a run. "Which risks did we spot, and which of
+   * them did somebody actually cost" was answerable in one direction only.
+   * Oracle reads both halves. AEH-259.
+   */
+  claimedRiskFlags: string[];
   /** ISO timestamp. A Date would violate the step-JSON memoisation contract. */
   ranAt: string;
 };
@@ -301,7 +312,11 @@ export async function runEstimate(
   // be taxed exactly like the rest. The older injectors set taxedHours=baseHours
   // and skipped tax, which only made sense while their numbers were fictional.
   await report('Auditing hidden work', 90);
-  const detections = detectHiddenWork(riskFindings, claimedRiskFlags(allSpecialistOutputs));
+  // Hoisted because it is persisted as well as consumed here: a claimed flag
+  // produces no finding row, so without recording the set the claimed half of
+  // the coverage question is lost the moment the run ends. AEH-259.
+  const claimedFlags = claimedRiskFlags(allSpecialistOutputs);
+  const detections = detectHiddenWork(riskFindings, claimedFlags);
   const injected: MenuItem[] = [];
   const resolvedDetections: Array<{ detection: HiddenWorkDetection; costed: boolean }> = [];
 
@@ -463,6 +478,7 @@ export async function runEstimate(
               archivistMatchCount: matches.length,
               complexity,
               gateWarnings,
+              claimedRiskFlags: [...claimedFlags],
               ranAt: new Date().toISOString(),
             },
           },

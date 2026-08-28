@@ -206,6 +206,14 @@ export default async function globalSetup() {
       });
     }
 
+    // Oracle threads cascade with their estimate, but SEED_ESTIMATE is upserted
+    // rather than recreated, so a thread written by the Oracle spec would
+    // survive into the next run and its assertions on the thread list would
+    // drift. Clear them here instead.
+    await prisma.oracleThread.deleteMany({
+      where: { estimateId: { in: [SEED_ESTIMATE.id, COSTED_ESTIMATE.id] } },
+    });
+
     await prisma.estimate.upsert({
       where: { id: SEED_ESTIMATE.id },
       update: {},

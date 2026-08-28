@@ -3,7 +3,7 @@ import { runSpecialist, runSpecialistCouncil, type SpecialistContext } from './s
 import type { IModelProvider } from '@repo/providers';
 import type { SpecialistInput, ArchivistMatch, Requirement } from '@repo/shared';
 
-const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
+const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
 
 const INSTRUCTIONS = {
   DEV: 'You are SPECIALIST_DEV. Decompose into <=4h line items.',

@@ -8,7 +8,27 @@ const DB_URL =
   process.env['DATABASE_URL'] ??
   'postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public';
 
-const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
+/**
+ * These suites fight over the one shared local database.
+ *
+ * Both this file and its sibling replace the ACTIVE EstimationConfig in their
+ * beforeAll — deactivate every active row, then create one. Run in parallel,
+ * one suite's deactivate lands between the other's deactivate and create, and a
+ * pipeline run mid-flight throws "No EstimationConfig found". Pre-existing, and
+ * it surfaced once AEH-259 added enough test files to make the interleave
+ * likely.
+ *
+ * A Postgres session advisory lock serialises exactly these suites and costs
+ * every other file nothing. It has to be a SESSION lock held across the whole
+ * suite, which is why the pool is pinned to one connection: with the default
+ * pool Prisma could take the lock on one connection and release it on another,
+ * and the lock would leak until the process exited.
+ */
+const DB_LOCK_KEY = 725_901;
+
+// One connection, so the advisory lock is taken and released on the same one.
+const LOCKED_URL = `${DB_URL}${DB_URL.includes('?') ? '&' : '?'}connection_limit=1`;
+const db = new PrismaClient({ datasources: { db: { url: LOCKED_URL } } });
 
 // A stub LLM: returns valid JSON per agent based on the prompt content. Proves
 // the full pipeline WIRING offline — not the quality of real prompts/responses.
@@ -69,6 +89,12 @@ const stubModelProvider: IModelProvider = {
     }
     return '{}';
   },
+  // The run pipeline never streams; Oracle is the only caller of chatStream, and
+  // it does not go through runEstimate. Throwing beats returning an empty stream,
+  // which would look like a model that answered with nothing.
+  chatStream(): AsyncIterable<never> {
+    throw new Error('chatStream is not stubbed for the run pipeline');
+  },
   async embed() {
     return [[0, 0, 0]];
   },
@@ -80,12 +106,25 @@ let configVersion = 0;
 
 beforeAll(async () => {
   await db.$connect();
+  await db.$executeRaw`SELECT pg_advisory_lock(${DB_LOCK_KEY})`;
 
   // Active config with rules in the shape the complexity engine expects.
+  //
+  // Version is max+1, not a random number in a 1000-wide band. `version` is
+  // unique and this table is never pruned, so the old random pick was a
+  // birthday collision that got likelier every time the suite ran — at 178
+  // accumulated rows it was failing roughly one run in five, and the failure
+  // looked like an unrelated pipeline error. Safe under the advisory lock
+  // above, which is what stops the sibling suite reading max between this
+  // query and the insert. Same pattern as evals.test.ts.
   await db.estimationConfig.updateMany({ where: { active: true }, data: { active: false } });
+  const highest = await db.estimationConfig.findFirst({
+    orderBy: { version: 'desc' },
+    select: { version: true },
+  });
   const cfg = await db.estimationConfig.create({
     data: {
-      version: 9000 + Math.floor(Math.random() * 1000),
+      version: (highest?.version ?? 0) + 1,
       active: true,
       complexityRules: DEFAULT_COMPLEXITY_RULES,
       pmCommunicationTaxPct: 15,
@@ -148,6 +187,12 @@ afterAll(async () => {
   await db.menuItem.deleteMany({ where: { estimateId } });
   await db.estimate.delete({ where: { id: estimateId } });
   await db.user.delete({ where: { id: userId } });
+  // Clean up the config too. Leaving one behind per run is what grew the table
+  // that made the old random version collide in the first place.
+  await db.estimationConfig.deleteMany({ where: { version: configVersion } });
+  // Released explicitly rather than left to process exit, so the sibling
+  // suite can start as soon as this one is done cleaning up.
+  await db.$executeRaw`SELECT pg_advisory_unlock(${DB_LOCK_KEY})`;
   await db.$disconnect();
 });
 
@@ -279,6 +324,7 @@ describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {
 
     const declared: Array<keyof RunDiagnostics> = [
       'archivistMatchCount',
+      'claimedRiskFlags',
       'complexity',
       'detectiveQuestionCount',
       'detectiveRiskCount',
@@ -373,6 +419,12 @@ const riskyStubModelProvider: IModelProvider = {
     }
     return '{}';
   },
+  // The run pipeline never streams; Oracle is the only caller of chatStream, and
+  // it does not go through runEstimate. Throwing beats returning an empty stream,
+  // which would look like a model that answered with nothing.
+  chatStream(): AsyncIterable<never> {
+    throw new Error('chatStream is not stubbed for the run pipeline');
+  },
   async embed() {
     return [[0, 0, 0]];
   },
@@ -454,8 +506,13 @@ describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
   });
 
   it('gives the injected card the council hours, not a flat default', async () => {
+    // Keyed on the hidden-work card specifically, not on `injected: true`.
+    // Delivery overhead sets the same flag, so three cards match it and a
+    // findFirst with no ordering returns whichever Postgres feels like — which
+    // is why this failed about one run in eight, always with the code-review
+    // card's DEV 0.25 and no QA line at all.
     const card = await db.menuItem.findFirstOrThrow({
-      where: { estimateId: riskyEstimateId, injected: true },
+      where: { estimateId: riskyEstimateId, injected: true, taxonomyKey: 'infra.rate-limit' },
       include: { lineItems: true },
     });
     const dev = card.lineItems.find((li) => li.role === 'DEV')!;
@@ -465,8 +522,9 @@ describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
   });
 
   it('taxes injected hours like any other card', async () => {
+    // Same reason as above: `injected: true` alone is ambiguous.
     const card = await db.menuItem.findFirstOrThrow({
-      where: { estimateId: riskyEstimateId, injected: true },
+      where: { estimateId: riskyEstimateId, injected: true, taxonomyKey: 'infra.rate-limit' },
       include: { lineItems: true },
     });
     // Injection runs BEFORE taxation precisely so this holds. The old injectors

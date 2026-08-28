@@ -14,7 +14,7 @@ import {
   type SpecialistLineItem,
 } from '@repo/shared';
 
-const mockModel: IModelProvider = { chat: vi.fn(), embed: vi.fn() };
+const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
 
 const ctx: ArchitectContext = {
   modelProvider: mockModel,

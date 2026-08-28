@@ -23,10 +23,11 @@ describe('AEH-228: prisma schema parser', () => {
   });
 
   it('finds all models and enums', () => {
-    // 15 models / 12 enums since AEH-263 added HiddenWorkFinding,
-    // HiddenWorkOutcome and TaxonomyStatus.
-    expect(schema.models.size).toBe(15);
-    expect(schema.enums.size).toBe(12);
+    // 17 models / 13 enums since AEH-259 added OracleThread, OracleMessage and
+    // OracleRole on top of AEH-263's HiddenWorkFinding, HiddenWorkOutcome and
+    // TaxonomyStatus.
+    expect(schema.models.size).toBe(17);
+    expect(schema.enums.size).toBe(13);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {

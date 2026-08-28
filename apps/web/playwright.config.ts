@@ -46,12 +46,21 @@ export default defineConfig({
     // from .env.local the export hits the live API and fails with "The caller
     // does not have permission" — a test making a real third-party call against
     // someone's Drive folder, which it should never do.
+    //
+    // OPENROUTER_STUB does the same job for OpenRouter: Oracle answers from a
+    // deterministic stub, and the /admin/prompts model picker gets a fixed
+    // catalogue instead of whatever OpenRouter is serving today. Its own flag
+    // rather than blanking OPENROUTER_API_KEY, which the ingest path also
+    // reads — blanking that would change a subsystem these specs are not
+    // testing. The Oracle stub still quotes the estimate it was given, so the
+    // citation and quote-jump assertions exercise real matching.
     env: {
       ...process.env,
       DATABASE_URL: TEST_DB_URL,
       DIRECT_URL: TEST_DB_URL,
       GOOGLE_SERVICE_ACCOUNT_JSON: '',
       GOOGLE_DRIVE_FOLDER_ID: '',
+      OPENROUTER_STUB: '1',
     } as Record<string, string>,
   },
 });

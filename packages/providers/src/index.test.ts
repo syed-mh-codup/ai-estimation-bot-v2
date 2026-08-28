@@ -83,6 +83,7 @@ describe('WS3-02: EmbeddingProvider', () => {
     const mockVector = new Array<number>(EMBEDDING_DIMENSION).fill(0.5);
     const mockModel: IModelProvider = {
       chat: vi.fn(),
+      chatStream: vi.fn(),
       embed: vi.fn().mockResolvedValue([mockVector]),
     };
 
@@ -96,6 +97,7 @@ describe('WS3-02: EmbeddingProvider', () => {
   it('throws if dimension mismatches', async () => {
     const mockModel: IModelProvider = {
       chat: vi.fn(),
+      chatStream: vi.fn(),
       embed: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
     };
 

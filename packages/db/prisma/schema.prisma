@@ -58,6 +58,18 @@ enum AgentKind {
   SPECIALIST_PM
   SPECIALIST_BA
   ARCHITECT
+  /// Not part of a run. Oracle answers questions about one estimate on demand;
+  /// it is an agent rather than an artifact type, which is why it belongs in
+  /// this enum. See packages/db/src/agent-catalogue.ts for what each kind is.
+  ORACLE
+}
+
+/// Who wrote an Oracle turn. Oracle has no tool calls and no system turns in the
+/// transcript — the system prompt is the live PromptVersion, not a stored row —
+/// so two values is the whole vocabulary.
+enum OracleRole {
+  USER
+  ASSISTANT
 }
 
 enum EstimateStatus {
@@ -147,6 +159,7 @@ model User {
   /// password does not sign other devices out.
   passwordChangedAt DateTime?
   estimates         Estimate[]
+  oracleThreads     OracleThread[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -365,6 +378,7 @@ model Estimate {
   menuItems              MenuItem[]
   uploadedFiles          UploadedFile[]
   hiddenWork             HiddenWorkFinding[]
+  oracleThreads          OracleThread[]
   sheetUrl               String?
   createdAt              DateTime            @default(now())
 
@@ -516,4 +530,74 @@ model RoleLineItem {
   meta            Json?
 
   @@index([menuItemId, role])
+}
+
+// ─── Oracle ───────────────────────────────────────────────────────────────────
+
+/// One line of enquiry by one person about one estimate. AEH-259.
+///
+/// Threads are user-created and many-per-estimate on purpose: separate questions
+/// stay separate, and each thread's replayed context stays bounded. A thread is
+/// PRIVATE to the user who created it. Admins may read any thread and may never
+/// post into one, so it stays a faithful record of one person's investigation —
+/// there is deliberately no server action that writes a message on someone
+/// else's behalf.
+///
+/// This is the first user-scoped read rule in the schema. Everything else here
+/// is a shared workspace: Estimate.ownerId gates deletion and nothing else.
+model OracleThread {
+  id         String          @id @default(cuid())
+  estimateId String
+  estimate   Estimate        @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Derived from the opening question, not written by a model.
+  title      String
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  messages   OracleMessage[]
+
+  @@index([estimateId, userId])
+}
+
+/// One turn. Assistant turns additionally carry what the answer cost and what
+/// produced it, because the point of recording usage is to find out what Oracle
+/// costs before deciding what to limit — and because a thread an admin reads six
+/// months from now is uninterpretable without knowing which model wrote it.
+model OracleMessage {
+  id       String       @id @default(cuid())
+  threadId String
+  thread   OracleThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role     OracleRole
+  content  String
+
+  /// Verbatim spans this turn quoted, as emitted. Whether a span is still found
+  /// in the corpus is recomputed at render time rather than stamped here: a
+  /// stored verdict would go stale the moment the source was edited, and the
+  /// live check is what distinguishes a fabricated quote from a stale one.
+  citations String[]
+
+  /// sha256 of the estimate's sowText when this turn was written, and the run
+  /// that was current at the time. Estimate.sowHash was dropped in AEH-253 with
+  /// the cache layer that was its only reader, so the hash is computed here.
+  ///
+  /// Together with the live citation check these separate two different
+  /// failures: a quote that is missing while the hash still matches was
+  /// fabricated, and a quote that is missing because the hash moved is merely
+  /// stale. Conflating them would hide the first.
+  sowHash       String
+  estimateRunAt DateTime?
+
+  /// Assistant turns only. The model as SERVED, which is not always the model
+  /// configured — the provider can fall back.
+  modelString      String?
+  promptTokens     Int?
+  completionTokens Int?
+  /// USD, as reported by the provider. Recorded rather than derived: converting
+  /// tokens to money needs a price table that changes underneath old rows.
+  costUsd          Float?
+
+  createdAt DateTime @default(now())
+
+  @@index([threadId, createdAt])
 }
