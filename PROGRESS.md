@@ -75,9 +75,10 @@ master would have put the schema behind the three AEH-244 migrations every
 database already carries.
 
 Implementation is complete and verified: `pnpm -r build` green, `pnpm lint`
-clean, 22 new unit tests passing, field/export audit clean via
-`pnpm --filter @repo/audit run audit` (the root `pnpm run audit` script is
-shadowed by pnpm's own `audit` and prints a vulnerability table instead).
+clean, full `pnpm test` green (56 files, 459 tests, 22 of them new), field and
+export audits clean via `pnpm --filter @repo/audit run audit` (the root
+`pnpm run audit` script is shadowed by pnpm's own `audit` and prints a
+vulnerability table instead).
 
 Migrations applied: local docker dev ✅, local docker test ✅, Neon test ✅,
 **Neon dev/main ❌ — blocked on the restore above.**
