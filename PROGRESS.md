@@ -9,28 +9,79 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## ⚠️ URGENT — Neon dev/main was wiped on 2026-08-31, restore it
 
-**AEH-244 (preset concern split) is CLOSED, DOCUMENTED and COMMITTED.** Two
-commits on `feat/aeh-244-preset-concern-split`: `8a64279` (the split) and
-`21d6eb0` (versioning the retrieval surface and composition rules, plus the
-hardening). The implementation record — what shipped, why, the trap worth
-remembering and the verification actually performed — is in AEH-244's
-description and comment, not here.
+**`ep-polished-credit-atso15cy` (Neon dev/main, `neondb`) has zero rows in every
+table.** The schema is intact and fully current; the data is gone.
 
-Not yet done: the branch is **not merged and not pushed**. That is the only
-outstanding action on this work.
+**Cause — mine, in this session.** I ran, from `packages/db`:
+
+    npx prisma migrate diff --from-migrations prisma/migrations \
+      --to-schema-datamodel prisma/schema.prisma \
+      --shadow-database-url "<packages/db/.env DATABASE_URL>_shadow"
+
+The `_shadow` suffix was appended to a URL already ending in `?sslmode=require`,
+producing `?sslmode=require_shadow` — the same host and the same database, with
+a malformed parameter that was ignored. `migrate diff --from-migrations`
+**resets its shadow database and replays every migration into it**, so dev/main
+was dropped and rebuilt empty. It writes no ledger, which is why
+`_prisma_migrations` is missing and `migrate deploy` now answers P3005.
+
+**When:** between 10:10 and 10:20 UTC (15:10–15:20 PKT) on 2026-08-31.
+**Nothing has been written to dev/main since** — the failed `migrate deploy`
+aborted at P3005 before applying anything, and every command after it was a
+SELECT. A restore to any point before 10:05 UTC loses nothing.
+
+**Recovery — the user's action, in the Neon console:** Branch Restore (Time
+Travel) on the dev/main branch, to **2026-08-31 10:05 UTC / 15:05 PKT or
+earlier**. Neon snapshots the current state before restoring, so it is
+reversible. The history window is finite and plan-dependent, so this is
+time-sensitive.
+
+**After the restore:**
+
+1. The ledger will be back at 23 migrations. Apply AEH-240's with the normal
+   path: `DATABASE_URL=<direct> DIRECT_URL=<direct> pnpm --filter @repo/db exec
+   prisma migrate deploy`.
+2. Verify: expect ~45 presets each with a non-null vector, prompts at v3/v4,
+   plus users and estimates.
+3. **Do not run `pnpm db:seed` against dev/main under any circumstances** — see
+   the AEH-259 note further down. It would overwrite the hand-tuned prompts with
+   their two-sentence v1 bodies, which is the one loss a restore is meant to
+   undo.
+
+**Never again:** do not derive a shadow-database URL by string-appending to a
+real connection string. Point `--shadow-database-url` at a scratch database on
+local docker (`localhost:5433/prisma_shadow`), or skip `migrate diff` entirely —
+applying the migration to local docker first catches drift just as well.
+
+**Unaffected:** local docker `ai_estimation` (21 estimates, 51 presets, 12 users,
+152 prompt versions) and Neon test `ep-wild-heart` (24 estimates, 46 presets)
+are both intact and both carry all 24 migrations. No code was lost.
+
+## Current: AEH-240 — custodian, deadlines, reminders
+
+Branch `feat/aeh-240-custodian-deadlines`, commit `e002b2b`. **Stacked on
+`feat/aeh-244-preset-concern-split`, which is still unmerged** — branching from
+master would have put the schema behind the three AEH-244 migrations every
+database already carries.
+
+Implementation is complete and verified: `pnpm -r build` green, `pnpm lint`
+clean, 22 new unit tests passing, field/export audit clean via
+`pnpm --filter @repo/audit run audit` (the root `pnpm run audit` script is
+shadowed by pnpm's own `audit` and prints a vulnerability table instead).
+
+Migrations applied: local docker dev ✅, local docker test ✅, Neon test ✅,
+**Neon dev/main ❌ — blocked on the restore above.**
+
+Not done: not merged, not pushed. Ticket left In Progress.
 
 ## Databases
 
-All four are at 23 migrations, including the three AEH-244 ones. Verified: zero
-orphaned rows, and on Neon dev/main all 45 presets searchable with a non-null
-vector on every active version.
-
-    local docker  ai_estimation        23 migrations
-    local docker  ai_estimation_test   23 migrations
-    Neon test     (ep-wild-heart)      23 migrations
-    Neon dev/main (ep-polished-credit) 23 migrations
+    local docker  ai_estimation        24 migrations, data intact
+    local docker  ai_estimation_test   24 migrations
+    Neon test     (ep-wild-heart)      24 migrations, data intact
+    Neon dev/main (ep-polished-credit) SCHEMA ONLY, NO LEDGER, NO DATA — restore
 
 ⚠️ Still true from AEH-259: seed Neon dev/main with targeted scripts only, never
 `pnpm db:seed`. It carries hand-tuned prompts at v3 and v4 whose text exists
@@ -39,27 +90,22 @@ two-sentence v1 bodies.
 
 ## Related tickets
 
-**AEH-282** — the e2e suite. Open, and the reason AEH-244's e2e specs were
-migrated but never executed. Re-run `admin-presets.spec.ts` once it is healthy:
-it is the test that proves an admin save does not de-index a preset.
+**AEH-237** — multi-level approval, blocked by AEH-240. Now unblocked: an
+estimate has a named person on it who is not merely its creator.
 
-**AEH-242 / AEH-243** — sections 2 and 3 of the preset rework, both unblocked by
-AEH-244. The anchor now has its own table and id, so AEH-243's costed-work
-question is answerable.
+**AEH-282** — the e2e suite. Open, and the reason AEH-240 shipped with unit
+tests rather than e2e specs. Worth an `admin-presets`-style spec later covering
+"set a deadline, the reminder rows clear".
 
-**AEH-283** — review and fix the Supervisor. Filed, not built; the user is
-handling it separately.
+**AEH-244** — unmerged and unpushed; still the user's outstanding action, and
+now also the parent of this branch.
 
 ## Traps worth keeping
 
 - A schema split turns one atomic row insert into N writes. Wrap every
-  multi-table write in a `$transaction` — a half-written version made presets
-  vanish from search and 404 the editor.
-- Deleting a "why" comment deletes the reason a guard exists. AEH-244 removed a
-  de-indexing guard with its comment when it became unnecessary, then
-  reintroduced the hazard a pass later with nothing left to warn it.
-- `pnpm -r typecheck` stops at the first failing package, which masked eight
-  real errors in `apps/web` for a whole pass. A green partial run is not green.
-
-See the memories `next-build-is-the-only-real-check`, `e2e-suite-notes`,
-`local-dev-env-traps`, `audit-gates-invocation`.
+  multi-table write in a `$transaction` — `setDueAt` does, because a moved
+  deadline that kept its old reminder rows would silence every nudge for the
+  new date.
+- `new Date('2026-02-31')` does not fail. It quietly means 3 March, so a date
+  parsed from a form has to be round-tripped against its own string.
+- Deleting a "why" comment deletes the reason a guard exists.
