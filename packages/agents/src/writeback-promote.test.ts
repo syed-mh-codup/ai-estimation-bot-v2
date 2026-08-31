@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@repo/db';
-import { promoteEstimate, promoteMenuItemsToPresets, PROMOTION_MATCH_THRESHOLD } from './writeback';
+import {
+  presetEmbeddingText,
+  promoteEstimate,
+  promoteMenuItemsToPresets,
+  recordActuals,
+  PROMOTION_MATCH_THRESHOLD,
+} from './writeback';
 import { MenuItemSchema, RoleLineItemSchema, type MenuItem, type RoleLineItem } from '@repo/shared';
 
 /**
@@ -54,6 +60,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: [...createdPresetIds] } } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: [...createdPresetIds] } } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${[...createdPresetIds]}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: [...createdPresetIds] } } });
   await db.preset.deleteMany({ where: { id: { in: [...createdPresetIds] } } });
   await db.estimate.deleteMany({ where: { ownerId: userId } });
@@ -78,6 +87,9 @@ beforeEach(async () => {
   estimateId = est.id;
 
   // An established preset for the card to match against.
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: MATCHED } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: MATCHED } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${MATCHED})`;
   await db.presetVersion.deleteMany({ where: { presetId: MATCHED } });
   await db.preset.upsert({ where: { id: MATCHED }, update: {}, create: { id: MATCHED } });
   await db.presetVersion.create({
@@ -85,34 +97,53 @@ beforeEach(async () => {
       presetId: MATCHED,
       version: 1,
       active: true,
-      category: 'Storefront',
-      name: 'Established checkout preset',
-      description: 'Seeded by the promotion test.',
-      devHours: 58,
-      touchesBackend: true,
-      touchesFrontend: false,
-      platforms: ['shopify'],
-      reqType: 'FEATURE',
-      keywords: ['checkout', 'b2b'],
-      userStoryTags: ['tag'],
-      projectSizeFit: ['Mid-market'],
-      integrationCount: 2,
-      dataVolume: 'HIGH',
-      phase: 'CORE',
-      requires: [],
-      blocks: [],
-      canParallel: true,
-      aiAssist: 'MEDIUM',
-      risk: 'HIGH',
-      spikeNeeded: true,
-      notes: 'established notes',
-      taxonomyKey: 'storefront.checkout',
+      anchor: {
+        create: {
+          category: 'Storefront',
+          reqType: 'FEATURE',
+          devHours: 58,
+          touchesBackend: true,
+          touchesFrontend: false,
+          platforms: ['shopify'],
+          projectSizeFit: ['Mid-market'],
+          integrationCount: 2,
+          dataVolume: 'HIGH',
+          phase: 'CORE',
+          aiAssist: 'MEDIUM',
+          risk: 'HIGH',
+          spikeNeeded: true,
+          taxonomyKey: 'storefront.checkout',
+        },
+      },
+      retrieval: {
+        create: {
+          name: 'Established checkout preset',
+          description: 'Seeded by the promotion test.',
+          keywords: ['checkout', 'b2b'],
+          userStoryTags: ['tag'],
+          notes: 'established notes',
+        },
+      },
+      composition: {
+        create: { requires: [], blocks: [], canParallel: true },
+      },
     },
   });
 });
 
 async function activeVersion(presetId: string) {
-  return db.presetVersion.findFirst({ where: { presetId, active: true } });
+  return db.presetVersion.findFirst({
+    where: { presetId, active: true },
+    include: { anchor: true, retrieval: true },
+  });
+}
+
+async function activeName(presetId: string): Promise<string> {
+  const v = await db.presetVersion.findFirst({
+    where: { presetId, active: true },
+    include: { retrieval: true },
+  });
+  return v?.retrieval?.name ?? '';
 }
 
 describe('promoteMenuItemsToPresets — hybrid target selection', () => {
@@ -129,16 +160,16 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     const v = await activeVersion(MATCHED);
     expect(v?.version).toBe(2);
     // Hours come from THIS estimate, as one figure: 20 + 10 = 30.
-    expect(v?.devHours).toBe(30);
+    expect(v?.anchor?.devHours).toBe(30);
     // Flags reflect what this estimate tagged, and the legacy split is not rewritten.
-    expect(v?.touchesBackend).toBe(true);
-    expect(v?.touchesFrontend).toBe(true);
-    expect(v?.beHours).toBeNull();
-    expect(v?.feHours).toBeNull();
+    expect(v?.anchor?.touchesBackend).toBe(true);
+    expect(v?.anchor?.touchesFrontend).toBe(true);
+    expect(v?.anchor?.beHours).toBeNull();
+    expect(v?.anchor?.feHours).toBeNull();
     // Metadata the estimate has no opinion about is carried forward, not reset.
-    expect(v?.keywords).toEqual(['checkout', 'b2b']);
-    expect(v?.risk).toBe('HIGH');
-    expect(v?.spikeNeeded).toBe(true);
+    expect(v?.retrieval?.keywords).toEqual(['checkout', 'b2b']);
+    expect(v?.anchor?.risk).toBe('HIGH');
+    expect(v?.anchor?.spikeNeeded).toBe(true);
     expect(v?.changeMotivation).toBe('POST_DELIVERY_VALIDATION');
     expect(v?.changeReason).toMatch(/frontend and backend/);
     // v1 is retained, deactivated.
@@ -168,7 +199,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     // The established preset is untouched — still v1, still its own hours.
     const v = await activeVersion(MATCHED);
     expect(v?.version).toBe(1);
-    expect(v?.devHours).toBe(58);
+    expect(v?.anchor?.devHours).toBe(58);
   });
 
   it('mints a new preset when there was no match at all', async () => {
@@ -184,7 +215,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
 
     const v = await activeVersion(result.created[0]!);
     // Card DEV total is 30. The old code stored be=30 + fe=12 = 42.
-    expect(v!.devHours).toBe(30);
+    expect(v!.anchor?.devHours).toBe(30);
   });
 
   it('carries prior flags forward when the estimate tagged nothing', async () => {
@@ -199,9 +230,9 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     await promoteMenuItemsToPresets(db, estimateId, [untagged]);
 
     const v = await activeVersion(MATCHED);
-    expect(v?.devHours).toBe(40);
-    expect(v?.touchesBackend).toBe(true); // preserved from v1, not overwritten
-    expect(v?.touchesFrontend).toBe(false);
+    expect(v?.anchor?.devHours).toBe(40);
+    expect(v?.anchor?.touchesBackend).toBe(true); // preserved from v1, not overwritten
+    expect(v?.anchor?.touchesFrontend).toBe(false);
     expect(v?.changeReason).toMatch(/no side tags/);
   });
 
@@ -266,7 +297,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
     expect(result.promoted).toHaveLength(2);
-    const names = await Promise.all(result.promoted.map(async (id) => (await activeVersion(id))!.name));
+    const names = await Promise.all(result.promoted.map((id) => activeName(id)));
     expect(names.sort()).toEqual(['Data Remediation & Migration', 'Real delivered feature']);
   });
 
@@ -299,9 +330,108 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
     const v = await activeVersion(result.created[0]!);
-    expect(v!.devHours).toBe(50);
-    expect(v!.touchesBackend).toBe(false);
-    expect(v!.touchesFrontend).toBe(false);
+    expect(v!.anchor?.devHours).toBe(50);
+    expect(v!.anchor?.touchesBackend).toBe(false);
+    expect(v!.anchor?.touchesFrontend).toBe(false);
     expect(v!.changeReason).toMatch(/no side tags/);
+  });
+});
+
+/**
+ * AEH-244 put the three concerns in three tables, all keyed one-row-per-version.
+ * That buys real history for a rename or a keyword edit, and it costs two
+ * invariants that used to be free when everything sat in one row:
+ *
+ *   1. Every version has exactly one anchor, one retrieval and one composition
+ *      row. A missing one is not a degraded read — the preset drops out of
+ *      `findNearestPresets` (both joins are inner) and the editor 404s.
+ *   2. A new version's retrieval row carries the previous vector. The embedding
+ *      lives per-version now, so a version bump that leaves it null silently
+ *      removes the preset from Archivist retrieval with no error and nothing to
+ *      notice. That regression has shipped twice on this model; these two cases
+ *      are what stop it shipping a third time.
+ */
+describe('the split concerns stay whole across a version bump', () => {
+  const vec = (hot: number) =>
+    `[${new Array(1536).fill(0).map((_, i) => (i === hot ? 1 : 0)).join(',')}]`;
+
+  /** Seed the active version's retrieval row the way an embedded library row looks. */
+  async function embedActive(presetId: string, hot: number, text: string): Promise<void> {
+    const v = await db.presetVersion.findFirst({
+      where: { presetId, active: true },
+      include: { retrieval: true },
+    });
+    await db.$executeRawUnsafe(
+      `UPDATE "PresetRetrieval" SET embedding = $1::vector, "embeddingText" = $2 WHERE id = $3`,
+      vec(hot),
+      text,
+      v!.retrieval!.id,
+    );
+  }
+
+  async function vectorStateOf(retrievalId: string) {
+    const [row] = await db.$queryRawUnsafe<Array<{ has: boolean; txt: string | null }>>(
+      `SELECT embedding IS NOT NULL AS has, "embeddingText" AS txt FROM "PresetRetrieval" WHERE id = $1`,
+      retrievalId,
+    );
+    return row;
+  }
+
+  it('promotion carries the vector forward and writes exactly one of each concern row', async () => {
+    await embedActive(MATCHED, 7, 'seeded embedding text');
+
+    await promoteMenuItemsToPresets(db, estimateId, [
+      card({ sourcePresetId: MATCHED, matchScore: PROMOTION_MATCH_THRESHOLD + 0.05 }),
+    ]);
+
+    const v2 = await db.presetVersion.findFirst({
+      where: { presetId: MATCHED, active: true },
+      include: { retrieval: true },
+    });
+    expect(v2?.version).toBe(2);
+
+    const state = await vectorStateOf(v2!.retrieval!.id);
+    expect(state?.has).toBe(true);
+    // embeddingText rides along unchanged — carrying a stale vector keeps the
+    // preset findable, and the mismatch is what queues it for re-embedding.
+    expect(state?.txt).toBe('seeded embedding text');
+
+    const versions = await db.presetVersion.findMany({ where: { presetId: MATCHED } });
+    expect(versions).toHaveLength(2);
+    for (const v of versions) {
+      expect(await db.presetAnchor.count({ where: { presetVersionId: v.id } })).toBe(1);
+      expect(await db.presetRetrieval.count({ where: { presetVersionId: v.id } })).toBe(1);
+      expect(await db.presetComposition.count({ where: { presetVersionId: v.id } })).toBe(1);
+    }
+  });
+
+  it('recordActuals carries the vector forward, and new notes leave it deliberately stale', async () => {
+    await embedActive(MATCHED, 9, 'actuals seed text');
+
+    const { version } = await recordActuals(db, {
+      presetId: MATCHED,
+      role: 'DEV',
+      actualHours: 61,
+      notes: 'delivered late',
+    });
+    expect(version).toBe(2);
+
+    const v2 = await db.presetVersion.findFirst({
+      where: { presetId: MATCHED, active: true },
+      include: { anchor: true, retrieval: true, composition: true },
+    });
+    expect(v2?.anchor?.devHours).toBe(61);
+    expect(v2?.retrieval?.notes).toBe('delivered late');
+    // Retrieval and composition are cloned, not dropped.
+    expect(v2?.retrieval?.keywords).toEqual(['checkout', 'b2b']);
+    expect(v2?.composition).not.toBeNull();
+
+    const state = await vectorStateOf(v2!.retrieval!.id);
+    expect(state?.has).toBe(true);
+    expect(state?.txt).toBe('actuals seed text');
+    // The notes changed, so the row's own text no longer matches the carried
+    // vector's source text. That mismatch is the staleness signal the backfill
+    // re-embeds on — the preset stays findable in the meantime.
+    expect(presetEmbeddingText(v2!.retrieval!)).not.toBe(state?.txt);
   });
 });

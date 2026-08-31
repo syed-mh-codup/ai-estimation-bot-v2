@@ -29,33 +29,52 @@ beforeAll(async () => {
     update: {},
     create: { id: PRESET_ID },
   });
-  // Insert a PresetVersion with a known embedding using raw SQL (Unsupported type)
+
+  // PresetVersion (versioning shell) + PresetAnchor (anchor) + PresetRetrieval
+  // (retrieval surface) using raw SQL because PresetRetrieval.embedding is an
+  // Unsupported vector column the typed client cannot write.
+  const versionId = 'VEC_TEST_VERSION';
   await db.$executeRaw`
     INSERT INTO "PresetVersion" (
       id, "presetId", version, active,
-      category, name, description,
-      "devHours",
-      platforms, "reqType", keywords,
-      "userStoryTags", "projectSizeFit",
-      "integrationCount", "dataVolume", phase,
-      requires, blocks, "canParallel",
-      "aiAssist", risk, "spikeNeeded", notes,
-      embedding, "changeMotivation", "createdAt"
+      "changeMotivation", "createdAt"
     ) VALUES (
-      gen_random_uuid(), ${PRESET_ID}, 1, true,
-      'Test', 'Vector Test Preset', 'desc',
-      15,
-      ARRAY[]::text[], 'functional', ARRAY['vector'],
-      ARRAY[]::text[], ARRAY[]::text[],
-      1, 'NONE'::"DataVolume", 'CORE'::"PresetPhase",
-      ARRAY[]::text[], ARRAY[]::text[], false,
-      'LOW'::"Level", 'LOW'::"Level", false, 'test',
-      ${vectorToSql(makeVec(1))}::vector(1536), 'OTHER'::"ChangeMotivation", now()
+      ${versionId}, ${PRESET_ID}, 1, true,
+      'OTHER'::"ChangeMotivation", now()
+    )
+  `;
+  await db.$executeRaw`
+    INSERT INTO "PresetAnchor" (
+      id, "presetVersionId", "devHours",
+      "touchesFrontend", "touchesBackend", "beHours", "feHours",
+      risk, "aiAssist", "dataVolume", "integrationCount",
+      "projectSizeFit", phase, "spikeNeeded",
+      category, "reqType", platforms, "taxonomyKey"
+    ) VALUES (
+      gen_random_uuid(), ${versionId}, 15,
+      false, false, NULL, NULL,
+      'LOW'::"Level", 'LOW'::"Level", 'NONE'::"DataVolume", 1,
+      ARRAY[]::text[], 'CORE'::"PresetPhase", false,
+      'Test', 'functional', ARRAY[]::text[], NULL
+    )
+  `;
+  await db.$executeRaw`
+    INSERT INTO "PresetRetrieval" (
+      id, "presetVersionId", name, description, keywords,
+      "userStoryTags", notes,
+      "embeddingText", embedding, "createdAt", "updatedAt"
+    ) VALUES (
+      gen_random_uuid(), ${versionId}, 'Vector Test Preset', 'desc', ARRAY['vector'],
+      ARRAY[]::text[], 'test',
+      'Vector Test Preset desc vector',
+      ${vectorToSql(makeVec(1))}::vector(1536), now(), now()
     )
   `;
 });
 
 afterAll(async () => {
+  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetVersionId" = 'VEC_TEST_VERSION'`;
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" = 'VEC_TEST_VERSION'`;
   await db.$executeRaw`DELETE FROM "PresetVersion" WHERE "presetId" = ${PRESET_ID}`;
   await db.$executeRaw`DELETE FROM "Preset" WHERE id = ${PRESET_ID}`;
   await db.$disconnect();

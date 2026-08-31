@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound } from 'next/navigation';
-import { prisma } from '@repo/db';
+import { prisma, carryPresetVector } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { inngest, EVENT_EMBED_PRESETS } from '@/lib/inngest';
 import { Button } from '@/components/ui/button';
@@ -35,27 +35,35 @@ async function savePreset(formData: FormData) {
   const active = await prisma.presetVersion.findFirst({
     where: { presetId, active: true },
     orderBy: { version: 'desc' },
+    include: { anchor: true, retrieval: true, composition: true },
   });
   const last = await prisma.presetVersion.findFirst({
     where: { presetId },
     orderBy: { version: 'desc' },
     select: { version: true },
   });
-  if (!active || !last) return;
+  if (!active?.anchor || !active.retrieval || !active.composition || !last) return;
+  const prevAnchor = active.anchor;
+  const prevRetrieval = active.retrieval;
+  const prevComposition = active.composition;
   const nextVersion = last.version + 1;
 
   // Editable fields from the form; fields not exposed in the form are carried
   // forward from the current active version.
   //
-  // The embedding is carried forward too, inside the same transaction. It used
-  // to be left null, which meant every admin edit silently dropped the preset
-  // out of Archivist retrieval — `queryPresetsByVector` filters on
-  // `embedding IS NOT NULL`, so the preset simply stopped ever matching, with
-  // no error and no way back. An interactive transaction (not the array form)
-  // is what closes the window: the new version is never visible without a
-  // vector. The old `embeddingText` rides along unchanged, which is what marks
-  // the vector as stale so the refresh below — or the backfill script — knows
-  // to regenerate it.
+  // All three concern rows are per-version (AEH-244), so a save writes a fresh
+  // anchor, retrieval and composition rather than mutating the old ones — that
+  // is what gives a rename or a keyword edit real history instead of an in-place
+  // overwrite.
+  //
+  // The embedding is carried forward too, inside the same transaction. Left
+  // null, every admin edit would silently drop the preset out of Archivist
+  // retrieval — `findNearestPresets` filters on `embedding IS NOT NULL` for the
+  // *active* version, so the preset simply stops ever matching, with no error.
+  // An interactive transaction (not the array form) is what closes the window:
+  // the new version is never visible without a vector. The old `embeddingText`
+  // rides along unchanged, which is what marks the vector as stale so the
+  // refresh below — or the backfill script — knows to regenerate it.
   await prisma.$transaction(async (tx) => {
     await tx.presetVersion.updateMany({
       where: { presetId, active: true },
@@ -66,48 +74,56 @@ async function savePreset(formData: FormData) {
         presetId,
         version: nextVersion,
         active: true,
-        name: (formData.get('name') as string) ?? active.name,
-        category: (formData.get('category') as string) ?? active.category,
-        description: (formData.get('description') as string) ?? active.description,
-        devHours: num(formData.get('devHours')),
-        touchesFrontend: formData.get('touchesFrontend') === 'on',
-        touchesBackend: formData.get('touchesBackend') === 'on',
-        // Legacy split is never rewritten — the historical values on older
-        // versions stay readable, but new versions record "not tracked".
-        beHours: null,
-        feHours: null,
-        reqType: (formData.get('reqType') as string) ?? active.reqType,
-        platforms: csv(formData.get('platforms')),
-        keywords: csv(formData.get('keywords')),
-        integrationCount: num(formData.get('integrationCount')),
-        dataVolume: oneOf(formData.get('dataVolume'), DATA_VOLUMES, active.dataVolume),
-        phase: oneOf(formData.get('phase'), PHASES, active.phase),
-        aiAssist: oneOf(formData.get('aiAssist'), LEVELS, active.aiAssist),
-        risk: oneOf(formData.get('risk'), LEVELS, active.risk),
-        canParallel: formData.get('canParallel') === 'on',
-        spikeNeeded: formData.get('spikeNeeded') === 'on',
-        notes: (formData.get('notes') as string) ?? active.notes,
-        // Carried forward unchanged:
-        userStoryTags: active.userStoryTags,
-        projectSizeFit: active.projectSizeFit,
-        requires: active.requires,
-        blocks: active.blocks,
-        taxonomyKey: active.taxonomyKey,
         changeReason: (formData.get('changeReason') as string) || 'edited via admin',
       },
       select: { id: true },
     });
 
-    // Raw SQL because Prisma's typed client cannot read or write an
-    // Unsupported("vector") column.
-    await tx.$executeRawUnsafe(
-      `UPDATE "PresetVersion" AS target
-          SET embedding = source.embedding, "embeddingText" = source."embeddingText"
-         FROM "PresetVersion" AS source
-        WHERE target.id = $1 AND source.id = $2`,
-      created.id,
-      active.id,
-    );
+    await tx.presetAnchor.create({
+      data: {
+        presetVersionId: created.id,
+        category: (formData.get('category') as string) ?? prevAnchor.category,
+        devHours: num(formData.get('devHours')),
+        touchesFrontend: formData.get('touchesFrontend') === 'on',
+        touchesBackend: formData.get('touchesBackend') === 'on',
+        beHours: null,
+        feHours: null,
+        reqType: (formData.get('reqType') as string) ?? prevAnchor.reqType,
+        platforms: csv(formData.get('platforms')),
+        integrationCount: num(formData.get('integrationCount')),
+        dataVolume: oneOf(formData.get('dataVolume'), DATA_VOLUMES, prevAnchor.dataVolume),
+        phase: oneOf(formData.get('phase'), PHASES, prevAnchor.phase),
+        aiAssist: oneOf(formData.get('aiAssist'), LEVELS, prevAnchor.aiAssist),
+        risk: oneOf(formData.get('risk'), LEVELS, prevAnchor.risk),
+        spikeNeeded: formData.get('spikeNeeded') === 'on',
+        projectSizeFit: prevAnchor.projectSizeFit,
+        taxonomyKey: prevAnchor.taxonomyKey,
+      },
+    });
+
+    await tx.presetRetrieval.create({
+      data: {
+        presetVersionId: created.id,
+        name: (formData.get('name') as string) ?? prevRetrieval.name,
+        description: (formData.get('description') as string) ?? prevRetrieval.description,
+        keywords: csv(formData.get('keywords')).length
+          ? csv(formData.get('keywords'))
+          : prevRetrieval.keywords,
+        notes: (formData.get('notes') as string) ?? prevRetrieval.notes,
+        userStoryTags: prevRetrieval.userStoryTags,
+      },
+    });
+
+    await carryPresetVector(tx, prevRetrieval.id, created.id);
+
+    await tx.presetComposition.create({
+      data: {
+        presetVersionId: created.id,
+        requires: prevComposition.requires,
+        blocks: prevComposition.blocks,
+        canParallel: formData.get('canParallel') === 'on',
+      },
+    });
   });
 
   revalidatePath(`/admin/presets/${presetId}`);
@@ -120,8 +136,8 @@ async function savePreset(formData: FormData) {
   // serverless without making the admin wait.
   //
   // Best-effort by design: the save has already committed and the preset is
-  // still indexed on its previous vector, so a dead event bus costs freshness,
-  // not availability. `pnpm db:embed:presets` finds exactly these rows.
+  // still indexed on the vector carried above, so a dead event bus costs
+  // freshness, not availability. `pnpm db:embed:presets` finds exactly these rows.
   after(async () => {
     try {
       await inngest.send({ name: EVENT_EMBED_PRESETS, data: { presetIds: [presetId] } });
@@ -131,7 +147,6 @@ async function savePreset(formData: FormData) {
   });
 }
 
-/** Compact "be · fe" summary for the history table. */
 function sidesLabel(be: boolean, fe: boolean): string {
   if (be && fe) return 'be · fe';
   if (be) return 'be';
@@ -173,14 +188,64 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const [preset, versions] = await Promise.all([
     prisma.preset.findUnique({ where: { id }, select: { code: true, origin: true } }),
-    prisma.presetVersion.findMany({ where: { presetId: id }, orderBy: { version: 'desc' } }),
+    prisma.presetVersion.findMany({
+      where: { presetId: id },
+      orderBy: { version: 'desc' },
+      include: { anchor: true, retrieval: true, composition: true },
+    }),
   ]);
   const active = versions.find((v) => v.active) ?? versions[0];
-  if (!active) {
+  if (!active?.anchor || !active.retrieval || !active.composition) {
     notFound();
   }
+
+  const anchor = active.anchor;
+  const retrieval = active.retrieval;
+  const composition = active.composition;
+
+  const activeView = {
+    version: active.version,
+    name: retrieval.name,
+    category: anchor.category,
+    reqType: anchor.reqType,
+    description: retrieval.description,
+    devHours: anchor.devHours,
+    touchesFrontend: anchor.touchesFrontend,
+    touchesBackend: anchor.touchesBackend,
+    risk: anchor.risk,
+    aiAssist: anchor.aiAssist,
+    dataVolume: anchor.dataVolume,
+    phase: anchor.phase,
+    platforms: anchor.platforms,
+    keywords: retrieval.keywords,
+    integrationCount: anchor.integrationCount,
+    spikeNeeded: anchor.spikeNeeded,
+    notes: retrieval.notes,
+    canParallel: composition.canParallel,
+  };
+
   const previous = versions.find((v) => v.version < active.version);
-  const diff = previous ? diffVersions(active as VersionRow, previous as VersionRow) : [];
+  const diff =
+    previous?.anchor && previous.retrieval
+      ? diffVersions(
+          { ...activeView, version: active.version },
+          {
+            version: previous.version,
+            name: previous.retrieval.name,
+            category: previous.anchor.category,
+            reqType: previous.anchor.reqType,
+            devHours: previous.anchor.devHours,
+            touchesFrontend: previous.anchor.touchesFrontend,
+            touchesBackend: previous.anchor.touchesBackend,
+            risk: previous.anchor.risk,
+            aiAssist: previous.anchor.aiAssist,
+            dataVolume: previous.anchor.dataVolume,
+            phase: previous.anchor.phase,
+            platforms: previous.anchor.platforms,
+            keywords: previous.retrieval.keywords,
+          },
+        )
+      : [];
 
   return (
     <div data-testid="admin-preset-editor">
@@ -201,18 +266,18 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
           </span>
         )}
         <Heading level={1} className="min-w-0 break-words">
-          {active.name}
+          {activeView.name}
         </Heading>
         <div className="flex items-center gap-2">
           <Pill tone="green" dot={false} data-testid="preset-active-version" className="num">
-            v{active.version}
+            v{activeView.version}
           </Pill>
           <span className="eyebrow">active version</span>
         </div>
       </div>
       <p className="mt-1.5 text-[13px] text-ink-3">
         Saving creates a new active version. Nothing is overwritten — v
-        <span className="num">{active.version}</span> stays in the history below.
+        <span className="num">{activeView.version}</span> stays in the history below.
       </p>
 
       <form action={savePreset} className="mt-5 max-w-3xl">
@@ -221,45 +286,45 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
         <Card>
           <CardBody className="space-y-4 p-4 sm:p-5">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name" name="name" defaultValue={active.name} />
-              <Field label="Category" name="category" defaultValue={active.category} />
-              <Field label="Req. type" name="reqType" defaultValue={active.reqType} />
+              <Field label="Name" name="name" defaultValue={activeView.name} />
+              <Field label="Category" name="category" defaultValue={activeView.category} />
+              <Field label="Req. type" name="reqType" defaultValue={activeView.reqType} />
               <NumField
                 label="Integration count"
                 name="integrationCount"
-                defaultValue={active.integrationCount}
+                defaultValue={activeView.integrationCount}
               />
-              <NumField label="Dev hours" name="devHours" defaultValue={active.devHours} />
-              <SelectField label="Risk" name="risk" options={LEVELS} defaultValue={active.risk} />
+              <NumField label="Dev hours" name="devHours" defaultValue={activeView.devHours} />
+              <SelectField label="Risk" name="risk" options={LEVELS} defaultValue={activeView.risk} />
               <SelectField
                 label="AI assist"
                 name="aiAssist"
                 options={LEVELS}
-                defaultValue={active.aiAssist}
+                defaultValue={activeView.aiAssist}
               />
               <SelectField
                 label="Data volume"
                 name="dataVolume"
                 options={DATA_VOLUMES}
-                defaultValue={active.dataVolume}
+                defaultValue={activeView.dataVolume}
               />
               <SelectField
                 label="Phase"
                 name="phase"
                 options={PHASES}
-                defaultValue={active.phase}
+                defaultValue={activeView.phase}
               />
             </div>
 
             <Field
               label="Platforms (comma-separated)"
               name="platforms"
-              defaultValue={active.platforms.join(', ')}
+              defaultValue={activeView.platforms.join(', ')}
             />
             <Field
               label="Keywords (comma-separated)"
               name="keywords"
-              defaultValue={active.keywords.join(', ')}
+              defaultValue={activeView.keywords.join(', ')}
             />
 
             <div>
@@ -268,7 +333,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                 id="description"
                 name="description"
                 rows={3}
-                defaultValue={active.description}
+                defaultValue={activeView.description}
                 className="font-mono text-[12.5px] leading-relaxed"
               />
             </div>
@@ -279,13 +344,11 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                 id="notes"
                 name="notes"
                 rows={2}
-                defaultValue={active.notes}
+                defaultValue={activeView.notes}
                 className="font-mono text-[12.5px] leading-relaxed"
               />
             </div>
 
-            {/* Reference metadata: these say what the preset's dev work covers.
-                They never divide `devHours` — estimating is full-stack now. */}
             <div className="border-t border-line-soft pt-4">
               <Eyebrow>Stack coverage</Eyebrow>
               <p className="mt-1 text-[11.5px] text-ink-4">
@@ -296,7 +359,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                   <input
                     type="checkbox"
                     name="touchesBackend"
-                    defaultChecked={active.touchesBackend}
+                    defaultChecked={activeView.touchesBackend}
                     className="h-3.5 w-3.5 accent-[var(--color-green)]"
                     data-testid="preset-touches-backend"
                   />
@@ -306,7 +369,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                   <input
                     type="checkbox"
                     name="touchesFrontend"
-                    defaultChecked={active.touchesFrontend}
+                    defaultChecked={activeView.touchesFrontend}
                     className="h-3.5 w-3.5 accent-[var(--color-green)]"
                     data-testid="preset-touches-frontend"
                   />
@@ -320,7 +383,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                 <input
                   type="checkbox"
                   name="canParallel"
-                  defaultChecked={active.canParallel}
+                  defaultChecked={activeView.canParallel}
                   className="h-3.5 w-3.5 accent-[var(--color-green)]"
                 />
                 Can parallel
@@ -329,7 +392,7 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                 <input
                   type="checkbox"
                   name="spikeNeeded"
-                  defaultChecked={active.spikeNeeded}
+                  defaultChecked={activeView.spikeNeeded}
                   className="h-3.5 w-3.5 accent-[var(--color-green)]"
                 />
                 Spike needed
@@ -407,9 +470,9 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
                   >
                     <td className="num px-4 py-2.5 whitespace-nowrap text-ink">v{v.version}</td>
                     <td className="num px-4 py-2.5 text-right whitespace-nowrap text-ink-2">
-                      {v.devHours}h
+                      {v.anchor?.devHours ?? 0}h
                       <span className="ml-1.5 text-[10.5px] text-ink-4">
-                        {sidesLabel(v.touchesBackend, v.touchesFrontend)}
+                        {sidesLabel(v.anchor?.touchesBackend ?? false, v.anchor?.touchesFrontend ?? false)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5">

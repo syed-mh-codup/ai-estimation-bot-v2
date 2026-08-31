@@ -12,7 +12,8 @@ import {
   type EmbedPresetsEventData,
   type PromoteEventData,
 } from '@/lib/inngest';
-import { sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
+import { sendDueReminderEmail, sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
+import { sweepDueReminders } from '@/lib/reminders';
 
 
 /**
@@ -256,9 +257,40 @@ const promoteFn = inngest.createFunction(
   },
 );
 
+/**
+ * The daily "what's due" sweep — the first cron function in this app; every
+ * other one here is event-triggered.
+ *
+ * Runs at 09:00 Pakistan time so a nudge lands at the start of the working day
+ * rather than overnight. The TZ prefix matters: without it Inngest reads the
+ * expression as UTC and the mail arrives at 2pm local, which is the wrong half
+ * of the day for "this is due today".
+ *
+ * One step, not one per estimate. The sweep is bounded (SWEEP_LIMIT) and each
+ * iteration is a mail send plus a small write, so it fits inside the 300s a
+ * single step gets; making each estimate its own step would buy nothing, since
+ * the EstimateReminder rows already make a retry of the whole thing safe.
+ *
+ * `retries: 1` rather than 0 because the sweep is genuinely idempotent, and
+ * rather than 2+ because a missed day is recovered by tomorrow's run anyway.
+ */
+const dueRemindersFn = inngest.createFunction(
+  {
+    id: 'estimate-due-reminders',
+    name: 'Send estimate deadline reminders',
+    retries: 1,
+    triggers: [{ cron: 'TZ=Asia/Karachi 0 9 * * *' }],
+  },
+  async ({ step }) =>
+    step.run('sweep-due-reminders', () =>
+      sweepDueReminders(prisma, new Date(), sendDueReminderEmail),
+    ),
+);
+
 export const inngestFunctions: InngestFunction.Any[] = [
   runEstimateFn,
   ingestFn,
   embedPresetsFn,
   promoteFn,
+  dueRemindersFn,
 ];

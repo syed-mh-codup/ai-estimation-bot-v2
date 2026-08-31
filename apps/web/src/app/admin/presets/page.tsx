@@ -6,7 +6,12 @@ import { Pill } from '@/components/ui/pill';
 
 export default async function PresetsAdminPage() {
   const rows = await prisma.preset.findMany({
-    include: { versions: { orderBy: { version: 'desc' } } },
+    include: {
+      versions: {
+        orderBy: { version: 'desc' },
+        include: { anchor: true, retrieval: true },
+      },
+    },
   });
 
   // Sorted here, not in SQL: codes are free-flowing so a lexical sort puts P100
@@ -85,13 +90,13 @@ export default async function PresetsAdminPage() {
                           className="font-semibold text-ink hover:text-green hover:underline"
                           data-testid={`preset-link-${p.id}`}
                         >
-                          {active?.name ?? '(no version)'}
+                          {active?.retrieval?.name ?? '(no version)'}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-ink-2">{active?.category ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-ink-2">{active?.reqType ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-ink-2">{active?.anchor?.category ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-ink-2">{active?.anchor?.reqType ?? '—'}</td>
                       <td className="num px-4 py-2.5 text-right whitespace-nowrap text-ink-2">
-                        {active ? `${active.devHours}h` : '—'}
+                        {active?.anchor ? `${active.anchor.devHours}h` : '—'}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {active ? (

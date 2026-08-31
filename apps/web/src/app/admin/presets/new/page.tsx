@@ -66,19 +66,23 @@ async function createPreset(_state: NewPresetState, formData: FormData): Promise
         data: { code: await allocatePresetCode(tx), origin: 'MANUAL' },
         select: { id: true },
       });
-      await tx.presetVersion.create({
+      const version = await tx.presetVersion.create({
         data: {
           presetId: preset.id,
           version: 1,
           active: true,
-          name,
+          changeReason: 'created via admin',
+        },
+        select: { id: true },
+      });
+      await tx.presetAnchor.create({
+        data: {
+          presetVersionId: version.id,
           category,
           reqType,
-          description,
           devHours: num(formData.get('devHours')),
           touchesBackend: formData.get('touchesBackend') === 'on',
           touchesFrontend: formData.get('touchesFrontend') === 'on',
-          keywords,
           platforms: csv(formData.get('platforms')),
           integrationCount: num(formData.get('integrationCount')),
           dataVolume: oneOf(formData.get('dataVolume'), DATA_VOLUMES, 'LOW'),
@@ -86,14 +90,26 @@ async function createPreset(_state: NewPresetState, formData: FormData): Promise
           risk: oneOf(formData.get('risk'), LEVELS, 'LOW'),
           // Defaulted, editable straight afterwards.
           aiAssist: 'LOW',
-          userStoryTags: [],
           projectSizeFit: [],
+          spikeNeeded: false,
+        },
+      });
+      await tx.presetRetrieval.create({
+        data: {
+          presetVersionId: version.id,
+          name,
+          description,
+          keywords,
+          userStoryTags: [],
+          notes: '',
+        },
+      });
+      await tx.presetComposition.create({
+        data: {
+          presetVersionId: version.id,
           requires: [],
           blocks: [],
           canParallel: true,
-          spikeNeeded: false,
-          notes: '',
-          changeReason: 'created via admin',
         },
       });
       return preset;

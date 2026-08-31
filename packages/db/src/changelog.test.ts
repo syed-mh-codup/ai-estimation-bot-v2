@@ -16,16 +16,30 @@ beforeAll(async () => {
 
   // Preset version
   await db.preset.upsert({ where: { id: CL_PRESET_ID }, update: {}, create: { id: CL_PRESET_ID } });
-  await db.presetVersion.create({
+  const clVersion = await db.presetVersion.create({
     data: {
       presetId: CL_PRESET_ID, version: 1, active: false,
-      category: 'Test', name: 'CL Test', description: 'cl test',
-      devHours: 2, touchesBackend: true, touchesFrontend: true, platforms: [], reqType: 'test', keywords: [],
-      userStoryTags: [], projectSizeFit: [], integrationCount: 0,
-      dataVolume: 'NONE', phase: 'CORE', requires: [], blocks: [],
-      canParallel: false, aiAssist: 'LOW', risk: 'LOW', spikeNeeded: false,
-      notes: 'cl test', changeReason: 'cl test', changeMotivation: 'OTHER',
+      changeReason: 'cl test', changeMotivation: 'OTHER',
     },
+  });
+  await db.presetAnchor.create({
+    data: {
+      presetVersionId: clVersion.id,
+      category: 'Test', reqType: 'test', devHours: 2,
+      touchesBackend: true, touchesFrontend: true,
+      platforms: [], projectSizeFit: [],
+      integrationCount: 0, dataVolume: 'NONE', phase: 'CORE',
+      aiAssist: 'LOW', risk: 'LOW', spikeNeeded: false,
+    },
+  });
+  await db.presetRetrieval.create({
+    data: {
+      presetVersionId: clVersion.id, name: 'CL Test', description: 'cl test',
+      keywords: [], userStoryTags: [], notes: 'cl test',
+    },
+  });
+  await db.presetComposition.create({
+    data: { presetVersionId: clVersion.id, requires: [], blocks: [], canParallel: false },
   });
 
   // Taxonomy version
@@ -51,6 +65,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID})`;
+  await db.$executeRaw`DELETE FROM "PresetComposition" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID})`;
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID})`;
   await db.$executeRaw`DELETE FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID}`;
   await db.$executeRaw`DELETE FROM "Preset" WHERE id = ${CL_PRESET_ID}`;
   await db.$executeRaw`DELETE FROM "TaxonomyNodeVersion" WHERE "nodeKey" = ${CL_NODE_KEY}`;

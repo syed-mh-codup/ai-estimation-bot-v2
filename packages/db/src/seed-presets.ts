@@ -155,17 +155,71 @@ async function main() {
         update: {},
         create: { id, code: id, origin: 'SEEDED' },
       });
-      await prisma.presetVersion.upsert({
+
+      // The row is split across three concern tables now (AEH-244), all keyed to
+      // the version shell: anchor (estimate fields), retrieval (name/description/
+      // keywords/notes/userStoryTags) and composition (requires/blocks/canParallel).
+      const version = await prisma.presetVersion.upsert({
         where: { presetId_version: { presetId: preset.id, version: 1 } },
-        update: { ...data, active: true },
+        update: { active: true },
         create: {
           presetId: preset.id,
           version: 1,
           active: true,
-          ...data,
           changeReason: 'xlsx import v2',
         },
       });
+
+      const anchorData = {
+        presetVersionId: version.id,
+        category: data.category,
+        devHours: data.devHours,
+        touchesFrontend: data.touchesFrontend,
+        touchesBackend: data.touchesBackend,
+        beHours: data.beHours,
+        feHours: data.feHours,
+        platforms: data.platforms,
+        reqType: data.reqType,
+        projectSizeFit: data.projectSizeFit,
+        integrationCount: data.integrationCount,
+        dataVolume: data.dataVolume,
+        phase: data.phase,
+        aiAssist: data.aiAssist,
+        risk: data.risk,
+        spikeNeeded: data.spikeNeeded,
+      };
+      await prisma.presetAnchor.upsert({
+        where: { presetVersionId: version.id },
+        update: anchorData,
+        create: anchorData,
+      });
+
+      const retrievalData = {
+        presetVersionId: version.id,
+        name: data.name,
+        description: data.description,
+        keywords: data.keywords,
+        userStoryTags: data.userStoryTags,
+        notes: data.notes,
+      };
+      await prisma.presetRetrieval.upsert({
+        where: { presetVersionId: version.id },
+        update: retrievalData,
+        create: retrievalData,
+      });
+
+      const compositionData = {
+        presetVersionId: version.id,
+        requires: data.requires,
+        blocks: data.blocks,
+        canParallel: data.canParallel,
+      };
+      await prisma.presetComposition.upsert({
+        where: { presetVersionId: version.id },
+        update: compositionData,
+        create: compositionData,
+      });
+
       count += 1;
     }
     // Keep allocated codes clear of anything the spreadsheet just introduced.

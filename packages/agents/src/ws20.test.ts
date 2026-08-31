@@ -54,6 +54,9 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up promoted presets
   for (const id of promotedPresetIds) {
+    await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: id } } });
+    await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: id } } });
+    await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${id})`;
     await db.presetVersion.deleteMany({ where: { presetId: id } });
     await db.preset.deleteMany({ where: { id } });
   }
@@ -128,13 +131,16 @@ describe('WS20-02: Embeddings stored for promoted presets', () => {
 
     // Verify embedding was stored
     for (const presetId of promotedPresetIds) {
-      const pv = await db.presetVersion.findFirst({ where: { presetId, active: true } });
-      expect(pv).toBeDefined();
+      const pv = await db.presetVersion.findFirst({
+        where: { presetId, active: true },
+        include: { retrieval: true },
+      });
+      expect(pv?.retrieval).toBeDefined();
       // embedding is stored via raw SQL, not accessible via Prisma model
       // Verify by running a raw query
       const rows = await db.$queryRawUnsafe<Array<{ has_embedding: boolean }>>(
-        `SELECT embedding IS NOT NULL AS has_embedding FROM "PresetVersion" WHERE id = $1`,
-        pv!.id,
+        `SELECT r.embedding IS NOT NULL AS has_embedding FROM "PresetRetrieval" r WHERE r.id = $1`,
+        pv!.retrieval!.id,
       );
       expect(rows[0]?.has_embedding).toBe(true);
     }

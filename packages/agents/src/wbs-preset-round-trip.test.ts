@@ -147,6 +147,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const ids = [...mintedPresetIds, ANCHOR_PRESET];
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: ids } } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: ids } } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ids}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: ids } } });
   await db.preset.deleteMany({ where: { id: { in: ids } } });
   await db.estimate.deleteMany({ where: { ownerId: userId } });
@@ -161,6 +164,9 @@ beforeEach(async () => {
   // Clear presets this file has written, so a preset promoted by an earlier case
   // can't sit in the index competing with the one under test.
   const ids = [...mintedPresetIds, ANCHOR_PRESET];
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: ids } } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: ids } } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ids}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: ids } } });
   await db.preset.deleteMany({ where: { id: { in: ids } } });
   mintedPresetIds.clear();
@@ -242,28 +248,34 @@ describe('WBS ⇄ preset library round trip', () => {
         presetId: ANCHOR_PRESET,
         version: 1,
         active: true,
-        category: 'B2B',
-        name: 'Established B2B checkout',
-        description: 'Seeded by the round-trip guard.',
-        devHours: 58,
-        touchesBackend: true,
-        touchesFrontend: false,
-        platforms: ['shopify'],
-        reqType: 'FEATURE',
-        keywords: ['checkout', 'b2b'],
-        userStoryTags: [],
-        projectSizeFit: ['Mid-market'],
-        integrationCount: 2,
-        dataVolume: 'HIGH',
-        phase: 'CORE',
-        requires: [],
-        blocks: [],
-        canParallel: true,
-        aiAssist: 'MEDIUM',
-        risk: 'HIGH',
-        spikeNeeded: true,
-        notes: '',
-        taxonomyKey: 'b2b.checkout',
+        anchor: {
+          create: {
+            category: 'B2B',
+            reqType: 'FEATURE',
+            devHours: 58,
+            touchesBackend: true,
+            touchesFrontend: false,
+            platforms: ['shopify'],
+            projectSizeFit: ['Mid-market'],
+            integrationCount: 2,
+            dataVolume: 'HIGH',
+            phase: 'CORE',
+            aiAssist: 'MEDIUM',
+            risk: 'HIGH',
+            spikeNeeded: true,
+            taxonomyKey: 'b2b.checkout',
+          },
+        },
+        retrieval: {
+          create: {
+            name: 'Established B2B checkout',
+            description: 'Seeded by the round-trip guard.',
+            keywords: ['checkout', 'b2b'],
+            userStoryTags: [],
+            notes: '',
+          },
+        },
+        composition: { create: { requires: [], blocks: [], canParallel: true } },
       },
     });
 
@@ -289,8 +301,8 @@ describe('WBS ⇄ preset library round trip', () => {
 
     const v1 = await db.presetVersion.findFirst({
       where: { presetId: ANCHOR_PRESET, version: 1 },
-      select: { active: true, devHours: true },
+      select: { active: true, anchor: { select: { devHours: true } } },
     });
-    expect(v1).toMatchObject({ active: false, devHours: 58 });
+    expect(v1).toMatchObject({ active: false, anchor: { devHours: 58 } });
   });
 });

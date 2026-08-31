@@ -201,7 +201,11 @@ async function main() {
   try {
     const presets = await prisma.presetVersion.findMany({
       where: { active: true },
-      select: { id: true, category: true, reqType: true, keywords: true },
+      select: {
+        id: true,
+        anchor: { select: { category: true, reqType: true } },
+        retrieval: { select: { keywords: true } },
+      },
     });
 
     // Aggregate keywords per category and per (category, reqType).
@@ -213,22 +217,33 @@ async function main() {
     const presetKeyById = new Map<string, string>();
 
     for (const p of presets) {
-      const catKey = slug(p.category);
-      const childKey = `${catKey}.${slug(p.reqType)}`;
+      const category = p.anchor?.category ?? '';
+      const reqType = p.anchor?.reqType ?? '';
+      const keywords = p.retrieval?.keywords ?? [];
+      // Log rather than silently skip: a preset whose anchor lacks category or
+      // reqType is a data defect, and dropping it from taxonomy generation should
+      // be visible, not invisible.
+      if (!category || !reqType) {
+        console.warn(`[seed-taxonomy] skipping version ${p.id}: missing category or reqType`);
+        continue;
+      }
+
+      const catKey = slug(category);
+      const childKey = `${catKey}.${slug(reqType)}`;
       presetKeyById.set(p.id, childKey);
 
       if (!categories.has(catKey)) {
-        categories.set(catKey, { label: p.category, keywords: new Set() });
+        categories.set(catKey, { label: category, keywords: new Set() });
       }
       if (!children.has(childKey)) {
         children.set(childKey, {
-          label: `${p.category} — ${p.reqType}`,
+          label: `${category} — ${reqType}`,
           parentKey: catKey,
-          reqType: p.reqType,
+          reqType,
           keywords: new Set(),
         });
       }
-      for (const kw of p.keywords) {
+      for (const kw of keywords) {
         categories.get(catKey)!.keywords.add(kw);
         children.get(childKey)!.keywords.add(kw);
       }
@@ -241,9 +256,10 @@ async function main() {
       await upsertNode(prisma, key, c.label, c.parentKey, c.reqType, [...c.keywords].slice(0, 30));
     }
 
-    // Link each preset to its (category, reqType) node.
-    for (const [id, key] of presetKeyById) {
-      await prisma.presetVersion.update({ where: { id }, data: { taxonomyKey: key } });
+    // Link each preset to its (category, reqType) node. taxonomyKey now lives
+    // on the anchor, keyed by the version id it belongs to.
+    for (const [versionId, key] of presetKeyById) {
+      await prisma.presetAnchor.update({ where: { presetVersionId: versionId }, data: { taxonomyKey: key } });
     }
 
     // Hand-authored branches. Ordered parents-first purely for readability —

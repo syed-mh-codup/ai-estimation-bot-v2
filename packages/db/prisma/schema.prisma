@@ -78,6 +78,18 @@ enum EstimateStatus {
   FINALISED
 }
 
+/// Which beat of the deadline sequence a reminder was. Three beats, deliberately:
+/// a heads-up, the day itself, and the miss. One EstimateReminder row per
+/// (estimate, kind) is what stops a retried sweep from nagging twice.
+enum ReminderKind {
+  /// Three days out or fewer, and not yet the due day.
+  DUE_SOON
+  /// The due date is today.
+  DUE_TODAY
+  /// The due date has passed.
+  OVERDUE
+}
+
 enum RunStatus {
   IDLE
   RUNNING
@@ -138,12 +150,12 @@ enum PresetOrigin {
 // ─── Identity & Access ────────────────────────────────────────────────────────
 
 model User {
-  id                String     @id @default(cuid())
-  email             String     @unique
+  id                String         @id @default(cuid())
+  email             String         @unique
   hash              String
   name              String?
-  role              Role       @default(ESTIMATOR)
-  createdAt         DateTime   @default(now())
+  role              Role           @default(ESTIMATOR)
+  createdAt         DateTime       @default(now())
   /// When set, this account can no longer sign in AND its live sessions stop
   /// working. Blocking `authorize()` alone would only stop NEW logins — with
   /// `session: { strategy: 'jwt' }` there is no session table to revoke, so an
@@ -158,7 +170,10 @@ model User {
   /// rejected by the same DB-backed jwt callback. Without it, changing a
   /// password does not sign other devices out.
   passwordChangedAt DateTime?
-  estimates         Estimate[]
+  estimates         Estimate[]     @relation("EstimateOwner")
+  /// Estimates this user is answerable for, which is not the same set as the
+  /// ones they created. See Estimate.custodianId.
+  custodianOf       Estimate[]     @relation("EstimateCustodian")
   oracleThreads     OracleThread[]
 }
 
@@ -238,51 +253,17 @@ model PresetVersion {
   version  Int
   active   Boolean @default(false)
 
-  category         String
-  name             String
-  description      String
-  /// The preset's dev effort as ONE number. Frontend and backend are estimated
-  /// together because delivery is full-stack — the split used to exist to
-  /// allocate work across separate FE/BE resources, and that need is gone.
-  devHours         Int
-  /// Which sides of the stack this preset's work covers. Reference only: they
-  /// describe `devHours`, they never divide it.
-  touchesFrontend  Boolean     @default(false)
-  touchesBackend   Boolean     @default(false)
-  /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
-  /// in `docs/Estimate Presets (ISM).xlsx`, retained because the decision to
-  /// estimate as one figure may be revisited and this data can't be recovered.
-  /// NULL on every version created after consolidation — meaning "not tracked",
-  /// which is why these are nullable rather than 0.
-  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited. Surfacing it would invite anchoring on a split the estimator no longer produces.
-  beHours          Int?
-  /// The frontend half of the same archived split; see beHours above.
-  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited. Surfacing it would invite anchoring on a split the estimator no longer produces.
-  feHours          Int?
-  platforms        String[]
-  reqType          String
-  keywords         String[]
-  userStoryTags    String[]
-  projectSizeFit   String[]
-  integrationCount Int
-  dataVolume       DataVolume
-  phase            PresetPhase
-  requires         String[]
-  blocks           String[]
-  canParallel      Boolean
-  aiAssist         Level
-  risk             Level
-  spikeNeeded      Boolean
-  notes            String
-
-  taxonomyKey   String?
-  /// pgvector embedding for Archivist similarity search
-  embedding     Unsupported("vector(1536)")?
-  /// The exact text `embedding` was generated from. Present so staleness is
-  /// decidable: an admin edit carries the old vector forward (never
-  /// de-indexing the preset) and the backfill re-embeds any row whose current
-  /// text no longer matches this. Null means "never embedded".
-  embeddingText String?
+  /// The estimate anchor — one per version, carrying the hours, side flags and
+  /// comparison signals a preset contributes to an estimate. AEH-244 split this
+  /// out so the anchor can become a first-class costed-work record (AEH-243).
+  anchor      PresetAnchor?
+  /// The retrieval surface — one per version, self-contained: it holds every
+  /// field the embedding is built from, so computing a row's own vector never
+  /// requires a join to a sibling table.
+  retrieval   PresetRetrieval?
+  /// The composition rules — one per version, so requires/blocks/canParallel
+  /// keep their own history exactly like the anchor and retrieval do.
+  composition PresetComposition?
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -297,6 +278,93 @@ model PresetVersion {
   sourceMenuItemId String?
 
   @@unique([presetId, version])
+}
+
+/// What makes a preset findable — the retrieval surface for Archivist similarity
+/// search. One row per version, mirroring the anchor's lifecycle, so a rename or
+/// keyword edit is a new version with a real history rather than an in-place
+/// overwrite. AEH-244.
+///
+/// Self-contained by construction: name, description, keywords, userStoryTags and
+/// notes are the five fields `presetEmbeddingText` concatenates, and they all live
+/// here — a retrieval row's embedding text is computable from the row alone.
+model PresetRetrieval {
+  id              String                       @id @default(cuid())
+  presetVersionId String                       @unique
+  presetVersion   PresetVersion                @relation(fields: [presetVersionId], references: [id])
+  name            String
+  description     String
+  keywords        String[]
+  /// B2B buyer | Dev ops | Marketing editor — feeds the embedding text.
+  userStoryTags   String[]
+  /// Key assumption; if violated -> change request. Also feeds the embedding
+  /// text, because it carries retrieval-relevant meaning about what the preset
+  /// actually assumes and excludes ("P21 order history API must be available").
+  notes           String
+  /// The exact text `embedding` was generated from. Present so staleness is
+  /// decidable: an admin edit carries the old vector forward (never de-indexing
+  /// the preset) and the backfill re-embeds any row whose current text no longer
+  /// matches this. Null means "never embedded".
+  embeddingText   String?
+  /// pgvector embedding for Archivist similarity search
+  embedding       Unsupported("vector(1536)")?
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+}
+
+/// The estimate anchor — what a preset contributes to an estimate. One row per
+/// version because the anchor changes with each version: a v2 may have different
+/// hours or risk. Its own table and own ID so AEH-243 can decide whether this IS
+/// the costed-work type or whether a separate CostedWork record references it.
+/// AEH-244.
+model PresetAnchor {
+  id               String        @id @default(cuid())
+  presetVersionId  String        @unique
+  presetVersion    PresetVersion @relation(fields: [presetVersionId], references: [id])
+  /// The preset's dev effort as ONE number. Frontend and backend are estimated
+  /// together because delivery is full-stack — the split used to exist to
+  /// allocate work across separate FE/BE resources, and that need is gone.
+  devHours         Int
+  /// Which sides of the stack this preset's work covers. Reference only: they
+  /// describe `devHours`, they never divide it.
+  touchesFrontend  Boolean       @default(false)
+  touchesBackend   Boolean       @default(false)
+  /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
+  /// in the xlsx, retained because the decision to estimate as one figure may be
+  /// revisited and this data can't be recovered. NULL means "not tracked".
+  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited.
+  beHours          Int?
+  /// The frontend half of the same archived split; see beHours above.
+  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited.
+  feHours          Int?
+  risk             Level
+  aiAssist         Level
+  dataVolume       DataVolume
+  integrationCount Int
+  projectSizeFit   String[]
+  phase            PresetPhase
+  spikeNeeded      Boolean
+  category         String
+  reqType          String
+  platforms        String[]
+  taxonomyKey      String?
+}
+
+/// How a preset relates to other modules — composition rules. One row per
+/// version, so requires/blocks/canParallel keep their own history. AEH-244;
+/// AEH-242 will likely turn requires/blocks into proper FK references.
+model PresetComposition {
+  id              String        @id @default(cuid())
+  presetVersionId String        @unique
+  presetVersion   PresetVersion @relation(fields: [presetVersionId], references: [id])
+  /// Preset codes this one must precede (e.g. ["P17"]). No FK — AEH-242 will
+  /// add referential integrity.
+  requires        String[]
+  /// Preset codes this one blocks (e.g. ["P18"]). No FK — same as requires.
+  blocks          String[]
+  canParallel     Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────
@@ -363,24 +431,49 @@ model McpConnector {
 // ─── Estimates ────────────────────────────────────────────────────────────────
 
 model Estimate {
-  id                     String              @id @default(cuid())
-  title                  String
-  sowText                String
-  status                 EstimateStatus      @default(DRAFT)
-  complexityScore        Int?
-  configVersion          Int
-  narrative              String[]
-  assumptions            String[]
-  agentState             Json
-  ownerId                String
-  owner                  User                @relation(fields: [ownerId], references: [id])
-  sections               EstimateSection[]
-  menuItems              MenuItem[]
-  uploadedFiles          UploadedFile[]
-  hiddenWork             HiddenWorkFinding[]
-  oracleThreads          OracleThread[]
-  sheetUrl               String?
-  createdAt              DateTime            @default(now())
+  id              String              @id @default(cuid())
+  title           String
+  sowText         String
+  status          EstimateStatus      @default(DRAFT)
+  complexityScore Int?
+  configVersion   Int
+  narrative       String[]
+  assumptions     String[]
+  agentState      Json
+  ownerId         String
+  owner           User                @relation("EstimateOwner", fields: [ownerId], references: [id])
+  /// Who is answerable for moving this estimate along — as opposed to whoever
+  /// happened to create it, which is all `ownerId` has ever meant.
+  ///
+  /// A second column rather than a reinterpretation of the first, because the
+  /// two are different acts: reassigning ownership is what you do when someone
+  /// leaves (admin/users, in bulk), handing over custody is what you do when
+  /// someone goes on leave for a fortnight. Only custody moves the reminders.
+  ///
+  /// Null means nobody has taken it on, and reminders fall back to the owner —
+  /// a deadline with no custodian must still reach a person.
+  custodianId     String?
+  custodian       User?               @relation("EstimateCustodian", fields: [custodianId], references: [id], onDelete: SetNull)
+  /// When this estimate is due, stored as midnight UTC of the chosen date.
+  ///
+  /// A date, not an instant: nobody sets an estimate deadline to 4:30pm. The
+  /// canonical-midnight convention is what lets the sweep do integer day
+  /// arithmetic (lib/reminders.ts) instead of guessing at timezones, and it is
+  /// why every render of this column formats in UTC — in a negative-offset
+  /// browser, local formatting would show the day before the one that was
+  /// picked.
+  ///
+  /// Null means no deadline, which is the only state in which no reminder is
+  /// ever sent.
+  dueAt           DateTime?
+  reminders       EstimateReminder[]
+  sections        EstimateSection[]
+  menuItems       MenuItem[]
+  uploadedFiles   UploadedFile[]
+  hiddenWork      HiddenWorkFinding[]
+  oracleThreads   OracleThread[]
+  sheetUrl        String?
+  createdAt       DateTime            @default(now())
 
   // ── Run progress (background job + reload-safe polling) ──────────────────────
   runStatus     RunStatus @default(IDLE)
@@ -395,6 +488,34 @@ model Estimate {
   ingestStage  String?
   ingestPct    Int       @default(0)
   ingestError  String?
+}
+
+/// One deadline reminder already sent for one estimate.
+///
+/// A table rather than a flag on Estimate, because the sweep runs inside a
+/// retriable Inngest step: "have we already nagged about this deadline" has to
+/// be a fact the database enforces, not something the step hopes it finished
+/// writing before it died. The unique key is the whole mechanism.
+///
+/// Rows are deleted when `dueAt` changes (actions.ts setDueAt, in the same
+/// transaction as the change). A moved deadline is a new deadline, and none of
+/// its reminders have been sent yet.
+model EstimateReminder {
+  id         String       @id @default(cuid())
+  estimateId String
+  estimate   Estimate     @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  kind       ReminderKind
+  /// The address it actually went to, so "why didn't I get one" is answerable
+  /// without reconstructing who held custody at the time.
+  sentTo     String
+  /// False when SMTP is unconfigured or the send failed. The row is written
+  /// either way: retrying a failed send forever would mail somebody three times
+  /// the moment SMTP came back, and a missing nudge is visible in the rail.
+  delivered  Boolean      @default(false)
+  sentAt     DateTime     @default(now())
+
+  @@unique([estimateId, kind])
+  @@index([estimateId])
 }
 
 // User-editable grouping of menu items on an estimate. Purely presentational

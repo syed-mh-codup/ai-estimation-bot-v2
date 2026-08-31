@@ -105,34 +105,46 @@ async function main(): Promise<void> {
 
 /** Same classification the backfill uses, without spending anything. */
 async function report(db: PrismaClient, presetIds: string[], force: boolean): Promise<void> {
-  const rows = await db.presetVersion.findMany({
-    where: { active: true, ...(presetIds.length ? { presetId: { in: presetIds } } : {}) },
+  const rows = await db.presetRetrieval.findMany({
+    where: {
+      presetVersion: {
+        active: true,
+        ...(presetIds.length ? { presetId: { in: presetIds } } : {}),
+      },
+    },
     select: {
       id: true,
-      presetId: true,
       name: true,
       description: true,
       keywords: true,
       notes: true,
       userStoryTags: true,
       embeddingText: true,
+      presetVersion: { select: { presetId: true } },
     },
-    orderBy: { presetId: 'asc' },
+    orderBy: { presetVersion: { presetId: 'asc' } },
   });
   const populated = await db.$queryRawUnsafe<Array<{ id: string }>>(
-    `SELECT id FROM "PresetVersion" WHERE embedding IS NOT NULL AND active = true`,
+    `SELECT id FROM "PresetRetrieval" WHERE embedding IS NOT NULL`,
   );
   const hasVector = new Set(populated.map((r) => r.id));
 
   let missing = 0;
   let stale = 0;
   for (const row of rows) {
+    const candidate = {
+      name: row.name,
+      description: row.description,
+      keywords: row.keywords,
+      notes: row.notes,
+      userStoryTags: row.userStoryTags,
+    };
     if (!hasVector.has(row.id)) {
       missing++;
-      console.log(`  MISSING  ${row.presetId}  ${row.name}`);
-    } else if (force || row.embeddingText !== presetEmbeddingText(row)) {
+      console.log(`  MISSING  ${row.presetVersion.presetId}  ${row.name}`);
+    } else if (force || row.embeddingText !== presetEmbeddingText(candidate)) {
       stale++;
-      console.log(`  STALE    ${row.presetId}  ${row.name}`);
+      console.log(`  STALE    ${row.presetVersion.presetId}  ${row.name}`);
     }
   }
   console.log(

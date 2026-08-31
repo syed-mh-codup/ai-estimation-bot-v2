@@ -58,8 +58,10 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
     });
     try {
       const rows = await db.$queryRawUnsafe<Array<{ version: number; has: boolean }>>(
-        `SELECT version, embedding IS NOT NULL AS has
-           FROM "PresetVersion" WHERE "presetId" = 'E2E-PRESET' AND active = true`,
+        `SELECT v.version, r.embedding IS NOT NULL AS has
+           FROM "PresetVersion" v
+           JOIN "PresetRetrieval" r ON r."presetVersionId" = v.id
+          WHERE v."presetId" = 'E2E-PRESET' AND v.active = true`,
       );
       expect(rows).toHaveLength(1);
       expect(rows[0]?.version).toBe(beforeNum + 1);
@@ -108,13 +110,20 @@ test.describe('preset creation', () => {
       const rows = await db.$queryRawUnsafe<Array<{ code: string; origin: string; id: string }>>(
         `SELECT p.id, p.code, p.origin FROM "Preset" p
            JOIN "PresetVersion" v ON v."presetId" = p.id
-          WHERE v.name = $1`,
+           JOIN "PresetRetrieval" r ON r."presetVersionId" = v.id
+          WHERE r.name = $1`,
         unique,
       );
       expect(rows).toHaveLength(1);
       expect(rows[0]!.origin).toBe('MANUAL');
       expect(rows[0]!.code).toMatch(/^P\d+$/);
       expect(rows[0]!.id).not.toBe(rows[0]!.code);
+      await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: rows[0]!.id } } });
+      await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: rows[0]!.id } } });
+      await db.$executeRawUnsafe(
+        `DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = $1)`,
+        rows[0]!.id,
+      );
       await db.presetVersion.deleteMany({ where: { presetId: rows[0]!.id } });
       await db.preset.delete({ where: { id: rows[0]!.id } });
     } finally {

@@ -9,101 +9,87 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## Resolved: the Neon dev/main wipe of 2026-08-31
 
-**AEH-259 (Oracle) is CLOSED, MERGED and PUSHED.** Both remotes at `8a4af41`;
-the branch `feat/aeh-259-oracle` merged into `master` with `--no-ff`. The
-implementation record — what shipped, why, and the findings worth keeping — is
-in AEH-259's description and comments, not here.
+**Restored and fully verified — nothing outstanding.** Kept here only until
+AEH-240 closes; the lesson itself lives in the `prisma-shadow-db-wiped-neon`
+memory, which is where it belongs long-term.
 
-Follow-ups filed and linked: **AEH-283** (the Supervisor's prompt is never
-loaded and its gates only warn — AEH-259 labels it, does not fix it).
-**AEH-282** (the e2e suite) was already open and is why the Oracle specs were
-not re-run at tip.
+I wiped `ep-polished-credit` (Neon dev/main) by running `prisma migrate diff`
+with a shadow-database URL built by appending `_shadow` to the real connection
+string. The suffix landed inside the query string (`?sslmode=require_shadow`),
+so the shadow database resolved to the live one — and `migrate diff
+--from-migrations` resets its shadow database before replaying migrations into
+it. The user restored from a four-hour-old backup the same day.
 
-## Verified
+Verified after the restore and the re-migration:
 
-    pnpm typecheck                            clean
-    pnpm lint                                 clean
-    pnpm test                                 54 files, 429 passed, 9 skipped
-    pnpm --filter @repo/audit audit:fields    161 audited, 2 exempt, 0 findings
-    pnpm --filter @repo/audit audit:exports   clean
-    pnpm --filter web build                   exit 0
-    pnpm test:e2e                             48/48 — see the caveat below
+    24 migrations, ledger consistent
+    45 presets — each with a PresetRetrieval, PresetAnchor and PresetComposition
+    45 of 45 retrieval rows carry a non-null embedding; 0 orphans in any of the three
+    prompts active at v3/v4 with full ~5000-character bodies
+    19 users, 4 estimates, 50 taxonomy nodes
 
-⚠️ The e2e figure was measured at `959dea7`, one commit before the assumption
-change. It has NOT been re-run since, on purpose: AEH-282 is open against the
-suite and the user asked not to chase it. The `oracle.spec.ts` test covering
-the suggested-assumption block has therefore never been executed. The
-assumption behaviour was instead verified by the user driving it in the browser
-against the real model, which is the check that mattered — whether Sonnet
-actually emits the marker.
+The restore point predated AEH-244, so `migrate deploy` applied four migrations
+rather than one: the three AEH-244 ones plus AEH-240's. I checked the split
+migration before running it — it does `INSERT … SELECT` for every flat column,
+embeddings included, into the new tables *before* the next migration drops them.
+Nothing was lost a second time.
 
-Plus live runs against the real model on the local DB: quote-then-explain,
-a refusal that named the gap instead of guessing, ephemeral info correctly
-declared as conversation-only with assumption wording offered, three citations
-stored and all three verbatim, resolved model + tokens + real cost recorded
-(~$0.019 for three turns), and the quote jump highlighting the right span. The
-suggested-assumption block was confirmed separately by the user in the browser
-after the marker was added.
+## Current: AEH-240 — custodian, deadlines, reminders
 
-⚠️ `pnpm audit` and `pnpm run audit` BOTH hit pnpm's built-in security audit,
-not the repo's gates. Use the filtered form above. (The gates also run inside
-`pnpm test`, so a green `pnpm test` already covers them.)
+Branch `feat/aeh-240-custodian-deadlines`. **Stacked on
+`feat/aeh-244-preset-concern-split`, which is still unmerged** — branching from
+master would have put the schema behind the three AEH-244 migrations every
+database already carries. Merging AEH-240 therefore lands AEH-244 with it.
 
-## Databases — all four migrated and seeded
+Complete and verified: `pnpm -r build` green, `pnpm lint` clean, full
+`pnpm test` green (56 files, 459 tests, 22 of them new), field and export audits
+clean via `pnpm --filter @repo/audit run audit` (the root `pnpm run audit`
+script is shadowed by pnpm's own `audit` and prints a vulnerability table
+instead). Migrations applied to all four databases.
 
-Migration `20260828000000_oracle` is applied, both Oracle tables exist and the
-ORACLE enum value is present on all of:
+The cron expression is verified to fire at 09:00 PKT / 04:00 UTC daily — the
+same instant the unit tests use as their sweep clock. **The one thing never
+exercised live is Inngest registering the function.** Run `pnpm dev` and
+`pnpm dev:inngest`, then confirm `estimate-due-reminders` appears in the dev UI.
 
-    local docker  ai_estimation        ORACLE v1
-    local docker  ai_estimation_test   ORACLE v1
-    Neon test     (ep-wild-heart)      ORACLE v1
-    Neon dev/main (ep-polished-credit) ORACLE v1
+The ticket is Done in Jira (closed by the user). The branch is **not merged and
+not pushed** — that is the only outstanding action, and it lands AEH-244 too.
 
-Seeded with `pnpm db:seed:oracle` only — **never `pnpm db:seed`**. Neon dev/main
-carries hand-tuned prompts at v3 and v4 whose text exists nowhere in the repo
-(the AEH-233 finding), and the bootstrap seed would have reverted all nine to
-their two-sentence v1 bodies. Verified before and after: SUPERVISOR v4,
-ARCHITECT v4 and the other seven at v3, unchanged.
+## Databases
 
-The targeted script is idempotent — re-running it on an environment that
-already has ORACLE reports and exits without writing.
+    local docker  ai_estimation        24 migrations, data intact
+    local docker  ai_estimation_test   24 migrations
+    Neon test     (ep-wild-heart)      24 migrations, data intact
+    Neon dev/main (ep-polished-credit) 24 migrations, restored and verified
 
-⚠️ Local `ai_estimation` has TWO active LIBRARIAN rows (v143 and v1), which
-breaks the one-active-per-kind invariant. Pre-existing local test pollution:
-run-estimate and evals both upsert v1 active while deliberately skipping the
-bulk deactivate. Local only — Neon has exactly one active row per kind.
-
-## Next steps
-
-- [ ] Push, open a PR, or merge — not done, awaiting the user.
-- [ ] Apply the migration + `db:seed:oracle` to Neon dev/main when deploying.
-- [ ] Run the Oracle e2e specs once AEH-282 has the suite healthy again.
+⚠️ Still true from AEH-259: seed Neon dev/main with targeted scripts only, never
+`pnpm db:seed`. It carries hand-tuned prompts at v3 and v4 whose text exists
+nowhere in the repo, and the bootstrap seed would revert all ten to their
+two-sentence v1 bodies. The restore above is what proved this is not theoretical:
+those bodies are ~5000 characters each, and no other database in the project has
+anything resembling them.
 
 ## Related tickets
 
-**AEH-282** — the e2e suite. Open, and the reason the Oracle specs were not
-re-run at tip.
+**AEH-237** — multi-level approval, and now unblocked: AEH-240 is Done, and an
+estimate carries a named person who is not merely its creator. Note the
+custodian only exists on the branch until it is merged.
 
-## Filed, not built
+**AEH-282** — the e2e suite. Open, and the reason AEH-240 shipped with unit
+tests rather than e2e specs. Worth an `admin-presets`-style spec later covering
+"set a deadline, the reminder rows clear".
 
-**AEH-283** — review and fix the Supervisor. Its prompt is never loaded at
-runtime and its gates warn rather than block. AEH-259 only LABELS it, in the
-catalogue's REFERENCE track. The user is handling it separately.
+**AEH-244** — unmerged and unpushed; still the user's outstanding action, and
+now also the parent of this branch.
 
-## Traps this ticket proved
+## Traps worth keeping
 
-- `pnpm --filter web build` caught a client component pulling `@repo/agents`
-  through to googleapis and `node:fs`; typecheck was clean. The pure citation
-  logic lives in `@repo/shared` for exactly this reason.
-- Three defects survived typecheck, lint and 429 unit tests and were only found
-  by reading the diff: a `useCallback` that memoised nothing, an empty-thread
-  fetch loop, and an SSR/client hydration mismatch invisible on Linux. See
-  commit `50eb05e`.
-- A PRE-EXISTING full-suite flake (run-estimate and evals both replacing the
-  active EstimationConfig) is fixed with a Postgres advisory lock. Racing lines
-  are verbatim on master; this branch's extra test files just widened the window.
-
-See the memories `next-build-is-the-only-real-check`, `e2e-suite-notes`,
-`local-dev-env-traps`.
+- A schema split turns one atomic row insert into N writes. Wrap every
+  multi-table write in a `$transaction` — `setDueAt` does, because a moved
+  deadline that kept its old reminder rows would silence every nudge for the
+  new date.
+- `new Date('2026-02-31')` does not fail. It quietly means 3 March, so a date
+  parsed from a form has to be round-tripped against its own string.
+- Deleting a "why" comment deletes the reason a guard exists.
