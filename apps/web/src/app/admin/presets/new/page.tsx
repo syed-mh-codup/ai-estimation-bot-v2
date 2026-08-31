@@ -90,23 +90,23 @@ async function createPreset(_state: NewPresetState, formData: FormData): Promise
           risk: oneOf(formData.get('risk'), LEVELS, 'LOW'),
           // Defaulted, editable straight afterwards.
           aiAssist: 'LOW',
-          userStoryTags: [],
           projectSizeFit: [],
           spikeNeeded: false,
-          notes: '',
         },
       });
       await tx.presetRetrieval.create({
         data: {
-          presetId: preset.id,
+          presetVersionId: version.id,
           name,
           description,
           keywords,
+          userStoryTags: [],
+          notes: '',
         },
       });
       await tx.presetComposition.create({
         data: {
-          presetId: preset.id,
+          presetVersionId: version.id,
           requires: [],
           blocks: [],
           canParallel: true,

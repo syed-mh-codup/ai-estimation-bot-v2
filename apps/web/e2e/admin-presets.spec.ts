@@ -60,7 +60,7 @@ test.describe('WS24-03: presets admin — edit creates a new active version + di
       const rows = await db.$queryRawUnsafe<Array<{ version: number; has: boolean }>>(
         `SELECT v.version, r.embedding IS NOT NULL AS has
            FROM "PresetVersion" v
-           JOIN "PresetRetrieval" r ON r."presetId" = v."presetId"
+           JOIN "PresetRetrieval" r ON r."presetVersionId" = v.id
           WHERE v."presetId" = 'E2E-PRESET' AND v.active = true`,
       );
       expect(rows).toHaveLength(1);
@@ -109,7 +109,8 @@ test.describe('preset creation', () => {
     try {
       const rows = await db.$queryRawUnsafe<Array<{ code: string; origin: string; id: string }>>(
         `SELECT p.id, p.code, p.origin FROM "Preset" p
-           JOIN "PresetRetrieval" r ON r."presetId" = p.id
+           JOIN "PresetVersion" v ON v."presetId" = p.id
+           JOIN "PresetRetrieval" r ON r."presetVersionId" = v.id
           WHERE r.name = $1`,
         unique,
       );
@@ -117,9 +118,12 @@ test.describe('preset creation', () => {
       expect(rows[0]!.origin).toBe('MANUAL');
       expect(rows[0]!.code).toMatch(/^P\d+$/);
       expect(rows[0]!.id).not.toBe(rows[0]!.code);
-      await db.presetRetrieval.deleteMany({ where: { presetId: rows[0]!.id } });
-      await db.presetComposition.deleteMany({ where: { presetId: rows[0]!.id } });
-      await db.$executeRawUnsafe(`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = '${rows[0]!.id}')`);
+      await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: rows[0]!.id } } });
+      await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: rows[0]!.id } } });
+      await db.$executeRawUnsafe(
+        `DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = $1)`,
+        rows[0]!.id,
+      );
       await db.presetVersion.deleteMany({ where: { presetId: rows[0]!.id } });
       await db.preset.delete({ where: { id: rows[0]!.id } });
     } finally {

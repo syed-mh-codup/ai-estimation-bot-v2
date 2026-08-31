@@ -9,101 +9,117 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## Current: AEH-244 — preset concern split, second pass
 
-**AEH-259 (Oracle) is CLOSED, MERGED and PUSHED.** Both remotes at `8a4af41`;
-the branch `feat/aeh-259-oracle` merged into `master` with `--no-ff`. The
-implementation record — what shipped, why, and the findings worth keeping — is
-in AEH-259's description and comments, not here.
+**Status: complete and green, UNCOMMITTED.** Commit `8a64279` holds the first
+pass (the original three-way split). Everything after it is working-tree only,
+including the migration `20260831080000_version_retrieval_and_composition`,
+which is **already applied to all four databases**. If this tree is lost, four
+`_prisma_migrations` tables reference a file that exists nowhere. Commit first,
+before anything else.
 
-Follow-ups filed and linked: **AEH-283** (the Supervisor's prompt is never
-loaded and its gates only warn — AEH-259 labels it, does not fix it).
-**AEH-282** (the e2e suite) was already open and is why the Oracle specs were
-not re-run at tip.
+### What the second pass changed, and why
+
+The first pass made `PresetRetrieval` and `PresetComposition` one-row-per-preset.
+That silently removed version history from `name`, `description`, `keywords`,
+`requires`, `blocks` and `canParallel` — the editor still promised "Nothing is
+overwritten", and `diffVersions` still listed `name`/`keywords` while feeding
+both sides the same row, so those comparisons could never fire.
+
+Both are now **one row per version**, like `PresetAnchor`. And the retrieval
+surface is **self-contained**: `notes` and `userStoryTags` moved off the anchor
+onto retrieval, so all five fields `presetEmbeddingText` concatenates live on the
+row whose vector they produce. No join to compute a row's own embedding text.
+
+### The trap this ticket sprang twice
+
+Per-version retrieval puts the embedding back on a per-version row, so a version
+bump that does not carry the vector forward leaves the new active version with
+`embedding IS NULL`. `findNearestPresets` filters on `embedding IS NOT NULL` for
+the active version, so the preset silently drops out of Archivist retrieval — no
+error, it just stops matching. Master had guarded this with a raw-SQL copy inside
+the admin save's transaction; the first pass deleted that (along with the 26-line
+comment explaining it) because a per-preset vector made it unnecessary, and the
+second pass reintroduced the hazard without restoring the guard.
+
+Now closed by `carryPresetVector` in `packages/db/src/vector.ts`, called by all
+three writers — `savePreset`, `promoteMenuItemsToPresets`, `recordActuals` — each
+inside its own transaction. `embeddingText` rides along unchanged on purpose:
+that mismatch is what marks the vector stale for the backfill. A stale vector
+keeps the preset findable; no vector makes it vanish.
+
+Two tests in `writeback-promote.test.ts` guard it, and were verified to FAIL with
+the carry disabled — not trivially-passing tests.
 
 ## Verified
 
     pnpm typecheck                            clean
     pnpm lint                                 clean
-    pnpm test                                 54 files, 429 passed, 9 skipped
+    pnpm test                                 54 files, 437 passed, 9 skipped
     pnpm --filter @repo/audit audit:fields    161 audited, 2 exempt, 0 findings
     pnpm --filter @repo/audit audit:exports   clean
     pnpm --filter web build                   exit 0
-    pnpm test:e2e                             48/48 — see the caveat below
+    pnpm test:e2e                             NOT RUN — see below
 
-⚠️ The e2e figure was measured at `959dea7`, one commit before the assumption
-change. It has NOT been re-run since, on purpose: AEH-282 is open against the
-suite and the user asked not to chase it. The `oracle.spec.ts` test covering
-the suggested-assumption block has therefore never been executed. The
-assumption behaviour was instead verified by the user driving it in the browser
-against the real model, which is the check that mattered — whether Sonnet
-actually emits the marker.
+The e2e specs and `global-setup.ts` were migrated to the per-version shape but
+never executed: AEH-282 is open against the suite and the user asked not to
+chase it. `admin-presets.spec.ts` is the file that would prove a save does not
+de-index a preset, so that specific guarantee rests on the two unit tests above,
+not on e2e.
 
-Plus live runs against the real model on the local DB: quote-then-explain,
-a refusal that named the gap instead of guessing, ephemeral info correctly
-declared as conversation-only with assumption wording offered, three citations
-stored and all three verbatim, resolved model + tokens + real cost recorded
-(~$0.019 for three turns), and the quote jump highlighting the right span. The
-suggested-assumption block was confirmed separately by the user in the browser
-after the marker was added.
+## Databases — all four migrated and verified
 
-⚠️ `pnpm audit` and `pnpm run audit` BOTH hit pnpm's built-in security audit,
-not the repo's gates. Use the filtered form above. (The gates also run inside
-`pnpm test`, so a green `pnpm test` already covers them.)
+    local docker  ai_estimation        23 migrations, 51 presets
+    local docker  ai_estimation_test   23 migrations
+    Neon test     (ep-wild-heart)      23 migrations, 46 presets
+    Neon dev/main (ep-polished-credit) 23 migrations, 45 presets
 
-## Databases — all four migrated and seeded
+On dev/main — the real library — all 45 presets are searchable: every active
+version has an anchor, a retrieval row, a composition row and a non-null vector,
+with zero orphans. `notes`/`userStoryTags` are gone from `PresetAnchor` on all
+four.
 
-Migration `20260828000000_oracle` is applied, both Oracle tables exist and the
-ORACLE enum value is present on all of:
-
-    local docker  ai_estimation        ORACLE v1
-    local docker  ai_estimation_test   ORACLE v1
-    Neon test     (ep-wild-heart)      ORACLE v1
-    Neon dev/main (ep-polished-credit) ORACLE v1
-
-Seeded with `pnpm db:seed:oracle` only — **never `pnpm db:seed`**. Neon dev/main
-carries hand-tuned prompts at v3 and v4 whose text exists nowhere in the repo
-(the AEH-233 finding), and the bootstrap seed would have reverted all nine to
-their two-sentence v1 bodies. Verified before and after: SUPERVISOR v4,
-ARCHITECT v4 and the other seven at v3, unchanged.
-
-The targeted script is idempotent — re-running it on an environment that
-already has ORACLE reports and exits without writing.
-
-⚠️ Local `ai_estimation` has TWO active LIBRARIAN rows (v143 and v1), which
-breaks the one-active-per-kind invariant. Pre-existing local test pollution:
-run-estimate and evals both upsert v1 active while deliberately skipping the
-bulk deactivate. Local only — Neon has exactly one active row per kind.
+⚠️ Retrieval history starts now, not retroactively. The re-key gave a retrieval
+row only to each preset's active (or latest) version, so older versions have no
+retrieval row and their `notes`/`userStoryTags` are not recoverable. Harmless
+here — dev/main is 45 presets / 45 versions, and the test DBs are seed-rebuilt —
+but the editor's `previous.retrieval` guard is load-bearing for older presets.
 
 ## Next steps
 
-- [ ] Push, open a PR, or merge — not done, awaiting the user.
-- [ ] Apply the migration + `db:seed:oracle` to Neon dev/main when deploying.
-- [ ] Run the Oracle e2e specs once AEH-282 has the suite healthy again.
+- [ ] **Commit.** Nothing else should happen first.
+- [ ] Run the e2e suite once AEH-282 has it healthy again.
+- [ ] AEH-244 is still In Progress in Jira — no transition was agreed.
+
+## Also fixed in passing
+
+- `ws9.test.ts` seeded its vectors with `WHERE "presetVersionId" = <retrieval id>`
+  — a mixed pairing that matched zero rows, so those embeddings never landed.
+  Now `WHERE id`.
+- `savePreset` lost TS narrowing inside the transaction closure (property
+  narrowing does not survive a callback); the three rows are hoisted into locals.
+- `packages/audit/src/prisma-schema.test.ts` asserted `notes`/`userStoryTags` on
+  `PresetAnchor`; both moved to `PresetRetrieval`.
+- Restored the `writeback-promote.test.ts` AEH-227 comment block, deleted in the
+  first pass and unrelated to this ticket.
 
 ## Related tickets
 
-**AEH-282** — the e2e suite. Open, and the reason the Oracle specs were not
-re-run at tip.
-
-## Filed, not built
-
-**AEH-283** — review and fix the Supervisor. Its prompt is never loaded at
-runtime and its gates warn rather than block. AEH-259 only LABELS it, in the
-catalogue's REFERENCE track. The user is handling it separately.
+**AEH-282** — the e2e suite. Open, and the reason the specs were not re-run.
+**AEH-242 / AEH-243** — sections 2 and 3, which this unblocks. The anchor has its
+own table and id, so the costed-work question in AEH-243 is now answerable.
 
 ## Traps this ticket proved
 
-- `pnpm --filter web build` caught a client component pulling `@repo/agents`
-  through to googleapis and `node:fs`; typecheck was clean. The pure citation
-  logic lives in `@repo/shared` for exactly this reason.
-- Three defects survived typecheck, lint and 429 unit tests and were only found
-  by reading the diff: a `useCallback` that memoised nothing, an empty-thread
-  fetch loop, and an SSR/client hydration mismatch invisible on Linux. See
-  commit `50eb05e`.
-- A PRE-EXISTING full-suite flake (run-estimate and evals both replacing the
-  active EstimationConfig) is fixed with a Postgres advisory lock. Racing lines
-  are verbatim on master; this branch's extra test files just widened the window.
+- A schema split turns one atomic row insert into N writes. Both pipeline writers
+  had a version->anchor gap where an active version existed with no anchor, which
+  made the preset vanish from search and 404 the editor. Every multi-table write
+  is in a `$transaction` now.
+- Deleting a "why" comment deletes the reason a guard exists. The de-indexing
+  guard was removed with its comment when it became unnecessary, and nothing was
+  left to warn the next change that reintroduced the hazard.
+- `pnpm -r typecheck` stops at the first failing package. `@repo/agents` failing
+  masked eight real errors in `apps/web` for a whole pass.
 
 See the memories `next-build-is-the-only-real-check`, `e2e-suite-notes`,
-`local-dev-env-traps`.
+`local-dev-env-traps`, `audit-gates-invocation`.

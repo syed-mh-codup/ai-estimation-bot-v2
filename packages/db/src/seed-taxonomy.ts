@@ -204,7 +204,7 @@ async function main() {
       select: {
         id: true,
         anchor: { select: { category: true, reqType: true } },
-        preset: { select: { retrieval: { select: { keywords: true } } } },
+        retrieval: { select: { keywords: true } },
       },
     });
 
@@ -219,8 +219,14 @@ async function main() {
     for (const p of presets) {
       const category = p.anchor?.category ?? '';
       const reqType = p.anchor?.reqType ?? '';
-      const keywords = p.preset.retrieval?.keywords ?? [];
-      if (!category || !reqType) continue;
+      const keywords = p.retrieval?.keywords ?? [];
+      // Log rather than silently skip: a preset whose anchor lacks category or
+      // reqType is a data defect, and dropping it from taxonomy generation should
+      // be visible, not invisible.
+      if (!category || !reqType) {
+        console.warn(`[seed-taxonomy] skipping version ${p.id}: missing category or reqType`);
+        continue;
+      }
 
       const catKey = slug(category);
       const childKey = `${catKey}.${slug(reqType)}`;

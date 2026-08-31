@@ -27,13 +27,19 @@ beforeAll(async () => {
       presetVersionId: clVersion.id,
       category: 'Test', reqType: 'test', devHours: 2,
       touchesBackend: true, touchesFrontend: true,
-      platforms: [], userStoryTags: [], projectSizeFit: [],
+      platforms: [], projectSizeFit: [],
       integrationCount: 0, dataVolume: 'NONE', phase: 'CORE',
-      aiAssist: 'LOW', risk: 'LOW', spikeNeeded: false, notes: 'cl test',
+      aiAssist: 'LOW', risk: 'LOW', spikeNeeded: false,
     },
   });
   await db.presetRetrieval.create({
-    data: { presetId: CL_PRESET_ID, name: 'CL Test', description: 'cl test', keywords: [] },
+    data: {
+      presetVersionId: clVersion.id, name: 'CL Test', description: 'cl test',
+      keywords: [], userStoryTags: [], notes: 'cl test',
+    },
+  });
+  await db.presetComposition.create({
+    data: { presetVersionId: clVersion.id, requires: [], blocks: [], canParallel: false },
   });
 
   // Taxonomy version
@@ -59,8 +65,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetId" = ${CL_PRESET_ID}`;
-  await db.$executeRaw`DELETE FROM "PresetComposition" WHERE "presetId" = ${CL_PRESET_ID}`;
+  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID})`;
+  await db.$executeRaw`DELETE FROM "PresetComposition" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID})`;
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID})`;
   await db.$executeRaw`DELETE FROM "PresetVersion" WHERE "presetId" = ${CL_PRESET_ID}`;
   await db.$executeRaw`DELETE FROM "Preset" WHERE id = ${CL_PRESET_ID}`;

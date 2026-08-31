@@ -9,9 +9,8 @@ export default async function PresetsAdminPage() {
     include: {
       versions: {
         orderBy: { version: 'desc' },
-        include: { anchor: true },
+        include: { anchor: true, retrieval: true },
       },
-      retrieval: true,
     },
   });
 
@@ -91,7 +90,7 @@ export default async function PresetsAdminPage() {
                           className="font-semibold text-ink hover:text-green hover:underline"
                           data-testid={`preset-link-${p.id}`}
                         >
-                          {p.retrieval?.name ?? '(no retrieval)'}
+                          {active?.retrieval?.name ?? '(no version)'}
                         </Link>
                       </td>
                       <td className="px-4 py-2.5 text-ink-2">{active?.anchor?.category ?? '—'}</td>

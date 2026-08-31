@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound } from 'next/navigation';
-import { prisma } from '@repo/db';
+import { prisma, carryPresetVector } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { inngest, EVENT_EMBED_PRESETS } from '@/lib/inngest';
 import { Button } from '@/components/ui/button';
@@ -35,17 +35,35 @@ async function savePreset(formData: FormData) {
   const active = await prisma.presetVersion.findFirst({
     where: { presetId, active: true },
     orderBy: { version: 'desc' },
-    include: { anchor: true },
+    include: { anchor: true, retrieval: true, composition: true },
   });
   const last = await prisma.presetVersion.findFirst({
     where: { presetId },
     orderBy: { version: 'desc' },
     select: { version: true },
   });
-  if (!active?.anchor || !last) return;
-  const anchor = active.anchor;
+  if (!active?.anchor || !active.retrieval || !active.composition || !last) return;
+  const prevAnchor = active.anchor;
+  const prevRetrieval = active.retrieval;
+  const prevComposition = active.composition;
   const nextVersion = last.version + 1;
 
+  // Editable fields from the form; fields not exposed in the form are carried
+  // forward from the current active version.
+  //
+  // All three concern rows are per-version (AEH-244), so a save writes a fresh
+  // anchor, retrieval and composition rather than mutating the old ones — that
+  // is what gives a rename or a keyword edit real history instead of an in-place
+  // overwrite.
+  //
+  // The embedding is carried forward too, inside the same transaction. Left
+  // null, every admin edit would silently drop the preset out of Archivist
+  // retrieval — `findNearestPresets` filters on `embedding IS NOT NULL` for the
+  // *active* version, so the preset simply stops ever matching, with no error.
+  // An interactive transaction (not the array form) is what closes the window:
+  // the new version is never visible without a vector. The old `embeddingText`
+  // rides along unchanged, which is what marks the vector as stale so the
+  // refresh below — or the backfill script — knows to regenerate it.
   await prisma.$transaction(async (tx) => {
     await tx.presetVersion.updateMany({
       where: { presetId, active: true },
@@ -64,45 +82,62 @@ async function savePreset(formData: FormData) {
     await tx.presetAnchor.create({
       data: {
         presetVersionId: created.id,
-        category: (formData.get('category') as string) ?? anchor.category,
+        category: (formData.get('category') as string) ?? prevAnchor.category,
         devHours: num(formData.get('devHours')),
         touchesFrontend: formData.get('touchesFrontend') === 'on',
         touchesBackend: formData.get('touchesBackend') === 'on',
         beHours: null,
         feHours: null,
-        reqType: (formData.get('reqType') as string) ?? anchor.reqType,
+        reqType: (formData.get('reqType') as string) ?? prevAnchor.reqType,
         platforms: csv(formData.get('platforms')),
         integrationCount: num(formData.get('integrationCount')),
-        dataVolume: oneOf(formData.get('dataVolume'), DATA_VOLUMES, anchor.dataVolume),
-        phase: oneOf(formData.get('phase'), PHASES, anchor.phase),
-        aiAssist: oneOf(formData.get('aiAssist'), LEVELS, anchor.aiAssist),
-        risk: oneOf(formData.get('risk'), LEVELS, anchor.risk),
+        dataVolume: oneOf(formData.get('dataVolume'), DATA_VOLUMES, prevAnchor.dataVolume),
+        phase: oneOf(formData.get('phase'), PHASES, prevAnchor.phase),
+        aiAssist: oneOf(formData.get('aiAssist'), LEVELS, prevAnchor.aiAssist),
+        risk: oneOf(formData.get('risk'), LEVELS, prevAnchor.risk),
         spikeNeeded: formData.get('spikeNeeded') === 'on',
-        notes: (formData.get('notes') as string) ?? anchor.notes,
-        userStoryTags: anchor.userStoryTags,
-        projectSizeFit: anchor.projectSizeFit,
-        taxonomyKey: anchor.taxonomyKey,
+        projectSizeFit: prevAnchor.projectSizeFit,
+        taxonomyKey: prevAnchor.taxonomyKey,
       },
     });
 
-    await tx.presetRetrieval.update({
-      where: { presetId },
+    await tx.presetRetrieval.create({
       data: {
-        name: (formData.get('name') as string) ?? undefined,
-        description: (formData.get('description') as string) ?? undefined,
-        keywords: csv(formData.get('keywords')),
+        presetVersionId: created.id,
+        name: (formData.get('name') as string) ?? prevRetrieval.name,
+        description: (formData.get('description') as string) ?? prevRetrieval.description,
+        keywords: csv(formData.get('keywords')).length
+          ? csv(formData.get('keywords'))
+          : prevRetrieval.keywords,
+        notes: (formData.get('notes') as string) ?? prevRetrieval.notes,
+        userStoryTags: prevRetrieval.userStoryTags,
       },
     });
 
-    await tx.presetComposition.update({
-      where: { presetId },
-      data: { canParallel: formData.get('canParallel') === 'on' },
+    await carryPresetVector(tx, prevRetrieval.id, created.id);
+
+    await tx.presetComposition.create({
+      data: {
+        presetVersionId: created.id,
+        requires: prevComposition.requires,
+        blocks: prevComposition.blocks,
+        canParallel: formData.get('canParallel') === 'on',
+      },
     });
   });
 
   revalidatePath(`/admin/presets/${presetId}`);
   revalidatePath('/admin/presets');
 
+  // Refresh the (now stale) vector out of band, *after* the response — the
+  // Inngest SDK retries a failed send with backoff, which held the whole save
+  // for ~20s whenever the event bus was unreachable (no `pnpm dev:inngest`
+  // locally, for one). `after()` keeps the invocation alive for it on
+  // serverless without making the admin wait.
+  //
+  // Best-effort by design: the save has already committed and the preset is
+  // still indexed on the vector carried above, so a dead event bus costs
+  // freshness, not availability. `pnpm db:embed:presets` finds exactly these rows.
   after(async () => {
     try {
       await inngest.send({ name: EVENT_EMBED_PRESETS, data: { presetIds: [presetId] } });
@@ -112,7 +147,6 @@ async function savePreset(formData: FormData) {
   });
 }
 
-/** Compact "be · fe" summary for the history table. */
 function sidesLabel(be: boolean, fe: boolean): string {
   if (be && fe) return 'be · fe';
   if (be) return 'be';
@@ -152,21 +186,22 @@ function diffVersions(curr: VersionRow, prev: VersionRow): Array<{ field: string
 
 export default async function PresetEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [preset, versions, retrieval, composition] = await Promise.all([
+  const [preset, versions] = await Promise.all([
     prisma.preset.findUnique({ where: { id }, select: { code: true, origin: true } }),
     prisma.presetVersion.findMany({
       where: { presetId: id },
       orderBy: { version: 'desc' },
-      include: { anchor: true },
+      include: { anchor: true, retrieval: true, composition: true },
     }),
-    prisma.presetRetrieval.findUnique({ where: { presetId: id } }),
-    prisma.presetComposition.findUnique({ where: { presetId: id } }),
   ]);
   const active = versions.find((v) => v.active) ?? versions[0];
-  if (!active?.anchor || !retrieval) {
+  if (!active?.anchor || !active.retrieval || !active.composition) {
     notFound();
   }
+
   const anchor = active.anchor;
+  const retrieval = active.retrieval;
+  const composition = active.composition;
 
   const activeView = {
     version: active.version,
@@ -185,31 +220,32 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
     keywords: retrieval.keywords,
     integrationCount: anchor.integrationCount,
     spikeNeeded: anchor.spikeNeeded,
-    notes: anchor.notes,
-    canParallel: composition?.canParallel ?? true,
+    notes: retrieval.notes,
+    canParallel: composition.canParallel,
   };
 
   const previous = versions.find((v) => v.version < active.version);
-  const diff = previous?.anchor
-    ? diffVersions(
-        { ...activeView, version: active.version },
-        {
-          version: previous.version,
-          name: retrieval.name,
-          category: previous.anchor.category,
-          reqType: previous.anchor.reqType,
-          devHours: previous.anchor.devHours,
-          touchesFrontend: previous.anchor.touchesFrontend,
-          touchesBackend: previous.anchor.touchesBackend,
-          risk: previous.anchor.risk,
-          aiAssist: previous.anchor.aiAssist,
-          dataVolume: previous.anchor.dataVolume,
-          phase: previous.anchor.phase,
-          platforms: previous.anchor.platforms,
-          keywords: retrieval.keywords,
-        },
-      )
-    : [];
+  const diff =
+    previous?.anchor && previous.retrieval
+      ? diffVersions(
+          { ...activeView, version: active.version },
+          {
+            version: previous.version,
+            name: previous.retrieval.name,
+            category: previous.anchor.category,
+            reqType: previous.anchor.reqType,
+            devHours: previous.anchor.devHours,
+            touchesFrontend: previous.anchor.touchesFrontend,
+            touchesBackend: previous.anchor.touchesBackend,
+            risk: previous.anchor.risk,
+            aiAssist: previous.anchor.aiAssist,
+            dataVolume: previous.anchor.dataVolume,
+            phase: previous.anchor.phase,
+            platforms: previous.anchor.platforms,
+            keywords: previous.retrieval.keywords,
+          },
+        )
+      : [];
 
   return (
     <div data-testid="admin-preset-editor">

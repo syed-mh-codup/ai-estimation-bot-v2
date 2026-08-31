@@ -72,90 +72,100 @@ beforeAll(async () => {
   const preset1 = await db.preset.create({
     data: {
       id: PRESET_ID1,
-      versions: { create: { version: 1, active: true, changeMotivation: 'OTHER' } },
+      versions: {
+        create: {
+          version: 1,
+          active: true,
+          changeMotivation: 'OTHER',
+          anchor: {
+            create: {
+              category: 'ecommerce',
+              reqType: 'FEATURE',
+              devHours: 70,
+              touchesBackend: true,
+              touchesFrontend: true,
+              platforms: [],
+              projectSizeFit: [],
+              integrationCount: 1,
+              dataVolume: 'LOW',
+              phase: 'CORE',
+              aiAssist: 'LOW',
+              risk: 'MEDIUM',
+              spikeNeeded: false,
+            },
+          },
+          retrieval: {
+            create: {
+              name: 'B2B Checkout',
+              description: 'B2B multi-step checkout',
+              keywords: ['checkout', 'cart', 'payment'],
+              userStoryTags: [],
+              notes: '',
+            },
+          },
+          composition: { create: { requires: [], blocks: [], canParallel: true } },
+        },
+      },
     },
-    include: { versions: true },
-  });
-  await db.presetAnchor.create({
-    data: {
-      presetVersionId: preset1.versions[0]!.id,
-      category: 'ecommerce',
-      reqType: 'FEATURE',
-      devHours: 70,
-      touchesBackend: true,
-      touchesFrontend: true,
-      platforms: [],
-      userStoryTags: [],
-      projectSizeFit: [],
-      integrationCount: 1,
-      dataVolume: 'LOW',
-      phase: 'CORE',
-      aiAssist: 'LOW',
-      risk: 'MEDIUM',
-      spikeNeeded: false,
-      notes: '',
-    },
-  });
-  await db.presetRetrieval.create({
-    data: {
-      presetId: PRESET_ID1,
-      name: 'B2B Checkout',
-      description: 'B2B multi-step checkout',
-      keywords: ['checkout', 'cart', 'payment'],
-    },
+    include: { versions: { include: { retrieval: true } } },
   });
   await db.$executeRawUnsafe(
-    `UPDATE "PresetRetrieval" SET embedding = $1::vector WHERE "presetId" = $2`,
+    `UPDATE "PresetRetrieval" SET embedding = $1::vector WHERE id = $2`,
     `[${makeVec(0).join(',')}]`,
-    PRESET_ID1,
+    preset1.versions[0]!.retrieval!.id,
   );
 
   const preset2 = await db.preset.create({
     data: {
       id: PRESET_ID2,
-      versions: { create: { version: 1, active: true, changeMotivation: 'OTHER' } },
+      versions: {
+        create: {
+          version: 1,
+          active: true,
+          changeMotivation: 'OTHER',
+          anchor: {
+            create: {
+              category: 'auth',
+              reqType: 'FEATURE',
+              devHours: 30,
+              touchesBackend: true,
+              touchesFrontend: true,
+              platforms: [],
+              projectSizeFit: [],
+              integrationCount: 1,
+              dataVolume: 'LOW',
+              phase: 'CORE',
+              aiAssist: 'LOW',
+              risk: 'LOW',
+              spikeNeeded: false,
+            },
+          },
+          retrieval: {
+            create: {
+              name: 'SSO Integration',
+              description: 'Single sign-on OAuth2',
+              keywords: ['sso', 'oauth'],
+              userStoryTags: [],
+              notes: '',
+            },
+          },
+          composition: { create: { requires: [], blocks: [], canParallel: true } },
+        },
+      },
     },
-    include: { versions: true },
-  });
-  await db.presetAnchor.create({
-    data: {
-      presetVersionId: preset2.versions[0]!.id,
-      category: 'auth',
-      reqType: 'FEATURE',
-      devHours: 30,
-      touchesBackend: true,
-      touchesFrontend: true,
-      platforms: [],
-      userStoryTags: [],
-      projectSizeFit: [],
-      integrationCount: 1,
-      dataVolume: 'LOW',
-      phase: 'CORE',
-      aiAssist: 'LOW',
-      risk: 'LOW',
-      spikeNeeded: false,
-      notes: '',
-    },
-  });
-  await db.presetRetrieval.create({
-    data: {
-      presetId: PRESET_ID2,
-      name: 'SSO Integration',
-      description: 'Single sign-on OAuth2',
-      keywords: ['sso', 'oauth'],
-    },
+    include: { versions: { include: { retrieval: true } } },
   });
   await db.$executeRawUnsafe(
-    `UPDATE "PresetRetrieval" SET embedding = $1::vector WHERE "presetId" = $2`,
+    `UPDATE "PresetRetrieval" SET embedding = $1::vector WHERE id = $2`,
     `[${makeVec(1).join(',')}]`,
-    PRESET_ID2,
+    preset2.versions[0]!.retrieval!.id,
   );
 });
 
 afterAll(async () => {
   // Clean up in dependency order
-  await db.presetRetrieval.deleteMany({ where: { presetId: { in: [PRESET_ID1, PRESET_ID2] } } });
-  await db.presetComposition.deleteMany({ where: { presetId: { in: [PRESET_ID1, PRESET_ID2] } } });
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: [PRESET_ID1, PRESET_ID2] } } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: [PRESET_ID1, PRESET_ID2] } } } });
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${[PRESET_ID1, PRESET_ID2]}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: [PRESET_ID1, PRESET_ID2] } } });
   await db.preset.deleteMany({ where: { id: { in: [PRESET_ID1, PRESET_ID2] } } });

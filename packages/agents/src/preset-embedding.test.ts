@@ -44,7 +44,6 @@ async function makePreset(presetId: string, name: string, keywords: string[]) {
           touchesBackend: true,
           touchesFrontend: true,
           platforms: [],
-          userStoryTags: [],
           projectSizeFit: [],
           integrationCount: 0,
           dataVolume: 'LOW',
@@ -52,20 +51,24 @@ async function makePreset(presetId: string, name: string, keywords: string[]) {
           aiAssist: 'LOW',
           risk: 'LOW',
           spikeNeeded: false,
+        },
+      },
+      retrieval: {
+        create: {
+          name,
+          description: 'A preset used by the embedding-backfill tests.',
+          keywords,
+          userStoryTags: [],
           notes: '',
         },
       },
+      composition: {
+        create: { requires: [], blocks: [], canParallel: true },
+      },
     },
+    include: { retrieval: true },
   });
-  const retrieval = await db.presetRetrieval.create({
-    data: {
-      presetId,
-      name,
-      description: 'A preset used by the embedding-backfill tests.',
-      keywords,
-    },
-  });
-  return { version, retrieval };
+  return { version, retrieval: version.retrieval! };
 }
 
 async function vectorState(retrievalId: string) {
@@ -81,8 +84,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.presetRetrieval.deleteMany({ where: { presetId: { in: ALL } } });
-  await db.presetComposition.deleteMany({ where: { presetId: { in: ALL } } });
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: ALL } } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: ALL } } } });
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ALL}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: ALL } } });
   await db.preset.deleteMany({ where: { id: { in: ALL } } });
@@ -92,8 +95,8 @@ afterAll(async () => {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(embedding.embed).mockResolvedValue([unitVec(7)]);
-  await db.presetRetrieval.deleteMany({ where: { presetId: { in: ALL } } });
-  await db.presetComposition.deleteMany({ where: { presetId: { in: ALL } } });
+  await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: ALL } } } });
+  await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: ALL } } } });
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ALL}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: ALL } } });
 });

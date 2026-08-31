@@ -48,22 +48,24 @@ beforeAll(async () => {
       id, "presetVersionId", "devHours",
       "touchesFrontend", "touchesBackend", "beHours", "feHours",
       risk, "aiAssist", "dataVolume", "integrationCount",
-      "projectSizeFit", phase, "spikeNeeded", notes,
-      category, "reqType", platforms, "userStoryTags", "taxonomyKey"
+      "projectSizeFit", phase, "spikeNeeded",
+      category, "reqType", platforms, "taxonomyKey"
     ) VALUES (
       gen_random_uuid(), ${versionId}, 15,
       false, false, NULL, NULL,
       'LOW'::"Level", 'LOW'::"Level", 'NONE'::"DataVolume", 1,
-      ARRAY[]::text[], 'CORE'::"PresetPhase", false, 'test',
-      'Test', 'functional', ARRAY[]::text[], ARRAY[]::text[], NULL
+      ARRAY[]::text[], 'CORE'::"PresetPhase", false,
+      'Test', 'functional', ARRAY[]::text[], NULL
     )
   `;
   await db.$executeRaw`
     INSERT INTO "PresetRetrieval" (
-      id, "presetId", name, description, keywords,
+      id, "presetVersionId", name, description, keywords,
+      "userStoryTags", notes,
       "embeddingText", embedding, "createdAt", "updatedAt"
     ) VALUES (
-      gen_random_uuid(), ${PRESET_ID}, 'Vector Test Preset', 'desc', ARRAY['vector'],
+      gen_random_uuid(), ${versionId}, 'Vector Test Preset', 'desc', ARRAY['vector'],
+      ARRAY[]::text[], 'test',
       'Vector Test Preset desc vector',
       ${vectorToSql(makeVec(1))}::vector(1536), now(), now()
     )
@@ -71,7 +73,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetId" = ${PRESET_ID}`;
+  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetVersionId" = 'VEC_TEST_VERSION'`;
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" = 'VEC_TEST_VERSION'`;
   await db.$executeRaw`DELETE FROM "PresetVersion" WHERE "presetId" = ${PRESET_ID}`;
   await db.$executeRaw`DELETE FROM "Preset" WHERE id = ${PRESET_ID}`;

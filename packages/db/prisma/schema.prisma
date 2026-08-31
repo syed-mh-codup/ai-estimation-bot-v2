@@ -217,7 +217,7 @@ model Preset {
   /// which are load-bearing: requires/blocks form a real dependency graph
   /// between presets, MenuItem.sourcePresetId rows point at them, and live
   /// agent prompts name the range.
-  id          String             @id @default(cuid())
+  id       String          @id @default(cuid())
   /// Readable handle — "P46". Unique, shown everywhere, never typed by a user:
   /// allocated from a Postgres sequence (see allocatePresetCode) so concurrent
   /// finalises can't collide the way max()+1 would.
@@ -225,12 +225,10 @@ model Preset {
   /// Numbers are free-flowing — no zero padding, no fixed width. Codes imported
   /// from the xlsx keep that file's own formatting (P01–P45) because people
   /// cross-reference the spreadsheet; allocated codes are plain (P46, P100).
-  code        String?            @unique
+  code     String?         @unique
   /// Where this preset came from. See PresetOrigin.
-  origin      PresetOrigin       @default(MANUAL)
-  versions    PresetVersion[]
-  retrieval   PresetRetrieval?
-  composition PresetComposition?
+  origin   PresetOrigin    @default(MANUAL)
+  versions PresetVersion[]
 }
 
 model PresetVersion {
@@ -240,10 +238,17 @@ model PresetVersion {
   version  Int
   active   Boolean @default(false)
 
-  /// The estimate anchor — one per version, carrying the hours, risk, notes and
-  /// taxonomy that a preset contributes to an estimate. AEH-244 split this out
-  /// so the anchor can become a first-class costed-work record (AEH-243).
-  anchor   PresetAnchor?
+  /// The estimate anchor — one per version, carrying the hours, side flags and
+  /// comparison signals a preset contributes to an estimate. AEH-244 split this
+  /// out so the anchor can become a first-class costed-work record (AEH-243).
+  anchor      PresetAnchor?
+  /// The retrieval surface — one per version, self-contained: it holds every
+  /// field the embedding is built from, so computing a row's own vector never
+  /// requires a join to a sibling table.
+  retrieval   PresetRetrieval?
+  /// The composition rules — one per version, so requires/blocks/canParallel
+  /// keep their own history exactly like the anchor and retrieval do.
+  composition PresetComposition?
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -261,43 +266,54 @@ model PresetVersion {
 }
 
 /// What makes a preset findable — the retrieval surface for Archivist similarity
-/// search. One row per preset (not per version): you search for "B2B checkout" and
-/// the latest description is what matters. AEH-244.
+/// search. One row per version, mirroring the anchor's lifecycle, so a rename or
+/// keyword edit is a new version with a real history rather than an in-place
+/// overwrite. AEH-244.
+///
+/// Self-contained by construction: name, description, keywords, userStoryTags and
+/// notes are the five fields `presetEmbeddingText` concatenates, and they all live
+/// here — a retrieval row's embedding text is computable from the row alone.
 model PresetRetrieval {
-  id            String   @id @default(cuid())
-  presetId      String   @unique
-  preset         Preset   @relation(fields: [presetId], references: [id])
-  name          String
-  description   String
-  keywords      String[]
+  id              String         @id @default(cuid())
+  presetVersionId String         @unique
+  presetVersion   PresetVersion  @relation(fields: [presetVersionId], references: [id])
+  name            String
+  description     String
+  keywords        String[]
+  /// B2B buyer | Dev ops | Marketing editor — feeds the embedding text.
+  userStoryTags   String[]
+  /// Key assumption; if violated -> change request. Also feeds the embedding
+  /// text, because it carries retrieval-relevant meaning about what the preset
+  /// actually assumes and excludes ("P21 order history API must be available").
+  notes           String
   /// The exact text `embedding` was generated from. Present so staleness is
-  /// decidable: an admin edit carries the old vector forward (never
-  /// de-indexing the preset) and the backfill re-embeds any row whose current
-  /// text no longer matches this. Null means "never embedded".
-  embeddingText String?
+  /// decidable: an admin edit carries the old vector forward (never de-indexing
+  /// the preset) and the backfill re-embeds any row whose current text no longer
+  /// matches this. Null means "never embedded".
+  embeddingText   String?
   /// pgvector embedding for Archivist similarity search
-  embedding     Unsupported("vector(1536)")?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  embedding       Unsupported("vector(1536)")?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 }
 
 /// The estimate anchor — what a preset contributes to an estimate. One row per
 /// version because the anchor changes with each version: a v2 may have different
-/// hours, risk, or notes. Its own table and own ID so AEH-243 can decide whether
-/// this IS the costed-work type or whether a separate CostedWork record references
-/// it. AEH-244.
+/// hours or risk. Its own table and own ID so AEH-243 can decide whether this IS
+/// the costed-work type or whether a separate CostedWork record references it.
+/// AEH-244.
 model PresetAnchor {
-  id                String   @id @default(cuid())
-  presetVersionId   String   @unique
-  presetVersion     PresetVersion @relation(fields: [presetVersionId], references: [id])
+  id                String         @id @default(cuid())
+  presetVersionId   String         @unique
+  presetVersion     PresetVersion  @relation(fields: [presetVersionId], references: [id])
   /// The preset's dev effort as ONE number. Frontend and backend are estimated
   /// together because delivery is full-stack — the split used to exist to
   /// allocate work across separate FE/BE resources, and that need is gone.
   devHours          Int
   /// Which sides of the stack this preset's work covers. Reference only: they
   /// describe `devHours`, they never divide it.
-  touchesFrontend   Boolean     @default(false)
-  touchesBackend    Boolean     @default(false)
+  touchesFrontend   Boolean        @default(false)
+  touchesBackend    Boolean        @default(false)
   /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
   /// in the xlsx, retained because the decision to estimate as one figure may be
   /// revisited and this data can't be recovered. NULL means "not tracked".
@@ -313,33 +329,27 @@ model PresetAnchor {
   projectSizeFit    String[]
   phase             PresetPhase
   spikeNeeded       Boolean
-  /// Key assumption; if violated -> change request. Also contributes to the
-  /// embedding text (presetEmbeddingText) because it carries retrieval-relevant
-  /// meaning about what the preset actually assumes and excludes.
-  notes             String
   category          String
   reqType           String
   platforms         String[]
-  /// B2B buyer | Dev ops | Marketing editor — also contributes to embedding text.
-  userStoryTags     String[]
   taxonomyKey       String?
 }
 
-/// How a preset relates to other modules — composition rules. One row per preset
-/// (not per version): sequencing relationships are between presets, not versions.
-/// AEH-244; AEH-242 will likely turn requires/blocks into proper FK references.
+/// How a preset relates to other modules — composition rules. One row per
+/// version, so requires/blocks/canParallel keep their own history. AEH-244;
+/// AEH-242 will likely turn requires/blocks into proper FK references.
 model PresetComposition {
-  id          String   @id @default(cuid())
-  presetId    String   @unique
-  preset      Preset   @relation(fields: [presetId], references: [id])
+  id              String         @id @default(cuid())
+  presetVersionId String         @unique
+  presetVersion   PresetVersion  @relation(fields: [presetVersionId], references: [id])
   /// Preset codes this one must precede (e.g. ["P17"]). No FK — AEH-242 will
   /// add referential integrity.
-  requires    String[]
+  requires        String[]
   /// Preset codes this one blocks (e.g. ["P18"]). No FK — same as requires.
-  blocks      String[]
-  canParallel Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  blocks          String[]
+  canParallel     Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 }
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────

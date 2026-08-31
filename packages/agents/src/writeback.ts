@@ -1,4 +1,4 @@
-import { allocatePresetCode, toMenuItem, type PrismaClient } from '@repo/db';
+import { allocatePresetCode, carryPresetVector, toMenuItem, type PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
 import type { MenuItem, RoleLineItem } from '@repo/shared';
 
@@ -130,9 +130,11 @@ export async function promoteMenuItemsToPresets(
       presetId = created.id;
     }
 
-    // The prior state for carry lives across three tables now: the version shell
-    // (for version number), the anchor (for taxonomy/metadata), the retrieval
-    // surface (name/description/keywords) and the composition (requires/blocks).
+    // The prior state for carry lives across the version shell plus all three
+    // concern tables now. `carry` is the latest version's anchor+retrieval+composition,
+    // and it must come from a version that actually exists — a strong match whose
+    // latest version has no anchor/retrieval is a half-written row (see the
+    // transaction below), not licence to clobber the preset's retrieval surface.
     const latestVersion = await db.presetVersion.findFirst({
       where: { presetId },
       orderBy: { version: 'desc' },
@@ -146,7 +148,6 @@ export async function promoteMenuItemsToPresets(
             touchesBackend: true,
             platforms: true,
             reqType: true,
-            userStoryTags: true,
             projectSizeFit: true,
             integrationCount: true,
             dataVolume: true,
@@ -154,105 +155,113 @@ export async function promoteMenuItemsToPresets(
             aiAssist: true,
             risk: true,
             spikeNeeded: true,
-            notes: true,
             taxonomyKey: true,
           },
         },
+        retrieval: {
+          select: { id: true, name: true, description: true, keywords: true, notes: true, userStoryTags: true },
+        },
+        composition: {
+          select: { requires: true, blocks: true, canParallel: true },
+        },
       },
     });
-    const [retrieval, composition] = await Promise.all([
-      db.presetRetrieval.findUnique({ where: { presetId } }),
-      db.presetComposition.findUnique({ where: { presetId } }),
-    ]);
     const newVersion = (latestVersion?.version ?? 0) + 1;
-
-    if (latestVersion) {
-      await db.presetVersion.updateMany({ where: { presetId }, data: { active: false } });
-    }
 
     const effort = devEffortOf(item.lineItems);
 
     // Versioning a real preset: keep its taxonomy/metadata and change only what
-    // this estimate actually evidences. Minting one: derive what we can.
-    const carry = strongMatch ? latestVersion?.anchor : null;
+    // this estimate actually evidences. Minting one: derive what we can. Carry is
+    // only valid when the matched preset's latest version is complete — a strong
+    // match whose latest version lacks an anchor/retrieval is a half-written row,
+    // not licence to clobber the preset's retrieval surface.
+    const carryAnchor = strongMatch ? latestVersion?.anchor ?? null : null;
+    const carryRetrieval = strongMatch ? latestVersion?.retrieval ?? null : null;
+    const carryComposition = strongMatch ? latestVersion?.composition ?? null : null;
 
-    const version = await db.presetVersion.create({
-      data: {
-        presetId,
-        version: newVersion,
-        active: true,
-        changeMotivation: 'POST_DELIVERY_VALIDATION',
-        sourceEstimateId: estimateId,
-        sourceMenuItemId: item.id,
-        changeReason: strongMatch
-          ? `Recalibrated from finalised estimate ${estimateId} (match ${(item.matchScore ?? 0).toFixed(2)}) — ${describeSides(effort)}`
-          : `Promoted from finalised estimate ${estimateId} — ${describeSides(effort)}`,
-      },
-      select: { id: true },
-    });
+    // One transaction: deactivate → create version → create anchor/retrieval/
+    // composition. Without it there is a version→anchor gap where an active
+    // version exists but the preset vanishes from search and the editor 404s.
+    await db.$transaction(async (tx) => {
+      if (latestVersion) {
+        await tx.presetVersion.updateMany({ where: { presetId }, data: { active: false } });
+      }
 
-    await db.presetAnchor.create({
-      data: {
-        presetVersionId: version.id,
-        category: carry?.category ?? item.taxonomyKey.split('.')[0] ?? 'general',
-        devHours: effort.devHours,
-        // Flags come from this estimate only when it actually tagged something.
-        // Otherwise carry the prior version's — same rule as keywords and risk:
-        // change only what this estimate evidences. Without this, promoting an
-        // untagged card onto a matched preset would erase its flags.
-        touchesFrontend: effort.tagged ? effort.touchesFrontend : (carry?.touchesFrontend ?? false),
-        touchesBackend: effort.tagged ? effort.touchesBackend : (carry?.touchesBackend ?? false),
-        // Legacy split: never written going forward. NULL means "not tracked".
-        beHours: null,
-        feHours: null,
-        platforms: carry?.platforms ?? [],
-        reqType: carry?.reqType ?? 'FEATURE',
-        userStoryTags: carry?.userStoryTags ?? [],
-        projectSizeFit: carry?.projectSizeFit ?? [],
-        integrationCount: carry?.integrationCount ?? 0,
-        dataVolume: carry?.dataVolume ?? 'LOW',
-        phase: carry?.phase ?? 'CORE',
-        aiAssist: carry?.aiAssist ?? 'LOW',
-        risk: carry?.risk ?? 'LOW',
-        spikeNeeded: carry?.spikeNeeded ?? false,
-        notes: carry?.notes ?? '',
-        taxonomyKey: carry?.taxonomyKey ?? item.taxonomyKey,
-      },
-    });
-
-    // Retrieval surface: one per preset. On a strong match we keep the prior
-    // name/description/keywords (they are what made it match); minting a new
-    // preset derives them from the card title and taxonomy key.
-    if (retrieval) {
-      await db.presetRetrieval.update({
-        where: { presetId },
-        data: carry
-          ? {}
-          : {
-              name: item.title,
-              description: `Promoted from estimate ${estimateId}`,
-              keywords: [item.taxonomyKey],
-            },
-      });
-    } else {
-      await db.presetRetrieval.create({
+      const version = await tx.presetVersion.create({
         data: {
           presetId,
-          name: item.title,
-          description: `Promoted from estimate ${estimateId}`,
-          keywords: [item.taxonomyKey],
+          version: newVersion,
+          active: true,
+          changeMotivation: 'POST_DELIVERY_VALIDATION',
+          sourceEstimateId: estimateId,
+          sourceMenuItemId: item.id,
+          changeReason: strongMatch
+            ? `Recalibrated from finalised estimate ${estimateId} (match ${(item.matchScore ?? 0).toFixed(2)}) — ${describeSides(effort)}`
+            : `Promoted from finalised estimate ${estimateId} — ${describeSides(effort)}`,
+        },
+        select: { id: true },
+      });
+
+      await tx.presetAnchor.create({
+        data: {
+          presetVersionId: version.id,
+          category: carryAnchor?.category ?? item.taxonomyKey.split('.')[0] ?? 'general',
+          devHours: effort.devHours,
+          // Flags come from this estimate only when it actually tagged something.
+          // Otherwise carry the prior version's — same rule as keywords and risk:
+          // change only what this estimate evidences. Without this, promoting an
+          // untagged card onto a matched preset would erase its flags.
+          touchesFrontend: effort.tagged ? effort.touchesFrontend : (carryAnchor?.touchesFrontend ?? false),
+          touchesBackend: effort.tagged ? effort.touchesBackend : (carryAnchor?.touchesBackend ?? false),
+          // Legacy split: never written going forward. NULL means "not tracked".
+          beHours: null,
+          feHours: null,
+          platforms: carryAnchor?.platforms ?? [],
+          reqType: carryAnchor?.reqType ?? 'FEATURE',
+          projectSizeFit: carryAnchor?.projectSizeFit ?? [],
+          integrationCount: carryAnchor?.integrationCount ?? 0,
+          dataVolume: carryAnchor?.dataVolume ?? 'LOW',
+          phase: carryAnchor?.phase ?? 'CORE',
+          aiAssist: carryAnchor?.aiAssist ?? 'LOW',
+          risk: carryAnchor?.risk ?? 'LOW',
+          spikeNeeded: carryAnchor?.spikeNeeded ?? false,
+          taxonomyKey: carryAnchor?.taxonomyKey ?? item.taxonomyKey,
         },
       });
-    }
 
-    // Composition: update in place (one per preset), carrying prior rules forward.
-    if (composition) {
-      await db.presetComposition.update({ where: { presetId }, data: {} });
-    } else {
-      await db.presetComposition.create({
-        data: { presetId, requires: [], blocks: [], canParallel: true },
+      // Retrieval surface: one per version. A strong match carries the prior
+      // name/description/keywords/notes/userStoryTags forward (they are what made
+      // it match); minting a new preset derives them from the card.
+      await tx.presetRetrieval.create({
+        data: {
+          presetVersionId: version.id,
+          name: carryRetrieval?.name ?? item.title,
+          description: carryRetrieval?.description ?? `Promoted from estimate ${estimateId}`,
+          keywords: carryRetrieval?.keywords ?? [item.taxonomyKey],
+          notes: carryRetrieval?.notes ?? '',
+          userStoryTags: carryRetrieval?.userStoryTags ?? [],
+        },
       });
-    }
+
+      // Carry the prior version's vector onto the new retrieval row, in this
+      // transaction. Gated on a prior retrieval row rather than on `strongMatch`:
+      // a minted preset has nothing to carry and gets its first vector from the
+      // backfill. See carryPresetVector for why skipping this de-indexes the
+      // preset the moment it is versioned.
+      if (latestVersion?.retrieval) {
+        await carryPresetVector(tx, latestVersion.retrieval.id, version.id);
+      }
+
+      // Composition: one per version, carried forward from the prior version.
+      await tx.presetComposition.create({
+        data: {
+          presetVersionId: version.id,
+          requires: carryComposition?.requires ?? [],
+          blocks: carryComposition?.blocks ?? [],
+          canParallel: carryComposition?.canParallel ?? true,
+        },
+      });
+    });
 
     promoted.push(presetId);
     (strongMatch ? versioned : created).push(presetId);
@@ -309,11 +318,11 @@ export async function promoteEstimate(
  * of `embedding` must go through this, so `embeddingText` is always literally
  * the string that produced the vector sitting next to it.
  *
- * After AEH-244 the fields come from two places: `name`, `description` and
- * `keywords` from `PresetRetrieval` (the retrieval surface), and `notes` +
- * `userStoryTags` from `PresetAnchor` (the estimate anchor). The function
- * itself stays flat so callers gather the pieces and pass them here — the
- * concatenation order is the one contract that must never silently drift.
+ * All five fields live on `PresetRetrieval` — the retrieval surface is
+ * self-contained by construction, so a row's own embedding text is computable
+ * from the row alone with no join to a sibling table. The function stays flat
+ * and the concatenation order is the one contract that must never silently
+ * drift.
  */
 export function presetEmbeddingText(v: {
   name: string;
@@ -391,39 +400,27 @@ export async function backfillPresetEmbeddings(
     onProgress?: (done: number, total: number, presetId: string) => void;
   } = {},
 ): Promise<BackfillResult> {
-  // The retrieval surface lives on PresetRetrieval; the anchor's notes and
-  // userStoryTags (which also feed the embedding text) live on PresetAnchor.
-  // Select retrieval rows joined to the active version's anchor, then compare
-  // the computed text in JS — SQL can't express that concatenation.
+  // The retrieval surface is self-contained now — name, description, keywords,
+  // userStoryTags and notes all live on the row. Select active versions' retrieval
+  // rows and compare the computed text in JS — SQL can't express that concatenation.
   const rows = await db.presetRetrieval.findMany({
     where: {
-      preset: {
-        versions: { some: { active: true } },
-        ...(opts.presetIds ? { id: { in: opts.presetIds } } : {}),
+      presetVersion: {
+        active: true,
+        ...(opts.presetIds ? { presetId: { in: opts.presetIds } } : {}),
       },
     },
     select: {
       id: true,
-      presetId: true,
       name: true,
       description: true,
       keywords: true,
+      notes: true,
+      userStoryTags: true,
       embeddingText: true,
-      preset: {
-        select: {
-          versions: {
-            where: { active: true },
-            select: {
-              anchor: {
-                select: { notes: true, userStoryTags: true },
-              },
-            },
-            take: 1,
-          },
-        },
-      },
+      presetVersion: { select: { presetId: true } },
     },
-    orderBy: { presetId: 'asc' },
+    orderBy: { presetVersion: { presetId: 'asc' } },
   });
 
   // Whether the vector column is populated can't come back through the typed
@@ -446,15 +443,14 @@ export async function backfillPresetEmbeddings(
   }> = [];
 
   for (const row of rows) {
-    const anchor = row.preset.versions[0]?.anchor;
     const candidate = {
       retrievalId: row.id,
-      presetId: row.presetId,
+      presetId: row.presetVersion.presetId,
       name: row.name,
       description: row.description,
       keywords: row.keywords,
-      notes: anchor?.notes ?? '',
-      userStoryTags: anchor?.userStoryTags ?? [],
+      notes: row.notes,
+      userStoryTags: row.userStoryTags,
     };
     if (!hasVector.has(row.id)) {
       result.missing++;
@@ -497,28 +493,24 @@ export async function recordActuals(
   db: PrismaClient,
   entry: ActualsEntry,
 ): Promise<{ version: number }> {
-  // Get current active version + its full anchor (the anchor is where the hours
-  // and everything else that carries forward live).
+  // Get current active version + its full anchor, retrieval and composition.
   const current = await db.presetVersion.findFirst({
     where: { presetId: entry.presetId, active: true },
     select: {
       version: true,
       sourceEstimateId: true,
       anchor: true,
+      retrieval: true,
+      composition: true,
     },
   });
 
-  if (!current?.anchor) {
+  if (!current?.anchor || !current.retrieval || !current.composition) {
     throw new Error(`No active preset version found for presetId: ${entry.presetId}`);
   }
-
-  const prevAnchor = current.anchor;
-
-  // Deactivate current version
-  await db.presetVersion.updateMany({
-    where: { presetId: entry.presetId, active: true },
-    data: { active: false },
-  });
+  const anchor = current.anchor;
+  const retrieval = current.retrieval;
+  const composition = current.composition;
 
   const newVersion = current.version + 1;
 
@@ -527,45 +519,76 @@ export async function recordActuals(
   // `beHours = actual; feHours = round(actual * 0.4)`, inflating *measured*
   // delivered hours by 40% — the calibration path made the library worse than
   // not calibrating at all.
-  const devActual = entry.role === 'DEV' ? Math.round(entry.actualHours) : prevAnchor.devHours;
+  const devActual = entry.role === 'DEV' ? Math.round(entry.actualHours) : anchor.devHours;
 
-  const version = await db.presetVersion.create({
-    data: {
-      presetId: entry.presetId,
-      version: newVersion,
-      active: true,
-      changeMotivation: 'POST_DELIVERY_VALIDATION',
-      sourceEstimateId: current.sourceEstimateId,
-      changeReason: `Actuals for ${entry.role}: ${entry.actualHours}h`,
-    },
-    select: { id: true },
-  });
+  // One transaction so the new version and its three concern rows appear (or
+  // don't) together — no version→anchor gap that makes the preset vanish.
+  await db.$transaction(async (tx) => {
+    await tx.presetVersion.updateMany({
+      where: { presetId: entry.presetId, active: true },
+      data: { active: false },
+    });
 
-  // Clone the anchor for this version, changing only the dev hours (and notes
-  // when provided). The retrieval surface and composition are one-per-preset
-  // and carry over untouched.
-  await db.presetAnchor.create({
-    data: {
-      presetVersionId: version.id,
-      devHours: devActual,
-      touchesFrontend: prevAnchor.touchesFrontend,
-      touchesBackend: prevAnchor.touchesBackend,
-      beHours: null,
-      feHours: null,
-      platforms: prevAnchor.platforms,
-      reqType: prevAnchor.reqType,
-      userStoryTags: prevAnchor.userStoryTags,
-      projectSizeFit: prevAnchor.projectSizeFit,
-      integrationCount: prevAnchor.integrationCount,
-      dataVolume: prevAnchor.dataVolume,
-      phase: prevAnchor.phase,
-      aiAssist: prevAnchor.aiAssist,
-      risk: prevAnchor.risk,
-      spikeNeeded: prevAnchor.spikeNeeded,
-      notes: entry.notes ?? prevAnchor.notes,
-      taxonomyKey: prevAnchor.taxonomyKey,
-      category: prevAnchor.category,
-    },
+    const version = await tx.presetVersion.create({
+      data: {
+        presetId: entry.presetId,
+        version: newVersion,
+        active: true,
+        changeMotivation: 'POST_DELIVERY_VALIDATION',
+        sourceEstimateId: current.sourceEstimateId,
+        changeReason: `Actuals for ${entry.role}: ${entry.actualHours}h`,
+      },
+      select: { id: true },
+    });
+
+    await tx.presetAnchor.create({
+      data: {
+        presetVersionId: version.id,
+        devHours: devActual,
+        touchesFrontend: anchor.touchesFrontend,
+        touchesBackend: anchor.touchesBackend,
+        beHours: null,
+        feHours: null,
+        platforms: anchor.platforms,
+        reqType: anchor.reqType,
+        projectSizeFit: anchor.projectSizeFit,
+        integrationCount: anchor.integrationCount,
+        dataVolume: anchor.dataVolume,
+        phase: anchor.phase,
+        aiAssist: anchor.aiAssist,
+        risk: anchor.risk,
+        spikeNeeded: anchor.spikeNeeded,
+        taxonomyKey: anchor.taxonomyKey,
+        category: anchor.category,
+      },
+    });
+
+    // Retrieval and composition are cloned verbatim — an actuals entry changes
+    // only the anchor's hours, never how the preset is found or sequenced.
+    await tx.presetRetrieval.create({
+      data: {
+        presetVersionId: version.id,
+        name: retrieval.name,
+        description: retrieval.description,
+        keywords: retrieval.keywords,
+        notes: entry.notes ?? retrieval.notes,
+        userStoryTags: retrieval.userStoryTags,
+      },
+    });
+
+    // An actuals entry that carries new notes changes the embedding text, so the
+    // carried vector lands stale by design — the embeddingText mismatch is what
+    // queues it for re-embedding. Stale and findable beats absent.
+    await carryPresetVector(tx, retrieval.id, version.id);
+
+    await tx.presetComposition.create({
+      data: {
+        presetVersionId: version.id,
+        requires: composition.requires,
+        blocks: composition.blocks,
+        canParallel: composition.canParallel,
+      },
+    });
   });
 
   return { version: newVersion };

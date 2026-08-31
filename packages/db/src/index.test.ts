@@ -12,8 +12,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetId" = 'TEST_P01'`;
-  await db.$executeRaw`DELETE FROM "PresetComposition" WHERE "presetId" = 'TEST_P01'`;
+  await db.$executeRaw`DELETE FROM "PresetRetrieval" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = 'TEST_P01')`;
+  await db.$executeRaw`DELETE FROM "PresetComposition" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = 'TEST_P01')`;
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = 'TEST_P01')`;
   await db.$executeRaw`DELETE FROM "PresetVersion" WHERE "presetId" = 'TEST_P01'`;
   await db.$executeRaw`DELETE FROM "Preset" WHERE "id" = 'TEST_P01'`;
@@ -44,7 +44,6 @@ describe('WS1-02: Preset + PresetVersion CRUD', () => {
             touchesBackend: true,
             touchesFrontend: true,
             platforms: ['Shopify'],
-            userStoryTags: [],
             projectSizeFit: ['SMB'],
             integrationCount: 1,
             dataVolume: 'NONE',
@@ -52,17 +51,20 @@ describe('WS1-02: Preset + PresetVersion CRUD', () => {
             aiAssist: 'LOW',
             risk: 'MEDIUM',
             spikeNeeded: false,
+          },
+        },
+        retrieval: {
+          create: {
+            name: 'Test Preset',
+            description: 'A test preset',
+            keywords: ['checkout'],
+            userStoryTags: [],
             notes: 'test',
           },
         },
-      },
-    });
-    await db.presetRetrieval.create({
-      data: {
-        presetId: 'TEST_P01',
-        name: 'Test Preset',
-        description: 'A test preset',
-        keywords: ['checkout'],
+        composition: {
+          create: { requires: [], blocks: [], canParallel: true },
+        },
       },
     });
 
@@ -72,10 +74,9 @@ describe('WS1-02: Preset + PresetVersion CRUD', () => {
 
     const read = await db.presetVersion.findFirst({
       where: { presetId: 'TEST_P01' },
-      include: { anchor: true },
+      include: { anchor: true, retrieval: true },
     });
-    const retrieval = await db.presetRetrieval.findUnique({ where: { presetId: 'TEST_P01' } });
-    expect(retrieval?.name).toBe('Test Preset');
+    expect(read?.retrieval?.name).toBe('Test Preset');
     expect(read?.anchor?.devHours).toBe(60);
   });
 });

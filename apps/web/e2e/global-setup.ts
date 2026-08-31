@@ -138,8 +138,8 @@ export default async function globalSetup() {
     // A dedicated preset for the WS24-03 edit test. Reset to a clean active v1
     // each run (the edit test creates new versions). Scoped to this id so it
     // never touches the real 45-preset library in the shared DB.
-    await prisma.presetRetrieval.deleteMany({ where: { presetId: 'E2E-PRESET' } });
-    await prisma.presetComposition.deleteMany({ where: { presetId: 'E2E-PRESET' } });
+    await prisma.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: 'E2E-PRESET' } } });
+    await prisma.presetComposition.deleteMany({ where: { presetVersion: { presetId: 'E2E-PRESET' } } });
     await prisma.$executeRawUnsafe(`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = 'E2E-PRESET')`);
     await prisma.presetVersion.deleteMany({ where: { presetId: 'E2E-PRESET' } });
     await prisma.preset.upsert({ where: { id: 'E2E-PRESET' }, update: {}, create: { id: 'E2E-PRESET' } });
@@ -149,52 +149,51 @@ export default async function globalSetup() {
         version: 1,
         active: true,
         changeReason: 'e2e bootstrap',
+        anchor: {
+          create: {
+            category: 'E2E',
+            // One dev figure; the flags are reference metadata. Legacy be/fe left
+            // unset (nullable) exactly as the pipeline now writes them.
+            devHours: 30,
+            touchesBackend: true,
+            touchesFrontend: true,
+            platforms: ['web'],
+            reqType: 'Integration',
+            projectSizeFit: ['SMB'],
+            integrationCount: 1,
+            dataVolume: 'LOW',
+            phase: 'CORE',
+            aiAssist: 'LOW',
+            risk: 'LOW',
+            spikeNeeded: false,
+          },
+        },
+        retrieval: {
+          create: {
+            name: 'E2E Seeded Preset',
+            description: 'A preset used by the WS24-03 admin test.',
+            keywords: ['e2e'],
+            userStoryTags: [],
+            notes: '',
+          },
+        },
+        composition: { create: { requires: [], blocks: [], canParallel: true } },
       },
-    });
-    await prisma.presetAnchor.create({
-      data: {
-        presetVersionId: e2ePreset.id,
-        category: 'E2E',
-        // One dev figure; the flags are reference metadata. Legacy be/fe left
-        // unset (nullable) exactly as the pipeline now writes them.
-        devHours: 30,
-        touchesBackend: true,
-        touchesFrontend: true,
-        platforms: ['web'],
-        reqType: 'Integration',
-        userStoryTags: [],
-        projectSizeFit: ['SMB'],
-        integrationCount: 1,
-        dataVolume: 'LOW',
-        phase: 'CORE',
-        aiAssist: 'LOW',
-        risk: 'LOW',
-        spikeNeeded: false,
-        notes: '',
-      },
-    });
-    await prisma.presetRetrieval.create({
-      data: {
-        presetId: 'E2E-PRESET',
-        name: 'E2E Seeded Preset',
-        description: 'A preset used by the WS24-03 admin test.',
-        keywords: ['e2e'],
-      },
-    });
-    await prisma.presetComposition.create({
-      data: { presetId: 'E2E-PRESET', requires: [], blocks: [], canParallel: true },
+      include: { retrieval: true },
     });
 
     // Give it a vector so the edit test can prove saving doesn't de-index the
-    // preset. `queryPresetsByVector` filters on `embedding IS NOT NULL`, so a
-    // preset that loses its vector silently stops matching anything — which is
-    // exactly what savePreset used to do on every edit. Raw SQL because Prisma
-    // can't write an Unsupported("vector") column.
+    // preset. `findNearestPresets` filters on `embedding IS NOT NULL` for the
+    // active version, so a preset that loses its vector silently stops matching
+    // anything — which is exactly what savePreset used to do on every edit, and
+    // what `carryPresetVector` now prevents. The vector hangs off the version's
+    // retrieval row, so it is re-seeded per version, not per preset. Raw SQL
+    // because Prisma can't write an Unsupported("vector") column.
     await prisma.$executeRawUnsafe(
-      `UPDATE "PresetRetrieval" SET embedding = $1::vector, "embeddingText" = $2 WHERE "presetId" = $3`,
+      `UPDATE "PresetRetrieval" SET embedding = $1::vector, "embeddingText" = $2 WHERE id = $3`,
       `[${new Array(1536).fill(0).map((_, i) => (i === 3 ? 1 : 0)).join(',')}]`,
       'e2e seeded embedding text',
-      'E2E-PRESET',
+      e2ePreset.retrieval!.id,
     );
 
     // Prompts: reset to a clean active v1 each run. The WS24-05 prompt editor

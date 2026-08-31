@@ -61,9 +61,13 @@ describe('AEH-228: prisma schema parser', () => {
   });
 
   it('keeps ordinary scalars auditable, including enums and lists', () => {
+    // `notes` and `userStoryTags` sit on PresetRetrieval, not the anchor: they
+    // feed the embedding text, so AEH-244 put them with the rest of the
+    // retrieval surface. `phase` is anchor-side.
+    const retrieval = schema.models.get('PresetRetrieval') ?? [];
     const anchor = schema.models.get('PresetAnchor') ?? [];
-    const notes = anchor.find((f) => f.name === 'notes');
-    const userStoryTags = anchor.find((f) => f.name === 'userStoryTags');
+    const notes = retrieval.find((f) => f.name === 'notes');
+    const userStoryTags = retrieval.find((f) => f.name === 'userStoryTags');
     const phase = anchor.find((f) => f.name === 'phase');
     expect([notes?.family, userStoryTags?.isList, phase?.family]).toEqual(['string', true, 'enum']);
     for (const f of [notes, userStoryTags, phase]) expect(isAuditableField(f!)).toBe(true);
