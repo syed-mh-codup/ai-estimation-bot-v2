@@ -47,6 +47,55 @@ export function dueReminder(dueAt: Date, now: Date): ReminderKind | null {
 }
 
 /**
+ * What a deadline is doing right now, as a semantic state rather than a colour.
+ *
+ * Deliberately not a tone name: this module knows about dates, not about the
+ * palette. The dashboard maps these onto pills; the email maps them onto its
+ * own inline styles. Neither mapping belongs here.
+ *
+ * FINALISED collapses to `settled` whatever the date says — an estimate that is
+ * finished cannot be late, and colouring it red would be a standing false alarm
+ * on every old estimate that ever had a deadline.
+ */
+export type DueState = 'overdue' | 'due-today' | 'upcoming' | 'settled' | 'none';
+
+export function dueState(dueAt: Date | null, now: Date, isFinalised: boolean): DueState {
+  if (!dueAt) return 'none';
+  if (isFinalised) return 'settled';
+  const days = daysUntilDue(dueAt, now);
+  if (days < 0) return 'overdue';
+  if (days === 0) return 'due-today';
+  return 'upcoming';
+}
+
+/**
+ * Dashboard ordering: what still needs doing, soonest first.
+ *
+ * Two groups, not three. Anything dated and unfinished sorts by `dueAt`
+ * ascending, which puts the most overdue at the very top and the soonest next
+ * with no special case between them — "most overdue first" and "soonest first"
+ * are the same rule. Everything else (undated, or finalised) falls below,
+ * newest first, which is the ordering the dashboard used to have throughout.
+ *
+ * This replaces created-date ordering as the default on purpose: a deadline
+ * column that does not reorder the table is a column you have to go looking
+ * through, and the whole point of it is not having to.
+ */
+export function compareByDue(
+  a: { dueAt: Date | null; status: string; createdAt: Date },
+  b: { dueAt: Date | null; status: string; createdAt: Date },
+  now: Date,
+): number {
+  const pressing = (e: { dueAt: Date | null; status: string }) =>
+    e.dueAt !== null && e.status !== 'FINALISED';
+  const ap = pressing(a);
+  const bp = pressing(b);
+  if (ap !== bp) return ap ? -1 : 1;
+  if (ap && bp) return daysUntilDue(a.dueAt!, now) - daysUntilDue(b.dueAt!, now);
+  return b.createdAt.getTime() - a.createdAt.getTime();
+}
+
+/**
  * Human phrasing for a deadline, so the rail, the dashboard and the email
  * subject all say the same thing about the same date.
  */

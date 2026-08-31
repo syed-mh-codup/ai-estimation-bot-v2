@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  compareByDue,
   daysUntilDue,
   dueLabel,
   dueReminder,
+  dueState,
   formatDueDate,
   fromDateInputValue,
   toDateInputValue,
@@ -76,6 +78,81 @@ describe('AEH-240: deadline arithmetic', () => {
       expect(dueLabel(dueAt, sweepAt('2026-09-12'))).toBe('due today');
       expect(dueLabel(dueAt, sweepAt('2026-09-13'))).toBe('1 day overdue');
       expect(dueLabel(dueAt, sweepAt('2026-09-15'))).toBe('3 days overdue');
+    });
+  });
+
+  describe('dueState — what the dashboard colours', () => {
+    const NOW = sweepAt('2026-09-12');
+
+    it('names each state', () => {
+      expect(dueState(due('2026-09-15'), NOW, false)).toBe('upcoming');
+      expect(dueState(due('2026-09-12'), NOW, false)).toBe('due-today');
+      expect(dueState(due('2026-09-10'), NOW, false)).toBe('overdue');
+      expect(dueState(null, NOW, false)).toBe('none');
+    });
+
+    it('a finalised estimate is never late', () => {
+      // Otherwise every old finalised estimate that ever carried a deadline
+      // would sit on the dashboard shouting in red forever.
+      expect(dueState(due('2026-01-01'), NOW, true)).toBe('settled');
+      expect(dueState(due('2026-12-01'), NOW, true)).toBe('settled');
+    });
+  });
+
+  describe('compareByDue — dashboard ordering', () => {
+    const NOW = sweepAt('2026-09-12');
+    const made = (d: string) => new Date(`${d}T12:00:00.000Z`);
+    const est = (id: string, dueAt: string | null, status = 'DRAFT', created = '2026-01-01') => ({
+      id,
+      dueAt: dueAt ? due(dueAt) : null,
+      status,
+      createdAt: made(created),
+    });
+
+    const order = (rows: ReturnType<typeof est>[]) =>
+      [...rows].sort((a, b) => compareByDue(a, b, NOW)).map((r) => r.id);
+
+    it('puts the most overdue first, then the soonest', () => {
+      expect(
+        order([
+          est('soon', '2026-09-14'),
+          est('very-late', '2026-08-01'),
+          est('today', '2026-09-12'),
+          est('a-bit-late', '2026-09-10'),
+        ]),
+      ).toEqual(['very-late', 'a-bit-late', 'today', 'soon']);
+    });
+
+    it('drops undated and finalised below everything with a deadline', () => {
+      expect(
+        order([
+          est('undated', null, 'DRAFT', '2026-09-01'),
+          est('finalised-late', '2026-08-01', 'FINALISED'),
+          est('due-later', '2026-11-01'),
+        ]),
+      ).toEqual(['due-later', 'undated', 'finalised-late']);
+    });
+
+    it('falls back to newest-created among those with no deadline pressure', () => {
+      // The ordering the dashboard used to have throughout, kept for the rows
+      // where a deadline has nothing to say.
+      expect(
+        order([
+          est('old', null, 'DRAFT', '2026-01-05'),
+          est('newest', null, 'DRAFT', '2026-09-09'),
+          est('middle', null, 'DRAFT', '2026-06-01'),
+        ]),
+      ).toEqual(['newest', 'middle', 'old']);
+    });
+
+    it('is a consistent comparator — reversing the input does not change the order', () => {
+      const rows = [
+        est('a', '2026-09-10'),
+        est('b', null, 'DRAFT', '2026-05-05'),
+        est('c', '2026-09-20'),
+        est('d', '2026-08-01', 'FINALISED'),
+      ];
+      expect(order(rows)).toEqual(order([...rows].reverse()));
     });
   });
 

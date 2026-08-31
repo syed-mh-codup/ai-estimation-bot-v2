@@ -19,6 +19,9 @@ export type DueReminderSender = (n: {
   kind: ReminderKind;
   dueAt: Date;
   now: Date;
+  /** Which branch the fallback took, so the copy can stop claiming the owner
+   *  is the custodian when nobody is. */
+  recipient: 'custodian' | 'owner';
 }) => Promise<{ sent: boolean }>;
 
 /**
@@ -91,6 +94,7 @@ export async function sweepDueReminders(
       kind,
       dueAt: est.dueAt,
       now,
+      recipient: custodian ? 'custodian' : 'owner',
     });
 
     // Upsert rather than create: two sweeps overlapping would otherwise race

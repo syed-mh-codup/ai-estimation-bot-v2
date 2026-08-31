@@ -7,8 +7,8 @@ import { deleteEstimate } from '@/app/estimates/[id]/actions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/card';
-import { Pill, STATUS_TONE } from '@/components/ui/pill';
-import { daysUntilDue, dueLabel, formatDueDate } from '@/lib/due-date';
+import { Pill, STATUS_TONE, type PillTone } from '@/components/ui/pill';
+import { compareByDue, dueLabel, dueState, formatDueDate, type DueState } from '@/lib/due-date';
 
 // Routed through the shared `deleteEstimate` rather than calling prisma here:
 // the owner-or-admin check lives in that one place, and a second delete path
@@ -36,23 +36,48 @@ function Th({
   );
 }
 
+/** Pills for the states that need acting on; quiet text for the ones that don't. */
+const URGENT_TONE: Partial<Record<DueState, PillTone>> = {
+  overdue: 'brick',
+  'due-today': 'bronze',
+};
+
+function DueMark({ state, children }: { state: DueState; children: string }) {
+  const tone = URGENT_TONE[state];
+  if (tone) {
+    return (
+      <Pill tone={tone} className="px-2 py-0.5 text-[10px]">
+        {state === 'overdue' ? 'Overdue' : 'Due today'}
+      </Pill>
+    );
+  }
+  // `settled` is a finalised estimate whose date has passed. It says the date
+  // and stops there: nothing is owed, so nothing should catch the eye.
+  return <span className="text-[11.5px] text-ink-4">{state === 'settled' ? '' : children}</span>;
+}
+
 export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user) {
     redirect('/login');
   }
 
-  const estimates = await prisma.estimate.findMany({
-    orderBy: { createdAt: 'desc' },
-    include: {
-      owner: { select: { email: true } },
-      custodian: { select: { email: true, name: true } },
-    },
-  });
-
   // One clock for the whole table, so two rows a millisecond apart can't land
   // on different days.
   const now = new Date();
+
+  // Ordered in memory rather than by the database: "overdue, then soonest, then
+  // everything else" depends on today's date and on status together, which is a
+  // rule SQL can only express as a CASE this page would then have to keep in
+  // step with `compareByDue`. The dashboard loads every estimate anyway.
+  const estimates = (
+    await prisma.estimate.findMany({
+      include: {
+        owner: { select: { email: true } },
+        custodian: { select: { email: true, name: true } },
+      },
+    })
+  ).sort((a, b) => compareByDue(a, b, now));
 
   // Everyone sees every estimate — that's the shared ledger. Only the owner or
   // an admin may destroy one, so only they get the control.
@@ -155,19 +180,19 @@ export default async function DashboardPage() {
                   </td>
                   <td className="px-3 py-3 text-[12.5px] whitespace-nowrap">
                     {e.dueAt ? (
-                      <span
-                        className={
-                          // Only lateness earns colour. A deadline three weeks
-                          // out is information; a missed one is a problem.
-                          daysUntilDue(e.dueAt, now) < 0 && e.status !== 'FINALISED'
-                            ? 'font-medium text-brick'
-                            : 'text-ink-2'
-                        }
-                        title={dueLabel(e.dueAt, now)}
-                        data-testid={`estimate-due-${e.id}`}
-                      >
-                        <span className="num">{formatDueDate(e.dueAt)}</span>
-                      </span>
+                      <div data-testid={`estimate-due-${e.id}`}>
+                        <span className="num text-ink-2">{formatDueDate(e.dueAt)}</span>
+                        {/* The state gets a WORD, not just a colour — the same
+                            rule the status pills follow, and the reason this
+                            survives greyscale, colourblindness and a printout.
+                            Only urgency is worth a pill; everything else says
+                            how far off it is in plain muted text. */}
+                        <div className="mt-0.5">
+                          <DueMark state={dueState(e.dueAt, now, e.status === 'FINALISED')}>
+                            {dueLabel(e.dueAt, now)}
+                          </DueMark>
+                        </div>
+                      </div>
                     ) : (
                       <span className="text-ink-4">—</span>
                     )}

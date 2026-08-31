@@ -117,7 +117,20 @@ describe('AEH-240: the daily deadline sweep', () => {
     ]);
     await sweepDueReminders(db, NOW, send);
 
-    expect(send.mock.calls[0]![0]).toMatchObject({ to: 'cust@codup.co', name: 'Casey' });
+    expect(send.mock.calls[0]![0]).toMatchObject({
+      to: 'cust@codup.co',
+      name: 'Casey',
+      recipient: 'custodian',
+    });
+  });
+
+  it('tells the sender which branch it took, so the copy can be honest', async () => {
+    // The owner receiving a nudge by default must not be told they are the
+    // custodian — they are not, and the fix is for somebody to become one.
+    findMany.mockResolvedValue([candidate()]);
+    await sweepDueReminders(db, NOW, send);
+
+    expect(send.mock.calls[0]![0]).toMatchObject({ to: 'owner@codup.co', recipient: 'owner' });
   });
 
   it('falls back to the owner when the custodian has been disabled', async () => {
@@ -132,7 +145,7 @@ describe('AEH-240: the daily deadline sweep', () => {
     ]);
     await sweepDueReminders(db, NOW, send);
 
-    expect(send.mock.calls[0]![0]).toMatchObject({ to: 'owner@codup.co' });
+    expect(send.mock.calls[0]![0]).toMatchObject({ to: 'owner@codup.co', recipient: 'owner' });
   });
 
   it('records the nudge even when the send did not go anywhere', async () => {
