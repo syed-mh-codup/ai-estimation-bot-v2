@@ -54,7 +54,8 @@ same instant the unit tests use as their sweep clock. **The one thing never
 exercised live is Inngest registering the function.** Run `pnpm dev` and
 `pnpm dev:inngest`, then confirm `estimate-due-reminders` appears in the dev UI.
 
-Not done: not merged, not pushed. Ticket left In Progress pending that check.
+The ticket is Done in Jira (closed by the user). The branch is **not merged and
+not pushed** — that is the only outstanding action, and it lands AEH-244 too.
 
 ## Databases
 
