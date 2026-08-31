@@ -59,6 +59,14 @@ applying the migration to local docker first catches drift just as well.
 152 prompt versions) and Neon test `ep-wild-heart` (24 estimates, 46 presets)
 are both intact and both carry all 24 migrations. No code was lost.
 
+**The restore is the only recovery — copying from another database will not
+work.** I checked: neither surviving database holds anything resembling
+dev/main's content. Their prompt bodies are 21–26 characters (test fixtures),
+local docker's 152 PromptVersions are 143 throwaway LIBRARIAN rows from test
+runs, every kind sits at v1, and between them they have one preset embedding.
+The hand-tuned v3/v4 prompts, the 45 embedded presets and the real estimates
+exist only in whatever Neon's history still holds.
+
 ## Current: AEH-240 — custodian, deadlines, reminders
 
 Branch `feat/aeh-240-custodian-deadlines`, commit `e002b2b`. **Stacked on
