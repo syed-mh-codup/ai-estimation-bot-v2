@@ -9,98 +9,72 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## ⚠️ URGENT — Neon dev/main was wiped on 2026-08-31, restore it
+## Resolved: the Neon dev/main wipe of 2026-08-31
 
-**`ep-polished-credit-atso15cy` (Neon dev/main, `neondb`) has zero rows in every
-table.** The schema is intact and fully current; the data is gone.
+**Restored and fully verified — nothing outstanding.** Kept here only until
+AEH-240 closes; the lesson itself lives in the `prisma-shadow-db-wiped-neon`
+memory, which is where it belongs long-term.
 
-**Cause — mine, in this session.** I ran, from `packages/db`:
+I wiped `ep-polished-credit` (Neon dev/main) by running `prisma migrate diff`
+with a shadow-database URL built by appending `_shadow` to the real connection
+string. The suffix landed inside the query string (`?sslmode=require_shadow`),
+so the shadow database resolved to the live one — and `migrate diff
+--from-migrations` resets its shadow database before replaying migrations into
+it. The user restored from a four-hour-old backup the same day.
 
-    npx prisma migrate diff --from-migrations prisma/migrations \
-      --to-schema-datamodel prisma/schema.prisma \
-      --shadow-database-url "<packages/db/.env DATABASE_URL>_shadow"
+Verified after the restore and the re-migration:
 
-The `_shadow` suffix was appended to a URL already ending in `?sslmode=require`,
-producing `?sslmode=require_shadow` — the same host and the same database, with
-a malformed parameter that was ignored. `migrate diff --from-migrations`
-**resets its shadow database and replays every migration into it**, so dev/main
-was dropped and rebuilt empty. It writes no ledger, which is why
-`_prisma_migrations` is missing and `migrate deploy` now answers P3005.
+    24 migrations, ledger consistent
+    45 presets — each with a PresetRetrieval, PresetAnchor and PresetComposition
+    45 of 45 retrieval rows carry a non-null embedding; 0 orphans in any of the three
+    prompts active at v3/v4 with full ~5000-character bodies
+    19 users, 4 estimates, 50 taxonomy nodes
 
-**When:** between 10:10 and 10:20 UTC (15:10–15:20 PKT) on 2026-08-31.
-**Nothing has been written to dev/main since** — the failed `migrate deploy`
-aborted at P3005 before applying anything, and every command after it was a
-SELECT. A restore to any point before 10:05 UTC loses nothing.
-
-**Recovery — the user's action, in the Neon console:** Branch Restore (Time
-Travel) on the dev/main branch, to **2026-08-31 10:05 UTC / 15:05 PKT or
-earlier**. Neon snapshots the current state before restoring, so it is
-reversible. The history window is finite and plan-dependent, so this is
-time-sensitive.
-
-**After the restore:**
-
-1. The ledger will be back at 23 migrations. Apply AEH-240's with the normal
-   path: `DATABASE_URL=<direct> DIRECT_URL=<direct> pnpm --filter @repo/db exec
-   prisma migrate deploy`.
-2. Verify: expect ~45 presets each with a non-null vector, prompts at v3/v4,
-   plus users and estimates.
-3. **Do not run `pnpm db:seed` against dev/main under any circumstances** — see
-   the AEH-259 note further down. It would overwrite the hand-tuned prompts with
-   their two-sentence v1 bodies, which is the one loss a restore is meant to
-   undo.
-
-**Never again:** do not derive a shadow-database URL by string-appending to a
-real connection string. Point `--shadow-database-url` at a scratch database on
-local docker (`localhost:5433/prisma_shadow`), or skip `migrate diff` entirely —
-applying the migration to local docker first catches drift just as well.
-
-**Unaffected:** local docker `ai_estimation` (21 estimates, 51 presets, 12 users,
-152 prompt versions) and Neon test `ep-wild-heart` (24 estimates, 46 presets)
-are both intact and both carry all 24 migrations. No code was lost.
-
-**The restore is the only recovery — copying from another database will not
-work.** I checked: neither surviving database holds anything resembling
-dev/main's content. Their prompt bodies are 21–26 characters (test fixtures),
-local docker's 152 PromptVersions are 143 throwaway LIBRARIAN rows from test
-runs, every kind sits at v1, and between them they have one preset embedding.
-The hand-tuned v3/v4 prompts, the 45 embedded presets and the real estimates
-exist only in whatever Neon's history still holds.
+The restore point predated AEH-244, so `migrate deploy` applied four migrations
+rather than one: the three AEH-244 ones plus AEH-240's. I checked the split
+migration before running it — it does `INSERT … SELECT` for every flat column,
+embeddings included, into the new tables *before* the next migration drops them.
+Nothing was lost a second time.
 
 ## Current: AEH-240 — custodian, deadlines, reminders
 
-Branch `feat/aeh-240-custodian-deadlines`, commit `e002b2b`. **Stacked on
+Branch `feat/aeh-240-custodian-deadlines`. **Stacked on
 `feat/aeh-244-preset-concern-split`, which is still unmerged** — branching from
 master would have put the schema behind the three AEH-244 migrations every
-database already carries.
+database already carries. Merging AEH-240 therefore lands AEH-244 with it.
 
-Implementation is complete and verified: `pnpm -r build` green, `pnpm lint`
-clean, full `pnpm test` green (56 files, 459 tests, 22 of them new), field and
-export audits clean via `pnpm --filter @repo/audit run audit` (the root
-`pnpm run audit` script is shadowed by pnpm's own `audit` and prints a
-vulnerability table instead).
+Complete and verified: `pnpm -r build` green, `pnpm lint` clean, full
+`pnpm test` green (56 files, 459 tests, 22 of them new), field and export audits
+clean via `pnpm --filter @repo/audit run audit` (the root `pnpm run audit`
+script is shadowed by pnpm's own `audit` and prints a vulnerability table
+instead). Migrations applied to all four databases.
 
-Migrations applied: local docker dev ✅, local docker test ✅, Neon test ✅,
-**Neon dev/main ❌ — blocked on the restore above.**
+The cron expression is verified to fire at 09:00 PKT / 04:00 UTC daily — the
+same instant the unit tests use as their sweep clock. **The one thing never
+exercised live is Inngest registering the function.** Run `pnpm dev` and
+`pnpm dev:inngest`, then confirm `estimate-due-reminders` appears in the dev UI.
 
-Not done: not merged, not pushed. Ticket left In Progress.
+Not done: not merged, not pushed. Ticket left In Progress pending that check.
 
 ## Databases
 
     local docker  ai_estimation        24 migrations, data intact
     local docker  ai_estimation_test   24 migrations
     Neon test     (ep-wild-heart)      24 migrations, data intact
-    Neon dev/main (ep-polished-credit) SCHEMA ONLY, NO LEDGER, NO DATA — restore
+    Neon dev/main (ep-polished-credit) 24 migrations, restored and verified
 
 ⚠️ Still true from AEH-259: seed Neon dev/main with targeted scripts only, never
 `pnpm db:seed`. It carries hand-tuned prompts at v3 and v4 whose text exists
-nowhere in the repo, and the bootstrap seed would revert all nine to their
-two-sentence v1 bodies.
+nowhere in the repo, and the bootstrap seed would revert all ten to their
+two-sentence v1 bodies. The restore above is what proved this is not theoretical:
+those bodies are ~5000 characters each, and no other database in the project has
+anything resembling them.
 
 ## Related tickets
 
-**AEH-237** — multi-level approval, blocked by AEH-240. Now unblocked: an
-estimate has a named person on it who is not merely its creator.
+**AEH-237** — multi-level approval. Listed as blocked by AEH-240; the dependency
+is satisfied in the code (an estimate now carries a named person who is not
+merely its creator), though AEH-240 is not yet Done in Jira.
 
 **AEH-282** — the e2e suite. Open, and the reason AEH-240 shipped with unit
 tests rather than e2e specs. Worth an `admin-presets`-style spec later covering
