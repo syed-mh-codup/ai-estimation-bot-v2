@@ -23,10 +23,9 @@ describe('AEH-228: prisma schema parser', () => {
   });
 
   it('finds all models and enums', () => {
-    // 17 models / 13 enums since AEH-259 added OracleThread, OracleMessage and
-    // OracleRole on top of AEH-263's HiddenWorkFinding, HiddenWorkOutcome and
-    // TaxonomyStatus.
-    expect(schema.models.size).toBe(17);
+    // 17 models / 13 enums before AEH-244 split PresetVersion's flat row into
+    // PresetRetrieval + PresetAnchor + PresetComposition (three new models).
+    expect(schema.models.size).toBe(20);
     expect(schema.enums.size).toBe(13);
   });
 
@@ -43,7 +42,7 @@ describe('AEH-228: prisma schema parser', () => {
 
   it('excludes the Unsupported vector column', () => {
     const embedding = schema.models
-      .get('PresetVersion')
+      .get('PresetRetrieval')
       ?.find((f) => f.name === 'embedding');
     expect(embedding?.kind).toBe('unsupported');
     expect(isAuditableField(embedding!)).toBe(false);
@@ -62,12 +61,12 @@ describe('AEH-228: prisma schema parser', () => {
   });
 
   it('keeps ordinary scalars auditable, including enums and lists', () => {
-    const pv = schema.models.get('PresetVersion') ?? [];
-    const notes = pv.find((f) => f.name === 'notes');
-    const keywords = pv.find((f) => f.name === 'keywords');
-    const phase = pv.find((f) => f.name === 'phase');
-    expect([notes?.family, keywords?.isList, phase?.family]).toEqual(['string', true, 'enum']);
-    for (const f of [notes, keywords, phase]) expect(isAuditableField(f!)).toBe(true);
+    const anchor = schema.models.get('PresetAnchor') ?? [];
+    const notes = anchor.find((f) => f.name === 'notes');
+    const userStoryTags = anchor.find((f) => f.name === 'userStoryTags');
+    const phase = anchor.find((f) => f.name === 'phase');
+    expect([notes?.family, userStoryTags?.isList, phase?.family]).toEqual(['string', true, 'enum']);
+    for (const f of [notes, userStoryTags, phase]) expect(isAuditableField(f!)).toBe(true);
     expect(auditableFields(schema).length).toBeGreaterThan(80);
   });
 

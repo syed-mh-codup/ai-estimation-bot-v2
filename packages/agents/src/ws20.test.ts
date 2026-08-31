@@ -54,6 +54,9 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up promoted presets
   for (const id of promotedPresetIds) {
+    await db.presetRetrieval.deleteMany({ where: { presetId: id } });
+    await db.presetComposition.deleteMany({ where: { presetId: id } });
+    await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${id})`;
     await db.presetVersion.deleteMany({ where: { presetId: id } });
     await db.preset.deleteMany({ where: { id } });
   }
@@ -133,8 +136,8 @@ describe('WS20-02: Embeddings stored for promoted presets', () => {
       // embedding is stored via raw SQL, not accessible via Prisma model
       // Verify by running a raw query
       const rows = await db.$queryRawUnsafe<Array<{ has_embedding: boolean }>>(
-        `SELECT embedding IS NOT NULL AS has_embedding FROM "PresetVersion" WHERE id = $1`,
-        pv!.id,
+        `SELECT r.embedding IS NOT NULL AS has_embedding FROM "PresetRetrieval" r WHERE r."presetId" = $1`,
+        presetId,
       );
       expect(rows[0]?.has_embedding).toBe(true);
     }

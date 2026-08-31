@@ -155,17 +155,94 @@ async function main() {
         update: {},
         create: { id, code: id, origin: 'SEEDED' },
       });
-      await prisma.presetVersion.upsert({
+
+      // The row is split across three tables now (AEH-244): the version shell,
+      // the anchor (estimate fields) and the retrieval surface (name/description/
+      // keywords) plus composition (requires/blocks/canParallel).
+      const version = await prisma.presetVersion.upsert({
         where: { presetId_version: { presetId: preset.id, version: 1 } },
-        update: { ...data, active: true },
+        update: { active: true },
         create: {
           presetId: preset.id,
           version: 1,
           active: true,
-          ...data,
           changeReason: 'xlsx import v2',
         },
       });
+
+      await prisma.presetAnchor.upsert({
+        where: { presetVersionId: version.id },
+        update: {
+          category: data.category,
+          devHours: data.devHours,
+          touchesFrontend: data.touchesFrontend,
+          touchesBackend: data.touchesBackend,
+          beHours: data.beHours,
+          feHours: data.feHours,
+          platforms: data.platforms,
+          reqType: data.reqType,
+          userStoryTags: data.userStoryTags,
+          projectSizeFit: data.projectSizeFit,
+          integrationCount: data.integrationCount,
+          dataVolume: data.dataVolume,
+          phase: data.phase,
+          aiAssist: data.aiAssist,
+          risk: data.risk,
+          spikeNeeded: data.spikeNeeded,
+          notes: data.notes,
+        },
+        create: {
+          presetVersionId: version.id,
+          category: data.category,
+          devHours: data.devHours,
+          touchesFrontend: data.touchesFrontend,
+          touchesBackend: data.touchesBackend,
+          beHours: data.beHours,
+          feHours: data.feHours,
+          platforms: data.platforms,
+          reqType: data.reqType,
+          userStoryTags: data.userStoryTags,
+          projectSizeFit: data.projectSizeFit,
+          integrationCount: data.integrationCount,
+          dataVolume: data.dataVolume,
+          phase: data.phase,
+          aiAssist: data.aiAssist,
+          risk: data.risk,
+          spikeNeeded: data.spikeNeeded,
+          notes: data.notes,
+        },
+      });
+
+      await prisma.presetRetrieval.upsert({
+        where: { presetId: preset.id },
+        update: {
+          name: data.name,
+          description: data.description,
+          keywords: data.keywords,
+        },
+        create: {
+          presetId: preset.id,
+          name: data.name,
+          description: data.description,
+          keywords: data.keywords,
+        },
+      });
+
+      await prisma.presetComposition.upsert({
+        where: { presetId: preset.id },
+        update: {
+          requires: data.requires,
+          blocks: data.blocks,
+          canParallel: data.canParallel,
+        },
+        create: {
+          presetId: preset.id,
+          requires: data.requires,
+          blocks: data.blocks,
+          canParallel: data.canParallel,
+        },
+      });
+
       count += 1;
     }
     // Keep allocated codes clear of anything the spreadsheet just introduced.

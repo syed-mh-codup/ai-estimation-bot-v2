@@ -217,7 +217,7 @@ model Preset {
   /// which are load-bearing: requires/blocks form a real dependency graph
   /// between presets, MenuItem.sourcePresetId rows point at them, and live
   /// agent prompts name the range.
-  id       String          @id @default(cuid())
+  id          String             @id @default(cuid())
   /// Readable handle — "P46". Unique, shown everywhere, never typed by a user:
   /// allocated from a Postgres sequence (see allocatePresetCode) so concurrent
   /// finalises can't collide the way max()+1 would.
@@ -225,10 +225,12 @@ model Preset {
   /// Numbers are free-flowing — no zero padding, no fixed width. Codes imported
   /// from the xlsx keep that file's own formatting (P01–P45) because people
   /// cross-reference the spreadsheet; allocated codes are plain (P46, P100).
-  code     String?         @unique
+  code        String?            @unique
   /// Where this preset came from. See PresetOrigin.
-  origin   PresetOrigin    @default(MANUAL)
-  versions PresetVersion[]
+  origin      PresetOrigin       @default(MANUAL)
+  versions    PresetVersion[]
+  retrieval   PresetRetrieval?
+  composition PresetComposition?
 }
 
 model PresetVersion {
@@ -238,51 +240,10 @@ model PresetVersion {
   version  Int
   active   Boolean @default(false)
 
-  category         String
-  name             String
-  description      String
-  /// The preset's dev effort as ONE number. Frontend and backend are estimated
-  /// together because delivery is full-stack — the split used to exist to
-  /// allocate work across separate FE/BE resources, and that need is gone.
-  devHours         Int
-  /// Which sides of the stack this preset's work covers. Reference only: they
-  /// describe `devHours`, they never divide it.
-  touchesFrontend  Boolean     @default(false)
-  touchesBackend   Boolean     @default(false)
-  /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
-  /// in `docs/Estimate Presets (ISM).xlsx`, retained because the decision to
-  /// estimate as one figure may be revisited and this data can't be recovered.
-  /// NULL on every version created after consolidation — meaning "not tracked",
-  /// which is why these are nullable rather than 0.
-  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited. Surfacing it would invite anchoring on a split the estimator no longer produces.
-  beHours          Int?
-  /// The frontend half of the same archived split; see beHours above.
-  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited. Surfacing it would invite anchoring on a split the estimator no longer produces.
-  feHours          Int?
-  platforms        String[]
-  reqType          String
-  keywords         String[]
-  userStoryTags    String[]
-  projectSizeFit   String[]
-  integrationCount Int
-  dataVolume       DataVolume
-  phase            PresetPhase
-  requires         String[]
-  blocks           String[]
-  canParallel      Boolean
-  aiAssist         Level
-  risk             Level
-  spikeNeeded      Boolean
-  notes            String
-
-  taxonomyKey   String?
-  /// pgvector embedding for Archivist similarity search
-  embedding     Unsupported("vector(1536)")?
-  /// The exact text `embedding` was generated from. Present so staleness is
-  /// decidable: an admin edit carries the old vector forward (never
-  /// de-indexing the preset) and the backfill re-embeds any row whose current
-  /// text no longer matches this. Null means "never embedded".
-  embeddingText String?
+  /// The estimate anchor — one per version, carrying the hours, risk, notes and
+  /// taxonomy that a preset contributes to an estimate. AEH-244 split this out
+  /// so the anchor can become a first-class costed-work record (AEH-243).
+  anchor   PresetAnchor?
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -297,6 +258,88 @@ model PresetVersion {
   sourceMenuItemId String?
 
   @@unique([presetId, version])
+}
+
+/// What makes a preset findable — the retrieval surface for Archivist similarity
+/// search. One row per preset (not per version): you search for "B2B checkout" and
+/// the latest description is what matters. AEH-244.
+model PresetRetrieval {
+  id            String   @id @default(cuid())
+  presetId      String   @unique
+  preset         Preset   @relation(fields: [presetId], references: [id])
+  name          String
+  description   String
+  keywords      String[]
+  /// The exact text `embedding` was generated from. Present so staleness is
+  /// decidable: an admin edit carries the old vector forward (never
+  /// de-indexing the preset) and the backfill re-embeds any row whose current
+  /// text no longer matches this. Null means "never embedded".
+  embeddingText String?
+  /// pgvector embedding for Archivist similarity search
+  embedding     Unsupported("vector(1536)")?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// The estimate anchor — what a preset contributes to an estimate. One row per
+/// version because the anchor changes with each version: a v2 may have different
+/// hours, risk, or notes. Its own table and own ID so AEH-243 can decide whether
+/// this IS the costed-work type or whether a separate CostedWork record references
+/// it. AEH-244.
+model PresetAnchor {
+  id                String   @id @default(cuid())
+  presetVersionId   String   @unique
+  presetVersion     PresetVersion @relation(fields: [presetVersionId], references: [id])
+  /// The preset's dev effort as ONE number. Frontend and backend are estimated
+  /// together because delivery is full-stack — the split used to exist to
+  /// allocate work across separate FE/BE resources, and that need is gone.
+  devHours          Int
+  /// Which sides of the stack this preset's work covers. Reference only: they
+  /// describe `devHours`, they never divide it.
+  touchesFrontend   Boolean     @default(false)
+  touchesBackend    Boolean     @default(false)
+  /// LEGACY, nullable, no longer written. The historical FE/BE split as recorded
+  /// in the xlsx, retained because the decision to estimate as one figure may be
+  /// revisited and this data can't be recovered. NULL means "not tracked".
+  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited.
+  beHours           Int?
+  /// The frontend half of the same archived split; see beHours above.
+  /// @backend-only Archived source data, kept because the xlsx FE/BE split cannot be reconstructed if the one-figure decision is ever revisited.
+  feHours           Int?
+  risk              Level
+  aiAssist          Level
+  dataVolume        DataVolume
+  integrationCount  Int
+  projectSizeFit    String[]
+  phase             PresetPhase
+  spikeNeeded       Boolean
+  /// Key assumption; if violated -> change request. Also contributes to the
+  /// embedding text (presetEmbeddingText) because it carries retrieval-relevant
+  /// meaning about what the preset actually assumes and excludes.
+  notes             String
+  category          String
+  reqType           String
+  platforms         String[]
+  /// B2B buyer | Dev ops | Marketing editor — also contributes to embedding text.
+  userStoryTags     String[]
+  taxonomyKey       String?
+}
+
+/// How a preset relates to other modules — composition rules. One row per preset
+/// (not per version): sequencing relationships are between presets, not versions.
+/// AEH-244; AEH-242 will likely turn requires/blocks into proper FK references.
+model PresetComposition {
+  id          String   @id @default(cuid())
+  presetId    String   @unique
+  preset      Preset   @relation(fields: [presetId], references: [id])
+  /// Preset codes this one must precede (e.g. ["P17"]). No FK — AEH-242 will
+  /// add referential integrity.
+  requires    String[]
+  /// Preset codes this one blocks (e.g. ["P18"]). No FK — same as requires.
+  blocks      String[]
+  canParallel Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────

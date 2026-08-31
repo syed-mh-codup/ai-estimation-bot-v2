@@ -31,40 +31,47 @@ const embedding: IEmbeddingProvider = { embed: vi.fn(), dimension: 1536 };
 
 async function makePreset(presetId: string, name: string, keywords: string[]) {
   await db.preset.upsert({ where: { id: presetId }, update: {}, create: { id: presetId } });
-  return db.presetVersion.create({
+  const version = await db.presetVersion.create({
     data: {
       presetId,
       version: 1,
       active: true,
-      category: 'test',
-      name,
-      description: 'A preset used by the embedding-backfill tests.',
-      devHours: 15,
-      touchesBackend: true,
-      touchesFrontend: true,
-      platforms: [],
-      reqType: 'FEATURE',
-      keywords,
-      userStoryTags: [],
-      projectSizeFit: [],
-      integrationCount: 0,
-      dataVolume: 'LOW',
-      phase: 'CORE',
-      requires: [],
-      blocks: [],
-      canParallel: true,
-      aiAssist: 'LOW',
-      risk: 'LOW',
-      spikeNeeded: false,
-      notes: '',
+      anchor: {
+        create: {
+          category: 'test',
+          reqType: 'FEATURE',
+          devHours: 15,
+          touchesBackend: true,
+          touchesFrontend: true,
+          platforms: [],
+          userStoryTags: [],
+          projectSizeFit: [],
+          integrationCount: 0,
+          dataVolume: 'LOW',
+          phase: 'CORE',
+          aiAssist: 'LOW',
+          risk: 'LOW',
+          spikeNeeded: false,
+          notes: '',
+        },
+      },
     },
   });
+  const retrieval = await db.presetRetrieval.create({
+    data: {
+      presetId,
+      name,
+      description: 'A preset used by the embedding-backfill tests.',
+      keywords,
+    },
+  });
+  return { version, retrieval };
 }
 
-async function vectorState(id: string) {
+async function vectorState(retrievalId: string) {
   const rows = await db.$queryRawUnsafe<Array<{ has: boolean; txt: string | null }>>(
-    `SELECT embedding IS NOT NULL AS has, "embeddingText" AS txt FROM "PresetVersion" WHERE id = $1`,
-    id,
+    `SELECT embedding IS NOT NULL AS has, "embeddingText" AS txt FROM "PresetRetrieval" WHERE id = $1`,
+    retrievalId,
   );
   return rows[0]!;
 }
@@ -74,6 +81,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.presetRetrieval.deleteMany({ where: { presetId: { in: ALL } } });
+  await db.presetComposition.deleteMany({ where: { presetId: { in: ALL } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ALL}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: ALL } } });
   await db.preset.deleteMany({ where: { id: { in: ALL } } });
   await db.$disconnect();
@@ -82,20 +92,31 @@ afterAll(async () => {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(embedding.embed).mockResolvedValue([unitVec(7)]);
+  await db.presetRetrieval.deleteMany({ where: { presetId: { in: ALL } } });
+  await db.presetComposition.deleteMany({ where: { presetId: { in: ALL } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ALL}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: ALL } } });
 });
 
 describe('backfillPresetEmbeddings', () => {
   it('embeds a preset that has no vector, and records the text it used', async () => {
-    const v = await makePreset(PRESET_A, 'Checkout extension', ['checkout', 'shopify']);
-    expect((await vectorState(v.id)).has).toBe(false); // invisible to the Archivist
+    const { retrieval } = await makePreset(PRESET_A, 'Checkout extension', ['checkout', 'shopify']);
+    expect((await vectorState(retrieval.id)).has).toBe(false); // invisible to the Archivist
 
     const result = await backfillPresetEmbeddings(db, embedding, { presetIds: [PRESET_A] });
 
     expect(result).toMatchObject({ missing: 1, stale: 0, embedded: 1, failed: [] });
-    const after = await vectorState(v.id);
+    const after = await vectorState(retrieval.id);
     expect(after.has).toBe(true);
-    expect(after.txt).toBe(presetEmbeddingText(v));
+    expect(after.txt).toBe(
+      presetEmbeddingText({
+        name: 'Checkout extension',
+        description: 'A preset used by the embedding-backfill tests.',
+        keywords: ['checkout', 'shopify'],
+        notes: '',
+        userStoryTags: [],
+      }),
+    );
   });
 
   it('is idempotent — a second run embeds nothing', async () => {
@@ -110,20 +131,20 @@ describe('backfillPresetEmbeddings', () => {
   });
 
   it('re-embeds a preset whose text changed since it was embedded', async () => {
-    const v = await makePreset(PRESET_A, 'Checkout extension', ['checkout']);
+    const { retrieval } = await makePreset(PRESET_A, 'Checkout extension', ['checkout']);
     await backfillPresetEmbeddings(db, embedding, { presetIds: [PRESET_A] });
 
     // What an admin edit does: the vector stays (so the preset is never
     // de-indexed) but no longer describes the row.
-    await db.presetVersion.update({
-      where: { id: v.id },
+    await db.presetRetrieval.update({
+      where: { id: retrieval.id },
       data: { name: 'Subscription billing', keywords: ['billing', 'recurring'] },
     });
 
     const result = await backfillPresetEmbeddings(db, embedding, { presetIds: [PRESET_A] });
 
     expect(result).toMatchObject({ missing: 0, stale: 1, embedded: 1 });
-    const after = await vectorState(v.id);
+    const after = await vectorState(retrieval.id);
     expect(after.txt).toContain('Subscription billing');
     expect(after.txt).toContain('recurring');
   });
@@ -155,12 +176,11 @@ describe('backfillPresetEmbeddings', () => {
   });
 
   it('ignores inactive versions — only the active one is retrievable', async () => {
-    const v = await makePreset(PRESET_A, 'Alpha', ['a']);
-    await db.presetVersion.update({ where: { id: v.id }, data: { active: false } });
+    const { version } = await makePreset(PRESET_A, 'Alpha', ['a']);
+    await db.presetVersion.update({ where: { id: version.id }, data: { active: false } });
 
     const result = await backfillPresetEmbeddings(db, embedding, { presetIds: [PRESET_A] });
 
     expect(result).toMatchObject({ missing: 0, stale: 0, embedded: 0 });
-    expect((await vectorState(v.id)).has).toBe(false);
   });
 });

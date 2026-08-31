@@ -54,6 +54,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.presetRetrieval.deleteMany({ where: { presetId: { in: [...createdPresetIds] } } });
+  await db.presetComposition.deleteMany({ where: { presetId: { in: [...createdPresetIds] } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${[...createdPresetIds]}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: [...createdPresetIds] } } });
   await db.preset.deleteMany({ where: { id: { in: [...createdPresetIds] } } });
   await db.estimate.deleteMany({ where: { ownerId: userId } });
@@ -78,30 +81,28 @@ beforeEach(async () => {
   estimateId = est.id;
 
   // An established preset for the card to match against.
+  await db.presetRetrieval.deleteMany({ where: { presetId: MATCHED } });
+  await db.presetComposition.deleteMany({ where: { presetId: MATCHED } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ${MATCHED})`;
   await db.presetVersion.deleteMany({ where: { presetId: MATCHED } });
   await db.preset.upsert({ where: { id: MATCHED }, update: {}, create: { id: MATCHED } });
-  await db.presetVersion.create({
+  const version = await db.presetVersion.create({
+    data: { presetId: MATCHED, version: 1, active: true },
+  });
+  await db.presetAnchor.create({
     data: {
-      presetId: MATCHED,
-      version: 1,
-      active: true,
+      presetVersionId: version.id,
       category: 'Storefront',
-      name: 'Established checkout preset',
-      description: 'Seeded by the promotion test.',
+      reqType: 'FEATURE',
       devHours: 58,
       touchesBackend: true,
       touchesFrontend: false,
       platforms: ['shopify'],
-      reqType: 'FEATURE',
-      keywords: ['checkout', 'b2b'],
       userStoryTags: ['tag'],
       projectSizeFit: ['Mid-market'],
       integrationCount: 2,
       dataVolume: 'HIGH',
       phase: 'CORE',
-      requires: [],
-      blocks: [],
-      canParallel: true,
       aiAssist: 'MEDIUM',
       risk: 'HIGH',
       spikeNeeded: true,
@@ -109,10 +110,29 @@ beforeEach(async () => {
       taxonomyKey: 'storefront.checkout',
     },
   });
+  await db.presetRetrieval.create({
+    data: {
+      presetId: MATCHED,
+      name: 'Established checkout preset',
+      description: 'Seeded by the promotion test.',
+      keywords: ['checkout', 'b2b'],
+    },
+  });
+  await db.presetComposition.create({
+    data: { presetId: MATCHED, requires: [], blocks: [], canParallel: true },
+  });
 });
 
 async function activeVersion(presetId: string) {
-  return db.presetVersion.findFirst({ where: { presetId, active: true } });
+  return db.presetVersion.findFirst({
+    where: { presetId, active: true },
+    include: { anchor: true },
+  });
+}
+
+async function activeName(presetId: string): Promise<string> {
+  const r = await db.presetRetrieval.findUnique({ where: { presetId } });
+  return r?.name ?? '';
 }
 
 describe('promoteMenuItemsToPresets — hybrid target selection', () => {
@@ -129,16 +149,17 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     const v = await activeVersion(MATCHED);
     expect(v?.version).toBe(2);
     // Hours come from THIS estimate, as one figure: 20 + 10 = 30.
-    expect(v?.devHours).toBe(30);
+    expect(v?.anchor?.devHours).toBe(30);
     // Flags reflect what this estimate tagged, and the legacy split is not rewritten.
-    expect(v?.touchesBackend).toBe(true);
-    expect(v?.touchesFrontend).toBe(true);
-    expect(v?.beHours).toBeNull();
-    expect(v?.feHours).toBeNull();
+    expect(v?.anchor?.touchesBackend).toBe(true);
+    expect(v?.anchor?.touchesFrontend).toBe(true);
+    expect(v?.anchor?.beHours).toBeNull();
+    expect(v?.anchor?.feHours).toBeNull();
     // Metadata the estimate has no opinion about is carried forward, not reset.
-    expect(v?.keywords).toEqual(['checkout', 'b2b']);
-    expect(v?.risk).toBe('HIGH');
-    expect(v?.spikeNeeded).toBe(true);
+    const retrieval = await db.presetRetrieval.findUnique({ where: { presetId: MATCHED } });
+    expect(retrieval?.keywords).toEqual(['checkout', 'b2b']);
+    expect(v?.anchor?.risk).toBe('HIGH');
+    expect(v?.anchor?.spikeNeeded).toBe(true);
     expect(v?.changeMotivation).toBe('POST_DELIVERY_VALIDATION');
     expect(v?.changeReason).toMatch(/frontend and backend/);
     // v1 is retained, deactivated.
@@ -168,7 +189,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     // The established preset is untouched — still v1, still its own hours.
     const v = await activeVersion(MATCHED);
     expect(v?.version).toBe(1);
-    expect(v?.devHours).toBe(58);
+    expect(v?.anchor?.devHours).toBe(58);
   });
 
   it('mints a new preset when there was no match at all', async () => {
@@ -184,7 +205,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
 
     const v = await activeVersion(result.created[0]!);
     // Card DEV total is 30. The old code stored be=30 + fe=12 = 42.
-    expect(v!.devHours).toBe(30);
+    expect(v!.anchor?.devHours).toBe(30);
   });
 
   it('carries prior flags forward when the estimate tagged nothing', async () => {
@@ -199,9 +220,9 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     await promoteMenuItemsToPresets(db, estimateId, [untagged]);
 
     const v = await activeVersion(MATCHED);
-    expect(v?.devHours).toBe(40);
-    expect(v?.touchesBackend).toBe(true); // preserved from v1, not overwritten
-    expect(v?.touchesFrontend).toBe(false);
+    expect(v?.anchor?.devHours).toBe(40);
+    expect(v?.anchor?.touchesBackend).toBe(true); // preserved from v1, not overwritten
+    expect(v?.anchor?.touchesFrontend).toBe(false);
     expect(v?.changeReason).toMatch(/no side tags/);
   });
 
@@ -223,23 +244,6 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     expect(result.promoted).toHaveLength(1);
   });
 
-  /**
-   * AEH-227 excluded every injected row here, and was right to: those cards
-   * carried invented flat hours (DEV 8 / QA 4 / PM 2 / BA 2 regardless of
-   * anything), and letting that into the library would have poisoned the anchor
-   * every future estimate reads.
-   *
-   * The hours are the Specialist council's now, so the exclusion inverted. What
-   * carries the safety instead is `enabled`: promotion only ever runs on a
-   * FINALISED estimate, and an estimator who finalises with an inferred card
-   * switched on has reviewed it and stood behind it. Switching it off is how
-   * they say no, and the case below proves that still holds.
-   *
-   * Goes through `promoteEstimate` — reading real rows — because that is the
-   * only path that exercises the query filter. Asserting the ordinary card
-   * promotes too matters as much: a filter that excluded everything would pass
-   * a bare length check.
-   */
   it('promotes an inferred card read back from the database, alongside an ordinary one', async () => {
     await db.menuItem.create({
       data: {
@@ -266,7 +270,7 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
     expect(result.promoted).toHaveLength(2);
-    const names = await Promise.all(result.promoted.map(async (id) => (await activeVersion(id))!.name));
+    const names = await Promise.all(result.promoted.map((id) => activeName(id)));
     expect(names.sort()).toEqual(['Data Remediation & Migration', 'Real delivered feature']);
   });
 
@@ -299,9 +303,9 @@ describe('promoteMenuItemsToPresets — hybrid target selection', () => {
     result.promoted.forEach((p) => createdPresetIds.add(p));
 
     const v = await activeVersion(result.created[0]!);
-    expect(v!.devHours).toBe(50);
-    expect(v!.touchesBackend).toBe(false);
-    expect(v!.touchesFrontend).toBe(false);
+    expect(v!.anchor?.devHours).toBe(50);
+    expect(v!.anchor?.touchesBackend).toBe(false);
+    expect(v!.anchor?.touchesFrontend).toBe(false);
     expect(v!.changeReason).toMatch(/no side tags/);
   });
 });

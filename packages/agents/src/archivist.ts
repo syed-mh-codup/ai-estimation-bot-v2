@@ -138,57 +138,70 @@ export async function runArchivist(
       continue;
     }
 
-    const meta = await ctx.db.presetVersion.findFirst({
-      where: { presetId: best.presetId, version: best.presetVersion, active: true },
-      select: {
-        presetId: true,
-        version: true,
-        risk: true,
-        aiAssist: true,
-        devHours: true,
-        touchesFrontend: true,
-        touchesBackend: true,
-        taxonomyKey: true,
-        requires: true,
-        blocks: true,
-        canParallel: true,
-        name: true,
-        notes: true,
-        spikeNeeded: true,
-        phase: true,
-        projectSizeFit: true,
-      },
-    });
+    const [meta, composition] = await Promise.all([
+      ctx.db.presetVersion.findFirst({
+        where: { presetId: best.presetId, version: best.presetVersion, active: true },
+        select: {
+          presetId: true,
+          version: true,
+          anchor: {
+            select: {
+              risk: true,
+              aiAssist: true,
+              devHours: true,
+              touchesFrontend: true,
+              touchesBackend: true,
+              taxonomyKey: true,
+              notes: true,
+              spikeNeeded: true,
+              phase: true,
+              projectSizeFit: true,
+            },
+          },
+          preset: {
+            select: { retrieval: { select: { name: true } } },
+          },
+        },
+      }),
+      ctx.db.presetComposition.findUnique({
+        where: { presetId: best.presetId },
+        select: { requires: true, blocks: true, canParallel: true },
+      }),
+    ]);
 
-    if (!meta) {
+    if (!meta?.anchor) {
       matches.push(noMatchFor(req));
       continue;
     }
 
+    const anchor = meta.anchor;
+    const name = meta.preset.retrieval?.name ?? '';
+    const sequencing = composition ?? { requires: [], blocks: [], canParallel: true };
+
     matches.push({
       requirementId: req.id,
-      taxonomyKey: meta.taxonomyKey ?? req.taxonomyKey,
+      taxonomyKey: anchor.taxonomyKey ?? req.taxonomyKey,
       coverage,
       presetId: meta.presetId,
       presetVersion: meta.version,
       score: best.score,
-      devHours: meta.devHours,
-      touchesFrontend: meta.touchesFrontend,
-      touchesBackend: meta.touchesBackend,
+      devHours: anchor.devHours,
+      touchesFrontend: anchor.touchesFrontend,
+      touchesBackend: anchor.touchesBackend,
       adjustments: {
-        projectSizeDelta: describeProjectSizeFit(req.projectSize, meta.projectSizeFit),
+        projectSizeDelta: describeProjectSizeFit(req.projectSize, anchor.projectSizeFit),
         dataVolume: req.dataVolume,
         integrationCount: req.integrationCount,
-        aiAssist: toImpactLevel(meta.aiAssist),
-        risk: toImpactLevel(meta.risk),
+        aiAssist: toImpactLevel(anchor.aiAssist),
+        risk: toImpactLevel(anchor.risk),
       },
       rationale:
         coverage === 'full'
-          ? `Closely matches preset "${meta.name}" (${meta.presetId}).`
-          : `Partially matches preset "${meta.name}" (${meta.presetId}) — verify coverage gap before anchoring fully.`,
-      sequencing: { requires: meta.requires, blocks: meta.blocks, canParallel: meta.canParallel },
-      presetCaveats: presetCaveatsFor(meta),
-      presetPhase: toCardPhase(meta.phase),
+          ? `Closely matches preset "${name}" (${meta.presetId}).`
+          : `Partially matches preset "${name}" (${meta.presetId}) — verify coverage gap before anchoring fully.`,
+      sequencing,
+      presetCaveats: presetCaveatsFor({ presetId: meta.presetId, notes: anchor.notes, spikeNeeded: anchor.spikeNeeded, ...sequencing }),
+      presetPhase: toCardPhase(anchor.phase),
     });
   }
 

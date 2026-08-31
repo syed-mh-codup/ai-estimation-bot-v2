@@ -12,8 +12,12 @@ export type PresetMatch = {
 };
 
 /**
- * Find top-k PresetVersions by cosine distance to the query vector.
+ * Find top-k Presets by cosine distance to the query vector.
  * Uses pgvector <=> operator (cosine distance) for ANN search.
+ *
+ * The retrieval surface (name + embedding) lives on `PresetRetrieval`; the
+ * anchor (devHours, side flags) lives on `PresetAnchor`; the active filter and
+ * version number on `PresetVersion`. The join is what reconstitutes a match.
  */
 export async function findNearestPresets(
   db: PrismaClient,
@@ -22,11 +26,19 @@ export async function findNearestPresets(
 ): Promise<PresetMatch[]> {
   const vectorLiteral = `[${queryVector.join(',')}]`;
   const rows = await db.$queryRawUnsafe<PresetMatch[]>(
-    `SELECT id, "presetId", version, name, "devHours", "touchesFrontend", "touchesBackend",
-            embedding <=> $1::vector AS distance
-     FROM "PresetVersion"
-     WHERE embedding IS NOT NULL AND active = true
-     ORDER BY embedding <=> $1::vector
+    `SELECT v.id,
+            r."presetId",
+            v.version,
+            r.name,
+            a."devHours",
+            a."touchesFrontend",
+            a."touchesBackend",
+            r.embedding <=> $1::vector AS distance
+     FROM "PresetRetrieval" r
+     JOIN "PresetVersion" v ON v."presetId" = r."presetId" AND v.active = true
+     JOIN "PresetAnchor" a ON a."presetVersionId" = v.id
+     WHERE r.embedding IS NOT NULL
+     ORDER BY r.embedding <=> $1::vector
      LIMIT $2`,
     vectorLiteral,
     k,

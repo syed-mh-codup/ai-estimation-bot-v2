@@ -138,6 +138,9 @@ export default async function globalSetup() {
     // A dedicated preset for the WS24-03 edit test. Reset to a clean active v1
     // each run (the edit test creates new versions). Scoped to this id so it
     // never touches the real 45-preset library in the shared DB.
+    await prisma.presetRetrieval.deleteMany({ where: { presetId: 'E2E-PRESET' } });
+    await prisma.presetComposition.deleteMany({ where: { presetId: 'E2E-PRESET' } });
+    await prisma.$executeRawUnsafe(`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = 'E2E-PRESET')`);
     await prisma.presetVersion.deleteMany({ where: { presetId: 'E2E-PRESET' } });
     await prisma.preset.upsert({ where: { id: 'E2E-PRESET' }, update: {}, create: { id: 'E2E-PRESET' } });
     const e2ePreset = await prisma.presetVersion.create({
@@ -145,9 +148,13 @@ export default async function globalSetup() {
         presetId: 'E2E-PRESET',
         version: 1,
         active: true,
+        changeReason: 'e2e bootstrap',
+      },
+    });
+    await prisma.presetAnchor.create({
+      data: {
+        presetVersionId: e2ePreset.id,
         category: 'E2E',
-        name: 'E2E Seeded Preset',
-        description: 'A preset used by the WS24-03 admin test.',
         // One dev figure; the flags are reference metadata. Legacy be/fe left
         // unset (nullable) exactly as the pipeline now writes them.
         devHours: 30,
@@ -155,21 +162,27 @@ export default async function globalSetup() {
         touchesFrontend: true,
         platforms: ['web'],
         reqType: 'Integration',
-        keywords: ['e2e'],
         userStoryTags: [],
         projectSizeFit: ['SMB'],
         integrationCount: 1,
         dataVolume: 'LOW',
         phase: 'CORE',
-        requires: [],
-        blocks: [],
-        canParallel: true,
         aiAssist: 'LOW',
         risk: 'LOW',
         spikeNeeded: false,
         notes: '',
-        changeReason: 'e2e bootstrap',
       },
+    });
+    await prisma.presetRetrieval.create({
+      data: {
+        presetId: 'E2E-PRESET',
+        name: 'E2E Seeded Preset',
+        description: 'A preset used by the WS24-03 admin test.',
+        keywords: ['e2e'],
+      },
+    });
+    await prisma.presetComposition.create({
+      data: { presetId: 'E2E-PRESET', requires: [], blocks: [], canParallel: true },
     });
 
     // Give it a vector so the edit test can prove saving doesn't de-index the
@@ -178,10 +191,10 @@ export default async function globalSetup() {
     // exactly what savePreset used to do on every edit. Raw SQL because Prisma
     // can't write an Unsupported("vector") column.
     await prisma.$executeRawUnsafe(
-      `UPDATE "PresetVersion" SET embedding = $1::vector, "embeddingText" = $2 WHERE id = $3`,
+      `UPDATE "PresetRetrieval" SET embedding = $1::vector, "embeddingText" = $2 WHERE "presetId" = $3`,
       `[${new Array(1536).fill(0).map((_, i) => (i === 3 ? 1 : 0)).join(',')}]`,
       'e2e seeded embedding text',
-      e2ePreset.id,
+      'E2E-PRESET',
     );
 
     // Prompts: reset to a clean active v1 each run. The WS24-05 prompt editor

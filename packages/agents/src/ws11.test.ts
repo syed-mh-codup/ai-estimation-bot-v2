@@ -55,48 +55,50 @@ beforeAll(async () => {
     const p = await db.preset.create({
       data: {
         id,
-        versions: {
-          create: {
-            version: 1,
-            active: true,
-            category: 'ecommerce',
-            name,
-            description: `${name} description`,
-            devHours: 60,
-            touchesBackend: true,
-            touchesFrontend: true,
-            platforms: [],
-            reqType: 'FEATURE',
-            keywords: [],
-            userStoryTags: [],
-            projectSizeFit: [],
-            integrationCount: 1,
-            dataVolume: 'LOW',
-            phase: 'CORE',
-            requires: [],
-            blocks: [],
-            canParallel: true,
-            aiAssist: 'LOW',
-            risk: 'MEDIUM',
-            spikeNeeded: false,
-            notes: '',
-            changeMotivation: 'OTHER',
-            taxonomyKey: 'b2b.checkout',
-          },
-        },
+        versions: { create: { version: 1, active: true, changeMotivation: 'OTHER' } },
       },
       include: { versions: true },
     });
+    await db.presetAnchor.create({
+      data: {
+        presetVersionId: p.versions[0]!.id,
+        category: 'ecommerce',
+        reqType: 'FEATURE',
+        devHours: 60,
+        touchesBackend: true,
+        touchesFrontend: true,
+        platforms: [],
+        userStoryTags: [],
+        projectSizeFit: [],
+        integrationCount: 1,
+        dataVolume: 'LOW',
+        phase: 'CORE',
+        aiAssist: 'LOW',
+        risk: 'MEDIUM',
+        spikeNeeded: false,
+        notes: '',
+        taxonomyKey: 'b2b.checkout',
+      },
+    });
+    await db.presetRetrieval.create({
+      data: { presetId: id, name, description: `${name} description`, keywords: [] },
+    });
+    await db.presetComposition.create({
+      data: { presetId: id, requires: [], blocks: [], canParallel: true },
+    });
     const vec = makeVec(dim);
     await db.$executeRawUnsafe(
-      `UPDATE "PresetVersion" SET embedding = $1::vector WHERE id = $2`,
+      `UPDATE "PresetRetrieval" SET embedding = $1::vector WHERE "presetId" = $2`,
       `[${vec.join(',')}]`,
-      p.versions[0]!.id,
+      id,
     );
   }
 });
 
 afterAll(async () => {
+  await db.presetRetrieval.deleteMany({ where: { presetId: { in: [PRESET_ID1, PRESET_ID2, PRESET_ID3] } } });
+  await db.presetComposition.deleteMany({ where: { presetId: { in: [PRESET_ID1, PRESET_ID2, PRESET_ID3] } } });
+  await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${[PRESET_ID1, PRESET_ID2, PRESET_ID3]}))`;
   await db.presetVersion.deleteMany({ where: { presetId: { in: [PRESET_ID1, PRESET_ID2, PRESET_ID3] } } });
   await db.preset.deleteMany({ where: { id: { in: [PRESET_ID1, PRESET_ID2, PRESET_ID3] } } });
   await db.$disconnect();
