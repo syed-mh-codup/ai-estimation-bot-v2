@@ -73,9 +73,9 @@ anything resembling them.
 
 ## Related tickets
 
-**AEH-237** — multi-level approval. Listed as blocked by AEH-240; the dependency
-is satisfied in the code (an estimate now carries a named person who is not
-merely its creator), though AEH-240 is not yet Done in Jira.
+**AEH-237** — multi-level approval, and now unblocked: AEH-240 is Done, and an
+estimate carries a named person who is not merely its creator. Note the
+custodian only exists on the branch until it is merged.
 
 **AEH-282** — the e2e suite. Open, and the reason AEH-240 shipped with unit
 tests rather than e2e specs. Worth an `admin-presets`-style spec later covering
