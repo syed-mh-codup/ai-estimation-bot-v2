@@ -19,6 +19,9 @@ import { Eyebrow } from '@/components/ui/card';
 import { RunControls } from './RunControls';
 import { MenuCardEditor } from './MenuCardEditor';
 import { EstimateHeader, ComplexityField } from './EstimateHeader';
+import { CustodianField, DueDateField } from './CustodyFields';
+import type { CustodianOption } from './CustodyFields';
+import { dueLabel, toDateInputValue } from '@/lib/due-date';
 import { EditableList } from './EditableList';
 import { CollapseAllButton } from './CollapseAllButton';
 import { LedgerProvider } from './ledger-context';
@@ -132,6 +135,10 @@ export default async function EstimateDetailPage({
     where: { id },
     include: {
       owner: { select: { email: true } },
+      custodian: { select: { id: true, email: true, name: true, disabledAt: true } },
+      // Newest first: the rail shows the last nudge that went out, which is the
+      // one that answers "did anybody actually get told".
+      reminders: { orderBy: { sentAt: 'desc' }, take: 1 },
       sections: { orderBy: { order: 'asc' } },
       menuItems: {
         include: { lineItems: true },
@@ -161,6 +168,33 @@ export default async function EstimateDetailPage({
   // The viewer's own threads on this estimate. Nobody else's — a thread is
   // private to whoever wrote it (lib/oracle-access.ts).
   const oracleThreads = await listOracleThreads(estimate.id);
+
+  // Disabled accounts are left out: custody handed to somebody who cannot sign
+  // in is custody nobody holds. `setCustodian` re-checks server-side, and the
+  // sweep falls back to the owner for anyone disabled after being named.
+  const custodianOptions: CustodianOption[] = (
+    await prisma.user.findMany({
+      where: { disabledAt: null },
+      orderBy: { email: 'asc' },
+      select: { id: true, email: true, name: true },
+    })
+  ).map((u) => ({ id: u.id, label: userLabel(u) }));
+
+  // A custodian who has since been disabled still has to appear, or the field
+  // would quietly read "Unassigned" for an estimate that plainly has somebody
+  // on it — and the first save would make that lie true. Same principle as the
+  // Combobox's: the stored value is always selectable.
+  if (estimate.custodian?.disabledAt) {
+    custodianOptions.unshift({
+      id: estimate.custodian.id,
+      label: `${userLabel(estimate.custodian)} — disabled`,
+    });
+  }
+
+  // One clock for the whole render, so the rail and its relative label cannot
+  // disagree about what day it is.
+  const now = new Date();
+  const lastReminder = estimate.reminders[0];
 
   const sectionDTOs: SectionDTO[] = estimate.sections.map((s) => ({
     id: s.id,
@@ -372,6 +406,46 @@ export default async function EstimateDetailPage({
               <Eyebrow>Details</Eyebrow>
               <dl className="mt-2">
                 <MetaRow k="Owner" v={estimate.owner.email} />
+                <MetaRow
+                  k="Custodian"
+                  v={
+                    <CustodianField
+                      estimateId={estimate.id}
+                      initialCustodianId={estimate.custodianId}
+                      options={custodianOptions}
+                      isFinalised={isFinalised}
+                    />
+                  }
+                />
+                <MetaRow
+                  k="Due"
+                  v={
+                    <DueDateField
+                      estimateId={estimate.id}
+                      initialDueAt={toDateInputValue(estimate.dueAt)}
+                      relativeLabel={estimate.dueAt ? dueLabel(estimate.dueAt, now) : null}
+                      isFinalised={isFinalised}
+                    />
+                  }
+                />
+                {/* Only once something has actually gone out. Silence about a
+                    reminder nobody sent is worse than no row at all — this is
+                    the line that answers "why did nobody hear about this". */}
+                {lastReminder && (
+                  <MetaRow
+                    k="Nudged"
+                    v={
+                      <span data-testid="last-reminder">
+                        {REMINDER_LABEL[lastReminder.kind]} — {lastReminder.sentTo}
+                        <span className="text-ink-4">
+                          {' '}
+                          on {lastReminder.sentAt.toLocaleDateString()}
+                          {lastReminder.delivered ? '' : ' (not delivered — email is off)'}
+                        </span>
+                      </span>
+                    }
+                  />
+                )}
                 <MetaRow k="Created" v={new Date(estimate.createdAt).toLocaleString()} />
                 <MetaRow k="Config" v={<span className="num">v{estimate.configVersion}</span>} />
                 <MetaRow
@@ -415,6 +489,18 @@ export default async function EstimateDetailPage({
     </div>
   );
 }
+
+/** Name plus address when we have a name, address alone when we don't. */
+function userLabel(u: { email: string; name: string | null }): string {
+  return u.name ? `${u.name} (${u.email})` : u.email;
+}
+
+/** How each reminder beat reads in the rail. */
+const REMINDER_LABEL: Record<string, string> = {
+  DUE_SOON: 'Heads-up',
+  DUE_TODAY: 'Due today',
+  OVERDUE: 'Overdue',
+};
 
 function MetaRow({ k, v }: { k: string; v: React.ReactNode }) {
   return (

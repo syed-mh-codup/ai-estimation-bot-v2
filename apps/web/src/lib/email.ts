@@ -6,6 +6,8 @@
  * local/dev runs and the background jobs never fail on missing secrets.
  */
 import nodemailer from 'nodemailer';
+import type { ReminderKind } from '@repo/db';
+import { dueLabel, formatDueDate } from './due-date';
 
 export type SendEmailArgs = {
   to: string;
@@ -113,6 +115,54 @@ export function sendRunCompleteEmail(n: EstimateNotice): Promise<{ sent: boolean
       greeting: greet(n.name),
       lead: `Your estimate for <strong>${escapeHtml(n.title)}</strong> has finished running. The Menu Card, narrative and assumptions are ready for review.`,
       cta: { label: 'Review estimate', url },
+      url,
+    }),
+  });
+}
+
+/**
+ * A deadline nudge, sent by the daily sweep (lib/reminders.ts) to whoever holds
+ * custody of the estimate.
+ *
+ * The three kinds share one template on purpose — the difference between them
+ * is urgency, and urgency is carried by the words, not by the layout. Both the
+ * subject and the lead restate the date, because a subject line read on a phone
+ * lock screen is often the whole email.
+ */
+export function sendDueReminderEmail(n: {
+  to: string;
+  name?: string | null;
+  title: string;
+  estimateId: string;
+  kind: ReminderKind;
+  dueAt: Date;
+  now: Date;
+}): Promise<{ sent: boolean }> {
+  const url = estimateUrl(n.estimateId);
+  const date = formatDueDate(n.dueAt);
+  const relative = dueLabel(n.dueAt, n.now);
+
+  const subject =
+    n.kind === 'OVERDUE'
+      ? `Overdue — "${n.title}" was due ${date}`
+      : n.kind === 'DUE_TODAY'
+        ? `Due today — "${n.title}"`
+        : `Due ${date} — "${n.title}"`;
+
+  const lead =
+    n.kind === 'OVERDUE'
+      ? `<strong>${escapeHtml(n.title)}</strong> was due on ${date} and is now ${relative}. If the date has moved, change it on the estimate so the reminders follow it.`
+      : n.kind === 'DUE_TODAY'
+        ? `<strong>${escapeHtml(n.title)}</strong> is due today, ${date}. You are down as its custodian.`
+        : `<strong>${escapeHtml(n.title)}</strong> is ${relative}, on ${date}. You are down as its custodian.`;
+
+  return sendEmail({
+    to: n.to,
+    subject,
+    html: renderEmail({
+      greeting: greet(n.name),
+      lead,
+      cta: { label: 'Open estimate', url },
       url,
     }),
   });

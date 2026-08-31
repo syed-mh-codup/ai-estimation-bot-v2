@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/card';
 import { Pill, STATUS_TONE } from '@/components/ui/pill';
+import { daysUntilDue, dueLabel, formatDueDate } from '@/lib/due-date';
 
 // Routed through the shared `deleteEstimate` rather than calling prisma here:
 // the owner-or-admin check lives in that one place, and a second delete path
@@ -43,8 +44,15 @@ export default async function DashboardPage() {
 
   const estimates = await prisma.estimate.findMany({
     orderBy: { createdAt: 'desc' },
-    include: { owner: { select: { email: true } } },
+    include: {
+      owner: { select: { email: true } },
+      custodian: { select: { email: true, name: true } },
+    },
   });
+
+  // One clock for the whole table, so two rows a millisecond apart can't land
+  // on different days.
+  const now = new Date();
 
   // Everyone sees every estimate — that's the shared ledger. Only the owner or
   // an admin may destroy one, so only they get the control.
@@ -94,15 +102,16 @@ export default async function DashboardPage() {
         /* `relative` is load-bearing. The header's `sr-only` span is
            position:absolute, and a scroll container only clips absolutely
            positioned descendants when it is their containing block. Without it
-           the span anchors to <html> at the table's full 640px width and drags
+           the span anchors to <html> at the table's full width and drags
            the whole page sideways on mobile. */
         <div className="relative mt-6 overflow-x-auto rounded-[10px] border border-line bg-surface">
-          <table className="w-full min-w-[640px] border-collapse text-sm" data-testid="estimates-table">
+          <table className="w-full min-w-[760px] border-collapse text-sm" data-testid="estimates-table">
             <thead>
               <tr className="border-b border-line bg-surface-2">
                 <Th>Title</Th>
                 <Th>Status</Th>
-                <Th>Owner</Th>
+                <Th>Custodian</Th>
+                <Th>Due</Th>
                 <Th>Created</Th>
                 <Th className="text-right">
                   <span className="sr-only">Actions</span>
@@ -132,7 +141,37 @@ export default async function DashboardPage() {
                       {e.runStatus === 'FAILED' && <Pill tone="brick">Run failed</Pill>}
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-[13px] text-ink-2">{e.owner.email}</td>
+                  {/* Custodian, not owner: the question this column answers on a
+                      shared ledger is "whose desk is it on", and the owner is
+                      only the fallback answer to that. */}
+                  <td className="px-3 py-3 text-[13px] text-ink-2">
+                    {e.custodian ? (
+                      e.custodian.name ?? e.custodian.email
+                    ) : (
+                      <span className="text-ink-4" title={`Owner: ${e.owner.email}`}>
+                        {e.owner.email}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-[12.5px] whitespace-nowrap">
+                    {e.dueAt ? (
+                      <span
+                        className={
+                          // Only lateness earns colour. A deadline three weeks
+                          // out is information; a missed one is a problem.
+                          daysUntilDue(e.dueAt, now) < 0 && e.status !== 'FINALISED'
+                            ? 'font-medium text-brick'
+                            : 'text-ink-2'
+                        }
+                        title={dueLabel(e.dueAt, now)}
+                        data-testid={`estimate-due-${e.id}`}
+                      >
+                        <span className="num">{formatDueDate(e.dueAt)}</span>
+                      </span>
+                    ) : (
+                      <span className="text-ink-4">—</span>
+                    )}
+                  </td>
                   <td className="num px-3 py-3 text-[12.5px] whitespace-nowrap text-ink-3">
                     {new Date(e.createdAt).toLocaleDateString()}
                   </td>

@@ -3,6 +3,7 @@
 import { prisma, type RoleKind } from '@repo/db';
 import { auth } from '@/lib/auth';
 import { requireUser } from '@/lib/rbac';
+import { fromDateInputValue } from '@/lib/due-date';
 import { cardFlags, lineEnvelope, EMPTY_ENVELOPE } from './dto';
 import type { ItemDTO, LineItemDTO, SectionDTO } from './dto';
 
@@ -307,6 +308,62 @@ export async function setComplexityScore(id: string, score: number | null): Prom
   await assertEditable(id);
   const clamped = score == null ? null : Math.min(5, Math.max(1, Math.round(score)));
   await prisma.estimate.update({ where: { id }, data: { complexityScore: clamped } });
+}
+
+/**
+ * Hand day-to-day responsibility for this estimate to somebody, or clear it
+ * with null.
+ *
+ * Not restricted to the owner or an admin: this is an edit, and every signed-in
+ * user may edit any estimate here. Handing custody to a DISABLED account is
+ * refused, mirroring the same guard on admin/users reassignment — an account
+ * nobody can sign in to would be a custodian who never answers. (The sweep
+ * guards this a second time, for accounts disabled after the fact.)
+ */
+export async function setCustodian(id: string, custodianId: string | null): Promise<void> {
+  await requireSession();
+  await assertEditable(id);
+
+  if (custodianId) {
+    const target = await prisma.user.findUnique({
+      where: { id: custodianId },
+      select: { disabledAt: true },
+    });
+    if (!target) throw new Error('That account no longer exists');
+    if (target.disabledAt) throw new Error('That account is disabled — pick an active one');
+  }
+
+  await prisma.estimate.update({ where: { id }, data: { custodianId } });
+}
+
+/**
+ * Set or clear the deadline. `value` is the `<input type="date">` form —
+ * `YYYY-MM-DD`, or empty for no deadline.
+ *
+ * The reminder rows go with it, in the same transaction. A moved deadline is a
+ * NEW deadline and none of its reminders have been sent yet; leaving the old
+ * rows behind would silence every nudge for the new date, and doing the two
+ * writes separately would leave exactly that state behind on a crash between
+ * them. (AEH-244 learned this the hard way: a schema split turns one atomic row
+ * write into N, and a half-written N is a silent wrong answer.)
+ */
+export async function setDueAt(id: string, value: string | null): Promise<void> {
+  await requireSession();
+  await assertEditable(id);
+
+  const dueAt = fromDateInputValue(value ?? '');
+
+  const current = await prisma.estimate.findUnique({ where: { id }, select: { dueAt: true } });
+  if (!current) throw new Error('Estimate not found');
+  // Same date re-submitted (a blur with no edit): doing nothing is not just an
+  // optimisation, it is what stops a no-op save from re-arming reminders that
+  // have already gone out.
+  if ((current.dueAt?.getTime() ?? null) === (dueAt?.getTime() ?? null)) return;
+
+  await prisma.$transaction([
+    prisma.estimateReminder.deleteMany({ where: { estimateId: id } }),
+    prisma.estimate.update({ where: { id }, data: { dueAt } }),
+  ]);
 }
 
 export async function updateNarrative(id: string, items: string[]): Promise<void> {
