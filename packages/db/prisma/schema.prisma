@@ -67,7 +67,7 @@ enum AgentKind {
 /// The attribution vocabulary for ModelUsage rows. Owned in code by
 /// packages/db/src/usage-catalogue.ts (USAGE_KINDS); the completeness test fails
 /// when this and the catalogue drift. Agent-shaped values are the AgentKind
-/// strings; INGEST and EMBEDDING are model surfaces that are not agents.
+/// strings; INGEST and PRESET_EMBEDDING are model surfaces that are not agents.
 enum UsageKind {
   SUPERVISOR
   LIBRARIAN
@@ -80,7 +80,12 @@ enum UsageKind {
   ARCHITECT
   ORACLE
   INGEST
-  EMBEDDING
+  /// Preset-library embedding only. An Archivist query embed is recorded as
+  /// ARCHIVIST, because "which agent is burning the money" is the question the
+  /// kind exists to answer, and that spend is the Archivist's. So this value is
+  /// deliberately narrow: it is the backfill sweep, not "all embedding spend" —
+  /// that is a query on `model`, not on `kind`.
+  PRESET_EMBEDDING
 }
 
 /// Who wrote an Oracle turn. Oracle has no tool calls and no system turns in the

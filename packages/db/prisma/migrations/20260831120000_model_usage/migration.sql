@@ -17,7 +17,7 @@ CREATE TYPE "UsageKind" AS ENUM (
     'ARCHITECT',
     'ORACLE',
     'INGEST',
-    'EMBEDDING'
+    'PRESET_EMBEDDING'
 );
 
 CREATE TABLE "ModelUsage" (
@@ -49,8 +49,46 @@ ALTER TABLE "ModelUsage" ADD CONSTRAINT "ModelUsage_oracleMessageId_fkey"
 ALTER TABLE "ModelUsage" ADD CONSTRAINT "ModelUsage_threadId_fkey"
     FOREIGN KEY ("threadId") REFERENCES "OracleThread"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- Oracle's per-turn cost moves to ModelUsage so the report and the transcript
--- read the same source. The four columns below are no longer the cost surface.
+-- ─── Data migration: carry Oracle's existing per-turn cost onto ModelUsage ────
+-- Oracle's per-turn cost MOVES to ModelUsage — it is not discarded. Every
+-- assistant turn that recorded anything becomes a ModelUsage row before the
+-- columns holding it are dropped, so the spend history AEH-259 accumulated
+-- survives into the report that now owns it.
+--
+-- `createdAt` is carried from the message rather than defaulted to now(), or
+-- every historical turn would collapse onto the deploy date and the "is spend
+-- trending up" question would be unanswerable for everything before today.
+--
+-- Turns where all four columns are null are skipped: there is no cost fact to
+-- record, and an all-null row would read as a priced call that cost nothing.
+INSERT INTO "ModelUsage" (
+  "id", "estimateId", "runId", "kind", "model",
+  "promptTokens", "completionTokens", "costUsd",
+  "oracleMessageId", "threadId", "createdAt"
+)
+SELECT
+  gen_random_uuid()::text,
+  t."estimateId",
+  NULL,                      -- Oracle answers are not part of a run.
+  'ORACLE'::"UsageKind",
+  m."modelString",
+  m."promptTokens",
+  m."completionTokens",
+  m."costUsd",
+  m."id",
+  m."threadId",
+  m."createdAt"
+FROM "OracleMessage" m
+JOIN "OracleThread" t ON t."id" = m."threadId"
+WHERE m."role" = 'ASSISTANT'
+  AND (
+    m."modelString" IS NOT NULL
+    OR m."promptTokens" IS NOT NULL
+    OR m."completionTokens" IS NOT NULL
+    OR m."costUsd" IS NOT NULL
+  );
+
+-- The four columns are no longer the cost surface; their data now lives above.
 ALTER TABLE "OracleMessage" DROP COLUMN "modelString";
 ALTER TABLE "OracleMessage" DROP COLUMN "promptTokens";
 ALTER TABLE "OracleMessage" DROP COLUMN "completionTokens";

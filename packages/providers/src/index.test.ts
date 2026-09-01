@@ -6,6 +6,7 @@ import {
   StubSearchProvider,
   TavilySearchProvider,
   createModelProvider,
+  qualifyModel,
 } from './index';
 import type { IModelProvider } from './model-provider';
 
@@ -175,5 +176,65 @@ describe('WS3-04: Provider fallback on error', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const fallbackBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string);
     expect(fallbackBody.model).toBe('openrouter/anthropic/claude-haiku');
+  });
+});
+
+// ─── AEH-286: one spelling per model in the usage report ──────────────────────
+
+describe('AEH-286: qualifyModel — the model as SERVED, spelled once', () => {
+  it('qualifies a bare echoed name when it is the requested model', () => {
+    // OpenRouter's embeddings endpoint echoes a bare name (verified live), which
+    // would otherwise split the per-model spend report into two spellings.
+    expect(qualifyModel('text-embedding-3-small', 'openai/text-embedding-3-small')).toBe(
+      'openai/text-embedding-3-small',
+    );
+  });
+
+  it('keeps a bare echoed name that is NOT the requested model', () => {
+    // A fallback route served something else. Relabelling it as the model we
+    // asked for would destroy the one fact the report exists to record.
+    expect(qualifyModel('some-other-model', 'openai/text-embedding-3-small')).toBe(
+      'some-other-model',
+    );
+  });
+
+  it('leaves an already-qualified name alone, and falls back when nothing echoed', () => {
+    expect(qualifyModel('openai/gpt-4o-mini', 'openai/gpt-4o-mini')).toBe('openai/gpt-4o-mini');
+    expect(qualifyModel('anthropic/claude-haiku', 'anthropic/claude-opus')).toBe(
+      'anthropic/claude-haiku',
+    );
+    expect(qualifyModel(undefined, 'openrouter/anthropic/claude-3-haiku')).toBe(
+      'openrouter/anthropic/claude-3-haiku',
+    );
+  });
+
+  it('handles a multi-segment requested string by its last segment', () => {
+    expect(qualifyModel('claude-3-haiku', 'openrouter/anthropic/claude-3-haiku')).toBe(
+      'openrouter/anthropic/claude-3-haiku',
+    );
+  });
+
+  it('reports the served model through embed()', async () => {
+    const mockVector = new Array(1536).fill(0.1);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          model: 'text-embedding-3-small',
+          data: [{ embedding: mockVector }],
+          usage: { prompt_tokens: 2, cost: 4e-8 },
+        }),
+      }),
+    );
+
+    const provider = new OpenRouterModelProvider({ apiKey: 'test-key' });
+    const result = await provider.embed({
+      model: 'openai/text-embedding-3-small',
+      input: 'hello world',
+    });
+
+    expect(result.model).toBe('openai/text-embedding-3-small');
+    expect(result.usage).toEqual({ promptTokens: 2, completionTokens: 0, costUsd: 4e-8 });
   });
 });

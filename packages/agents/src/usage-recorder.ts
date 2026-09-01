@@ -27,17 +27,32 @@ export function createUsageRecorder(opts: {
 
   return {
     async record(input) {
-      await db.modelUsage.create({
-        data: {
-          estimateId,
-          runId,
-          kind: input.kind,
-          model: input.model,
-          promptTokens: input.usage?.promptTokens ?? null,
-          completionTokens: input.usage?.completionTokens ?? null,
-          costUsd: input.usage?.costUsd ?? null,
-        },
-      });
+      // Never let accounting fail the thing being accounted for. This runs
+      // inside a memoised Inngest step, immediately after a model call that has
+      // already been billed — so a throw here fails the step, and the retry
+      // pays for the same call a second time. A missing row is cheaper than a
+      // duplicated charge, and the ticket's own rule is that double-counting is
+      // worse than not counting.
+      try {
+        await db.modelUsage.create({
+          data: {
+            estimateId,
+            runId,
+            kind: input.kind,
+            model: input.model,
+            promptTokens: input.usage?.promptTokens ?? null,
+            completionTokens: input.usage?.completionTokens ?? null,
+            costUsd: input.usage?.costUsd ?? null,
+          },
+        });
+      } catch (err) {
+        // Loud in the log, invisible to the pipeline. An under-reported total is
+        // a known failure mode; a re-billed run is not.
+        console.error(
+          `[usage] failed to record ${input.kind} call (estimate=${estimateId ?? 'none'} run=${runId ?? 'none'}):`,
+          err,
+        );
+      }
     },
   };
 }

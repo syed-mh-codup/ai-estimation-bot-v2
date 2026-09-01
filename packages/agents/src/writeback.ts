@@ -357,7 +357,7 @@ async function embedRetrievalRow(
 ): Promise<boolean> {
   const text = presetEmbeddingText(row);
   const embedResult = await embeddingProvider.embed(text);
-  await recorder.record({ kind: 'EMBEDDING', model: embedResult.model, usage: embedResult.usage });
+  await recorder.record({ kind: 'PRESET_EMBEDDING', model: embedResult.model, usage: embedResult.usage });
   const vector = embedResult.vectors[0];
   if (!vector) return false;
 

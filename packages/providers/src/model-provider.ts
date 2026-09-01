@@ -130,6 +130,27 @@ const EmbedResponseSchema = z.object({
     .optional(),
 });
 
+/**
+ * The model to report as SERVED, given what the response echoed back.
+ *
+ * OpenRouter's chat endpoint echoes a fully-qualified `provider/model`, but the
+ * embeddings endpoint echoes a bare name (`text-embedding-3-small` for a
+ * requested `openai/text-embedding-3-small`) — verified live. Left alone that
+ * splits the per-model spend report into two spellings of the same model.
+ *
+ * So a bare name is qualified with the requested string, but ONLY when it is
+ * demonstrably the same model — matching the requested string's last segment. A
+ * bare name that does NOT match is a fallback route having served something
+ * else, and that is exactly the fact the report must not lose: it is kept
+ * verbatim rather than relabelled as the model we asked for.
+ */
+export function qualifyModel(echoed: string | undefined, requested: string): string {
+  if (!echoed) return requested;
+  if (echoed.includes('/')) return echoed;
+  const requestedLeaf = requested.slice(requested.lastIndexOf('/') + 1);
+  return echoed === requestedLeaf ? requested : echoed;
+}
+
 export class OpenRouterModelProvider implements IModelProvider {
   private readonly baseUrl: string;
   private readonly fallbackModel?: string;
@@ -151,7 +172,7 @@ export class OpenRouterModelProvider implements IModelProvider {
     const parsed = ChatResponseSchema.parse(response);
     return {
       text: parsed.choices[0]?.message.content ?? '',
-      model: parsed.model ?? options.model,
+      model: qualifyModel(parsed.model, options.model),
       usage: parsed.usage
         ? {
             promptTokens: parsed.usage.prompt_tokens ?? 0,
@@ -215,7 +236,9 @@ export class OpenRouterModelProvider implements IModelProvider {
             }
             const chunk = parsed as StreamChunk;
 
-            if (typeof chunk.model === 'string') servedModel = chunk.model;
+            if (typeof chunk.model === 'string') {
+              servedModel = qualifyModel(chunk.model, options.model);
+            }
             if (chunk.usage) {
               usage = {
                 promptTokens: chunk.usage.prompt_tokens ?? 0,
@@ -245,7 +268,7 @@ export class OpenRouterModelProvider implements IModelProvider {
     const parsed = EmbedResponseSchema.parse(response);
     return {
       vectors: parsed.data.map((d) => d.embedding),
-      model: parsed.model ?? options.model,
+      model: qualifyModel(parsed.model, options.model),
       usage: parsed.usage
         ? {
             promptTokens: parsed.usage.prompt_tokens ?? 0,

@@ -8,8 +8,11 @@ import { agentProfile } from './agent-catalogue';
  * Before this existed the agent list lived in four places and drifted; the same
  * discipline is applied here from the start. The run crew + Oracle values are
  * literally the `AgentKind` strings, so there is no second spelling of
- * "LIBRARIAN" to keep in step. INGEST and EMBEDDING are the only additions, and
- * they are model surfaces, not agents.
+ * "LIBRARIAN" to keep in step. INGEST and PRESET_EMBEDDING are the only
+ * additions, and they are model surfaces, not agents. PRESET_EMBEDDING is named
+ * for what it actually covers — the library backfill sweep — because an
+ * Archivist query embed is recorded as ARCHIVIST, so a bare "EMBEDDING" would
+ * have read as "all embedding spend" and it never was.
  */
 
 export type UsageProfile = {
@@ -38,7 +41,7 @@ export const AGENT_USAGE_KIND: Record<AgentKind, UsageKind> = {
 /** The model surfaces that are not agents. */
 const EXTRA_USAGE_PROFILES: UsageProfile[] = [
   { kind: 'INGEST', label: 'Ingestion' },
-  { kind: 'EMBEDDING', label: 'Embedding' },
+  { kind: 'PRESET_EMBEDDING', label: 'Preset embedding' },
 ];
 
 export const USAGE_PROFILES: UsageProfile[] = [
