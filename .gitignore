@@ -19,5 +19,27 @@ packages/db/src/generated/
 apps/web/test-results/
 apps/web/playwright-report/
 
-# graft's local graph cache — regenerable, not committed (run `graft build`).
+# graft — all of it regenerable by re-running the indexer, none of it ours.
+#
+# The graph cache itself (`graft build` rebuilds it), plus the per-harness files
+# graft writes on install. Every one of these was verified to be pure graft
+# output: the three instruction files are byte-identical, wrapped start-to-end
+# in <!-- graft:start --> markers with nothing after them, and each JSON
+# registers the graft MCP server and nothing else.
+#
+# If you ever hand-write content into one of these — an AGENTS.md that says
+# something about THIS repo, an .mcp.json with a second server — un-ignore that
+# file, because this will otherwise keep it out of the tree silently.
 /graft/
+/.ignore
+/AGENTS.md
+/GEMINI.md
+/.github/copilot-instructions.md
+/.mcp.json
+/opencode.json
+
+# Per-harness local agent config, same bucket as .claude/ and .commandcode/
+# above. Currently graft-only, but these dirs are the harness's to own.
+/.cursor/
+/.gemini/
+/.kiro/
