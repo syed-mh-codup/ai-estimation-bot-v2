@@ -17,6 +17,7 @@ import type {
 } from '@repo/shared';
 import { RequirementSchema } from '@repo/shared';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
+import { createUsageRecorder } from './usage-recorder';
 import { runDetective } from './detective';
 import { runArchivist } from './archivist';
 import { runComplexityScorecard } from './complexity';
@@ -54,6 +55,8 @@ export type StepRunner = <T>(id: string, fn: () => Promise<T>) => Promise<T>;
 export type RunEstimateDeps = {
   db: PrismaClient;
   modelProvider: IModelProvider;
+  /** Correlates every ModelUsage row this run produces. Null in offline/tests. */
+  runId?: string;
   /** Optional: enables Archivist preset RAG (needs preset embeddings). */
   embeddingProvider?: IEmbeddingProvider;
   /** Optional: enables Detective web research. Falls back to a no-op stub (empty results). */
@@ -141,6 +144,7 @@ export async function runEstimate(
   deps: RunEstimateDeps,
 ): Promise<RunEstimateResult> {
   const { db, modelProvider } = deps;
+  const recorder = createUsageRecorder({ db, estimateId, runId: deps.runId });
   // `createSearchProvider` returns the real Tavily adapter when TAVILY_API_KEY
   // is set and the stub otherwise, so the Detective is grounded in production
   // without callers having to know which. An explicit dep still wins (tests
@@ -215,6 +219,7 @@ export async function runEstimate(
       modelProvider,
       modelString: libP.modelString,
       instructions: libP.body,
+      recorder,
     }),
   );
 
@@ -228,6 +233,7 @@ export async function runEstimate(
         instructions: detP.body,
         searchProvider,
         mcpProvider,
+        recorder,
       }),
     ),
     deps.embeddingProvider
@@ -237,6 +243,7 @@ export async function runEstimate(
             embeddingProvider: deps.embeddingProvider!,
             modelProvider,
             modelString: archP.modelString,
+            recorder,
           }),
         )
       : Promise.resolve({ matches: [] as ArchivistMatch[] }),
@@ -253,6 +260,7 @@ export async function runEstimate(
     modelProvider,
     modelString: devP.modelString,
     instructions: { DEV: devP.body, QA: qaP.body, PM: pmP.body, BA: baP.body },
+    recorder,
   };
 
   const allSpecialistOutputs: SpecialistOutput[] = [];
@@ -296,7 +304,7 @@ export async function runEstimate(
   await report('Writing narrative (Architect)', 87);
   const arch = await step('architect', () =>
     runArchitect({
-      ctx: { modelProvider, modelString: architectP.modelString, instructions: architectP.body },
+      ctx: { modelProvider, modelString: architectP.modelString, instructions: architectP.body, recorder },
       requirements: lib.requirements,
       archivistMatches: matches,
       specialistOutputs: allSpecialistOutputs,

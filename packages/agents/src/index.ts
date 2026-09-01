@@ -2,6 +2,7 @@
 // @mastra/core, which would bloat/break consumers (e.g. the Next.js app) that
 // only need the IModelProvider-based run path. Import it directly where needed.
 export * from './step-error';
+export * from './usage-recorder';
 export * from './run-estimate';
 export * from './supervisor-gates';
 export * from './ingest';

@@ -36,12 +36,37 @@ export default async function AdminOraclePage({
       estimate: { select: { id: true, title: true } },
       user: { select: { id: true, email: true, name: true } },
       _count: { select: { messages: true } },
-      messages: {
-        where: { role: 'ASSISTANT' },
-        select: { modelString: true, promptTokens: true, completionTokens: true, costUsd: true },
-      },
     },
   });
+
+  // Thread spend comes from ModelUsage, grouped in the database, rather than
+  // from joining every assistant message and adding it up here. ModelUsage is
+  // the one home for AI spend — reading Oracle's cost through the message rows
+  // would leave this page on a second, parallel path to the same numbers, which
+  // is exactly what AEH-286 collapsed. Bounded by threads x models on screen.
+  const spend = await prisma.modelUsage.groupBy({
+    by: ['threadId', 'model'],
+    where: { threadId: { in: threads.map((t) => t.id) } },
+    _sum: { promptTokens: true, completionTokens: true, costUsd: true },
+    // `_all` counts turns, `costUsd` counts the priced ones. A turn the provider
+    // reported nothing for is not a turn that cost nothing, and must not render
+    // as a zero somebody then adds up — so the cost cell shows "—" unless at
+    // least one turn in the thread actually came back priced.
+    _count: { _all: true, costUsd: true },
+  });
+
+  type ThreadSpend = { tokens: number; cost: number; priced: number; models: Set<string> };
+  const spendByThread = new Map<string, ThreadSpend>();
+  for (const g of spend) {
+    if (!g.threadId) continue;
+    const s =
+      spendByThread.get(g.threadId) ?? { tokens: 0, cost: 0, priced: 0, models: new Set<string>() };
+    s.tokens += (g._sum.promptTokens ?? 0) + (g._sum.completionTokens ?? 0);
+    s.cost += g._sum.costUsd ?? 0;
+    s.priced += g._count.costUsd;
+    if (g.model) s.models.add(g.model);
+    spendByThread.set(g.threadId, s);
+  }
 
   const filtered = !!estimateId || !!userId;
 
@@ -92,18 +117,13 @@ export default async function AdminOraclePage({
               </thead>
               <tbody>
                 {threads.map((t) => {
-                  const tokens = t.messages.reduce(
-                    (sum, m) => sum + (m.promptTokens ?? 0) + (m.completionTokens ?? 0),
-                    0,
-                  );
-                  // Null where a provider reported nothing, which is a
-                  // different fact from "cost nothing" and must not render as
-                  // a zero somebody then adds up.
-                  const priced = t.messages.filter((m) => m.costUsd !== null);
-                  const cost = priced.reduce((sum, m) => sum + (m.costUsd ?? 0), 0);
-                  const models = [
-                    ...new Set(t.messages.map((m) => m.modelString).filter(Boolean)),
-                  ] as string[];
+                  // A thread with no usage rows at all is absent from the map,
+                  // which renders as "—" throughout rather than as zero.
+                  const s = spendByThread.get(t.id);
+                  const tokens = s?.tokens ?? 0;
+                  const cost = s?.cost ?? 0;
+                  const priced = s?.priced ?? 0;
+                  const models = [...(s?.models ?? [])].sort();
 
                   return (
                     <tr
@@ -140,7 +160,7 @@ export default async function AdminOraclePage({
                         {tokens > 0 ? tokens.toLocaleString() : '—'}
                       </td>
                       <td className="num px-4 py-3 text-right text-ink-2">
-                        {priced.length > 0 ? `$${cost.toFixed(4)}` : '—'}
+                        {priced > 0 ? `$${cost.toFixed(4)}` : '—'}
                       </td>
                       <td className="px-4 py-3">
                         {models.length === 0 ? (

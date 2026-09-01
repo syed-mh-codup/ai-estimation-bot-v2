@@ -94,7 +94,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  vi.mocked(embedding.embed).mockResolvedValue([unitVec(7)]);
+  vi.mocked(embedding.embed).mockResolvedValue({ vectors: [unitVec(7)], model: 'stub/model', usage: null });
   await db.presetRetrieval.deleteMany({ where: { presetVersion: { presetId: { in: ALL } } } });
   await db.presetComposition.deleteMany({ where: { presetVersion: { presetId: { in: ALL } } } });
   await db.$executeRaw`DELETE FROM "PresetAnchor" WHERE "presetVersionId" IN (SELECT id FROM "PresetVersion" WHERE "presetId" = ANY(${ALL}))`;
@@ -169,7 +169,7 @@ describe('backfillPresetEmbeddings', () => {
     await makePreset(PRESET_B, 'Beta', ['b']);
     vi.mocked(embedding.embed)
       .mockRejectedValueOnce(new Error('rate limited'))
-      .mockResolvedValue([unitVec(11)]);
+      .mockResolvedValue({ vectors: [unitVec(11)], model: 'stub/model', usage: null });
 
     const result = await backfillPresetEmbeddings(db, embedding, { presetIds: ALL });
 

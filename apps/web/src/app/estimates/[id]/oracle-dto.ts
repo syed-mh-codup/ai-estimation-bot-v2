@@ -55,10 +55,13 @@ export type MessageRow = {
   citations: string[];
   sowHash: string;
   estimateRunAt: Date | null;
-  modelString: string | null;
-  promptTokens: number | null;
-  completionTokens: number | null;
-  costUsd: number | null;
+  /** The assistant turn's cost, from the one ModelUsage table. */
+  usage?: {
+    model: string | null;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    costUsd: number | null;
+  } | null;
   createdAt: Date;
 };
 
@@ -106,10 +109,10 @@ export function toMessageDTO(row: MessageRow, now: CorpusNow): OracleMessageDTO 
     content: row.content,
     createdAt: row.createdAt.toISOString(),
     stale,
-    modelString: row.modelString,
-    promptTokens: row.promptTokens,
-    completionTokens: row.completionTokens,
-    costUsd: row.costUsd,
+    modelString: row.usage?.model ?? null,
+    promptTokens: row.usage?.promptTokens ?? null,
+    completionTokens: row.usage?.completionTokens ?? null,
+    costUsd: row.usage?.costUsd ?? null,
     citations: checkCitations(row.citations, now.corpusText, now.sowText).map((c) => ({
       quote: c.quote,
       status: c.verified ? 'verified' : stale ? 'source-moved' : 'fabricated',

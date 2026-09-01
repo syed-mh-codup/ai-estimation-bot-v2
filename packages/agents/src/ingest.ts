@@ -1,5 +1,6 @@
 import mammoth from 'mammoth';
 import type { ContentPart, IModelProvider } from '@repo/providers';
+import type { UsageRecorder } from './usage-recorder';
 
 /**
  * Document ingestion: turn arbitrary client material (PDF, DOCX, images, plain
@@ -33,6 +34,7 @@ export type IngestFile = {
 
 export type IngestDeps = {
   modelProvider: IModelProvider;
+  recorder: UsageRecorder;
   /** Vision-capable model for images. */
   visionModel?: string;
   /** Model that accepts the file-parser's parsed PDF text (must be Anthropic-class). */
@@ -81,11 +83,13 @@ async function parseImage(file: IngestFile, deps: IngestDeps): Promise<string> {
     { type: 'text', text: IMAGE_PROMPT },
     { type: 'image_url', image_url: { url } },
   ];
-  return deps.modelProvider.chat({
+  const result = await deps.modelProvider.chat({
     model: deps.visionModel ?? DEFAULT_VISION_MODEL,
     messages: [{ role: 'user', content }],
     maxTokens: 4000,
   });
+  await deps.recorder.record({ kind: 'INGEST', model: result.model, usage: result.usage });
+  return result.text;
 }
 
 async function parsePdf(file: IngestFile, deps: IngestDeps): Promise<string> {
@@ -100,12 +104,14 @@ async function parsePdf(file: IngestFile, deps: IngestDeps): Promise<string> {
   let lastErr: unknown;
   for (const engine of engines) {
     try {
-      return await deps.modelProvider.chat({
+      const result = await deps.modelProvider.chat({
         model: deps.pdfModel ?? DEFAULT_PDF_MODEL,
         messages: [{ role: 'user', content }],
         plugins: [{ id: 'file-parser', pdf: { engine } }],
         maxTokens: 8000,
       });
+      await deps.recorder.record({ kind: 'INGEST', model: result.model, usage: result.usage });
+      return result.text;
     } catch (err) {
       lastErr = err;
     }

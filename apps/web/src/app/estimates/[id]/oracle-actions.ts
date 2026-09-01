@@ -112,7 +112,7 @@ export async function loadOracleThread(threadId: string): Promise<LoadedThread> 
         updatedAt: true,
         userId: true,
         _count: { select: { messages: true } },
-        messages: { orderBy: { createdAt: 'asc' } },
+        messages: { orderBy: { createdAt: 'asc' }, include: { usage: true } },
       },
     }),
     buildOracleCorpus(prisma, access.estimateId),

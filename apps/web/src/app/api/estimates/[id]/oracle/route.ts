@@ -156,10 +156,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             citations: extractCitations(answer),
             sowHash: corpus.sowHash,
             estimateRunAt: corpus.runFinishedAt,
-            modelString: served,
-            promptTokens: usage?.promptTokens ?? null,
-            completionTokens: usage?.completionTokens ?? null,
-            costUsd: usage?.costUsd ?? null,
+            usage: {
+              create: {
+                kind: 'ORACLE',
+                estimateId,
+                threadId,
+                model: served,
+                promptTokens: usage?.promptTokens ?? null,
+                completionTokens: usage?.completionTokens ?? null,
+                costUsd: usage?.costUsd ?? null,
+              },
+            },
           },
           select: { id: true },
         });

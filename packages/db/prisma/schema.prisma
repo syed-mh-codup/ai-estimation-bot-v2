@@ -64,6 +64,30 @@ enum AgentKind {
   ORACLE
 }
 
+/// The attribution vocabulary for ModelUsage rows. Owned in code by
+/// packages/db/src/usage-catalogue.ts (USAGE_KINDS); the completeness test fails
+/// when this and the catalogue drift. Agent-shaped values are the AgentKind
+/// strings; INGEST and PRESET_EMBEDDING are model surfaces that are not agents.
+enum UsageKind {
+  SUPERVISOR
+  LIBRARIAN
+  DETECTIVE
+  ARCHIVIST
+  SPECIALIST_DEV
+  SPECIALIST_QA
+  SPECIALIST_PM
+  SPECIALIST_BA
+  ARCHITECT
+  ORACLE
+  INGEST
+  /// Preset-library embedding only. An Archivist query embed is recorded as
+  /// ARCHIVIST, because "which agent is burning the money" is the question the
+  /// kind exists to answer, and that spend is the Archivist's. So this value is
+  /// deliberately narrow: it is the backfill sweep, not "all embedding spend" —
+  /// that is a query on `model`, not on `kind`.
+  PRESET_EMBEDDING
+}
+
 /// Who wrote an Oracle turn. Oracle has no tool calls and no system turns in the
 /// transcript — the system prompt is the live PromptVersion, not a stored row —
 /// so two values is the whole vocabulary.
@@ -472,6 +496,7 @@ model Estimate {
   uploadedFiles   UploadedFile[]
   hiddenWork      HiddenWorkFinding[]
   oracleThreads   OracleThread[]
+  modelUsage      ModelUsage[]
   sheetUrl        String?
   createdAt       DateTime            @default(now())
 
@@ -677,14 +702,14 @@ model OracleThread {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   messages   OracleMessage[]
+  usage      ModelUsage[]
 
   @@index([estimateId, userId])
 }
 
-/// One turn. Assistant turns additionally carry what the answer cost and what
-/// produced it, because the point of recording usage is to find out what Oracle
-/// costs before deciding what to limit — and because a thread an admin reads six
-/// months from now is uninterpretable without knowing which model wrote it.
+/// One turn. Assistant turns carry a linked ModelUsage row (not inline columns)
+/// so what the answer cost and which model wrote it is recorded in the one place
+/// every other model call is recorded.
 model OracleMessage {
   id       String       @id @default(cuid())
   threadId String
@@ -709,16 +734,50 @@ model OracleMessage {
   sowHash       String
   estimateRunAt DateTime?
 
-  /// Assistant turns only. The model as SERVED, which is not always the model
-  /// configured — the provider can fall back.
-  modelString      String?
-  promptTokens     Int?
-  completionTokens Int?
-  /// USD, as reported by the provider. Recorded rather than derived: converting
-  /// tokens to money needs a price table that changes underneath old rows.
-  costUsd          Float?
+  /// The cost of this turn, when it was an assistant turn. Lives on ModelUsage —
+  /// the one home for all AI spend — rather than on this row, so a single report
+  /// can answer "what did this cost" across Oracle and the run crew. A message
+  /// has at most one usage row.
+  usage     ModelUsage?
 
   createdAt DateTime @default(now())
 
   @@index([threadId, createdAt])
+}
+
+/// One model call's actual cost, regardless of which surface made it.
+///
+/// The single source of AI spend. The run crew, Oracle, ingestion and embedding
+/// all land here, tagged with the estimate, the run (for run-crew calls), and the
+/// usage kind — so spend per estimate, per agent and per model is a query rather
+/// than a guess. Rows accumulate across re-runs; nothing here is replaced
+/// wholesale the way Estimate.agentState is.
+model ModelUsage {
+  id       String   @id @default(cuid())
+  /// Null for preset embedding backfill (no estimate). SetNull, not Cascade: the
+  /// spend record must outlive a deleted estimate.
+  estimateId       String?
+  estimate         Estimate?       @relation(fields: [estimateId], references: [id], onDelete: SetNull)
+  /// The run this call happened in. Null for Oracle/ingest/embedding.
+  runId            String?
+  kind             UsageKind
+  /// The model as SERVED (fallback may differ from configured).
+  model            String?
+  promptTokens     Int?
+  completionTokens Int?
+  /// USD, as reported by the provider; null = unknown (distinct from zero).
+  costUsd          Float?
+  /// Oracle assistant turns link back to their message so the transcript can
+  /// still show per-message cost. SetNull so a usage row survives deleting the
+  /// message/thread, matching the estimate rule above.
+  oracleMessageId  String?         @unique
+  oracleMessage    OracleMessage?  @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
+  threadId         String?
+  thread           OracleThread?   @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  createdAt        DateTime        @default(now())
+
+  @@index([estimateId, createdAt])
+  @@index([kind])
+  @@index([runId])
+  @@index([threadId])
 }

@@ -16,6 +16,7 @@ const ADMIN_LINKS = [
   'nav-admin-presets',
   'nav-admin-prompts',
   'nav-admin-oracle',
+  'nav-admin-usage',
   'nav-admin-mcp',
 ];
 

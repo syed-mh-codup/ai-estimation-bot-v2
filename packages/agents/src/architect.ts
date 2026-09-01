@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
+import type { UsageRecorder } from './usage-recorder';
 import type {
   ArchitectOutput,
   MenuItem,
@@ -16,6 +17,7 @@ export type ArchitectContext = {
   modelProvider: IModelProvider;
   modelString: string;
   instructions: string;
+  recorder: UsageRecorder;
 };
 
 /** MC-B2B-PRICING -> "B2B Pricing" (short all-caps segments are treated as acronyms). */
@@ -243,6 +245,7 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
           },
           LLMArchitectSchema,
           'Architect',
+          { kind: 'ARCHITECT', recorder: ctx.recorder },
         );
 
   const metaByCardId = new Map(llmResult.cards.map((c) => [c.menuCardId, c]));

@@ -68,9 +68,17 @@ function stubOracleProvider(): IModelProvider {
   }
 
   return {
-    chat: async (options: ChatOptions) => answerFor(options),
+    chat: async (options: ChatOptions) => ({
+      text: answerFor(options),
+      model: 'stub/oracle',
+      usage: { promptTokens: 1234, completionTokens: 56, costUsd: 0.0001 },
+    }),
     chatStream: stream,
-    embed: async () => [],
+    embed: async () => ({
+      vectors: [],
+      model: 'stub/oracle',
+      usage: null,
+    }),
   };
 }
 

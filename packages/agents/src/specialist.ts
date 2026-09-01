@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
+import type { UsageRecorder } from './usage-recorder';
 import type { SpecialistOutput, SpecialistInput, SpecialistLineItem } from '@repo/shared';
 import { SpecialistOutputSchema, ComplexityTierSchema, FOUR_HOUR_CAP } from '@repo/shared';
 import { chatJSON } from './llm-json';
@@ -9,6 +10,7 @@ export type SpecialistContext = {
   modelProvider: IModelProvider;
   modelString: string;
   instructions: Record<'DEV' | 'QA' | 'PM' | 'BA', string>;
+  recorder: UsageRecorder;
 };
 
 /**
@@ -178,6 +180,7 @@ export async function runSpecialist(
       },
       LLMSpecialistSchema,
       `Specialist(${role})`,
+      { kind: step, recorder: ctx.recorder },
     ),
   );
 

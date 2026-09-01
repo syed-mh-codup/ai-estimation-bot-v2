@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
+import type { UsageRecorder } from './usage-recorder';
 import type { LibrarianOutput, Requirement } from '@repo/shared';
 import {
   LibrarianOutputSchema,
@@ -18,6 +19,7 @@ export type LibrarianContext = {
   modelProvider: IModelProvider;
   modelString: string;
   instructions: string;
+  recorder: UsageRecorder;
 };
 
 export type TaxonomyEntry = {
@@ -121,6 +123,7 @@ export async function runLibrarian(
     },
     LLMResponseSchema,
     'Librarian',
+    { kind: 'LIBRARIAN', recorder: ctx.recorder },
   );
 
   const requirements: Requirement[] = parsed.requirements.map((r, i) => ({

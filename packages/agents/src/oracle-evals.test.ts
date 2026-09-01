@@ -149,9 +149,9 @@ describe('a stubbed turn end to end', () => {
       yield { type: 'done', usage: null, model: 'stub/model' };
     }
     return {
-      chat: async () => reply,
+      chat: async () => ({ text: reply, model: 'stub/model', usage: null }),
       chatStream: stream,
-      embed: async () => [],
+      embed: async () => ({ vectors: [], model: 'stub/model', usage: null }),
     };
   }
 

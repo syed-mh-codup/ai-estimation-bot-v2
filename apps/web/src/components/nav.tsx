@@ -60,6 +60,9 @@ export async function Nav() {
           <NavLink href="/admin/oracle" testId="nav-admin-oracle">
             Oracle
           </NavLink>
+          <NavLink href="/admin/usage" testId="nav-admin-usage">
+            Usage
+          </NavLink>
           <NavLink href="/admin/mcp" testId="nav-admin-mcp">
             MCP
           </NavLink>

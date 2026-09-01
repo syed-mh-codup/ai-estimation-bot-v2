@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
-import type { IModelProvider } from '@repo/providers';
+import type { ChatResult, IModelProvider } from '@repo/providers';
 import { StubSheetsProvider } from '@repo/providers';
 import { MenuItemSchema, SAMPLE_SOWS } from '@repo/shared';
 import { runEstimate } from './run-estimate';
@@ -41,10 +41,10 @@ const LOCKED_URL = `${DB_URL}${DB_URL.includes('?') ? '&' : '?'}connection_limit
 const db = new PrismaClient({ datasources: { db: { url: LOCKED_URL } } });
 
 const stub: IModelProvider = {
-  async chat({ messages }) {
+  async chat({ messages }): Promise<ChatResult> {
     const c = messages.map((m) => m.content).join('\n');
     if (c.includes('Decompose this SOW'))
-      return JSON.stringify({
+      return { text: JSON.stringify({
         requirements: [
           {
             text: 'Build the core flow',
@@ -75,22 +75,31 @@ const stub: IModelProvider = {
             blocksEstimation: false,
           },
         ],
-      });
-    if (c.includes('Investigate the risky and unknown parts')) return JSON.stringify({ risks: [], questions: [] });
+      }), model: 'stub/model', usage: null };
+    if (c.includes('Investigate the risky and unknown parts'))
+      return { text: JSON.stringify({ risks: [], questions: [] }), model: 'stub/model', usage: null };
     if (c.includes('Estimate') && c.includes('effort for this requirement'))
-      return JSON.stringify({
-        lineItems: [{ description: 'stub item', hours: 3, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
-        assumptions: [],
-      });
+      return {
+        text: JSON.stringify({
+          lineItems: [{ description: 'stub item', hours: 3, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+          assumptions: [],
+        }),
+        model: 'stub/model',
+        usage: null,
+      };
     if (c.includes('Synthesise the specialists'))
-      return JSON.stringify({
-        narrative: Array.from({ length: 8 }, (_, i) => `Sentence ${i + 1}.`),
-        cards: [
-          { menuCardId: 'MC-CORE-FLOW', phase: 'Core', thinSlice: true },
-          { menuCardId: 'MC-INTEGRATION', phase: 'Core', thinSlice: false },
-        ],
-      });
-    return '{}';
+      return {
+        text: JSON.stringify({
+          narrative: Array.from({ length: 8 }, (_, i) => `Sentence ${i + 1}.`),
+          cards: [
+            { menuCardId: 'MC-CORE-FLOW', phase: 'Core', thinSlice: true },
+            { menuCardId: 'MC-INTEGRATION', phase: 'Core', thinSlice: false },
+          ],
+        }),
+        model: 'stub/model',
+        usage: null,
+      };
+    return { text: '{}', model: 'stub/model', usage: null };
   },
   // The run pipeline never streams; Oracle is the only caller of chatStream, and
   // it does not go through runEstimate. Throwing beats returning an empty stream,
@@ -99,7 +108,7 @@ const stub: IModelProvider = {
     throw new Error('chatStream is not stubbed for the run pipeline');
   },
   async embed() {
-    return [[0, 0, 0]];
+    return { vectors: [[0, 0, 0]], model: 'stub/model', usage: null };
   },
 };
 

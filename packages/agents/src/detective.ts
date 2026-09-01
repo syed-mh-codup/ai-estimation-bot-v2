@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
+import type { UsageRecorder } from './usage-recorder';
 import type {
   DetectiveInput,
   DetectiveOutput,
@@ -21,6 +22,7 @@ export type DetectiveContext = {
   instructions: string;
   searchProvider: ISearchProvider;
   mcpProvider: IMcpProvider;
+  recorder: UsageRecorder;
 };
 
 const LLMRiskSchema = z.object({
@@ -191,6 +193,7 @@ export async function runDetective(
     },
     LLMDetectiveSchema,
     'Detective',
+    { kind: 'DETECTIVE', recorder: ctx.recorder },
   );
 
   const requirementById = new Map(requirements.map((r) => [r.id, r]));

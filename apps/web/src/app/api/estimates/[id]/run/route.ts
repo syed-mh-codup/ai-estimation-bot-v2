@@ -35,7 +35,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     },
   });
 
-  await inngest.send({ name: 'estimate/run.requested', data: { estimateId: id } });
+  // A fresh id per run so ModelUsage rows can answer "what did THIS run cost"
+  // even across re-runs of the same estimate.
+  const runId = crypto.randomUUID();
+  await inngest.send({ name: 'estimate/run.requested', data: { estimateId: id, runId } });
 
   return NextResponse.json({ status: 'RUNNING' }, { status: 202 });
 }

@@ -59,6 +59,21 @@ export type ChatStreamEvent =
   | { type: 'delta'; text: string }
   | { type: 'done'; usage: TokenUsage | null; model: string };
 
+/** A completed `chat` call: the text plus what it cost and which model served it. */
+export type ChatResult = {
+  text: string;
+  usage: TokenUsage | null;
+  /** The model as SERVED — fallback may differ from the requested string. */
+  model: string;
+};
+
+/** A completed `embed` call: the vectors plus what it cost and which model served it. */
+export type EmbedResult = {
+  vectors: number[][];
+  usage: TokenUsage | null;
+  model: string;
+};
+
 export type ModelProviderConfig = {
   apiKey: string;
   baseUrl?: string;
@@ -68,8 +83,8 @@ export type ModelProviderConfig = {
 // ─── Interface ────────────────────────────────────────────────────────────────
 
 export interface IModelProvider {
-  chat(options: ChatOptions): Promise<string>;
-  embed(options: EmbedOptions): Promise<number[][]>;
+  chat(options: ChatOptions): Promise<ChatResult>;
+  embed(options: EmbedOptions): Promise<EmbedResult>;
   /**
    * The same call as `chat`, delivered incrementally.
    *
@@ -89,16 +104,52 @@ export interface IModelProvider {
 // ─── OpenRouter adapter ───────────────────────────────────────────────────────
 
 const ChatResponseSchema = z.object({
+  model: z.string().optional(),
   choices: z.array(
     z.object({
       message: z.object({ content: z.string() }),
     }),
   ),
+  usage: z
+    .object({
+      prompt_tokens: z.number().optional(),
+      completion_tokens: z.number().optional(),
+      cost: z.number().optional(),
+    })
+    .optional(),
 });
 
 const EmbedResponseSchema = z.object({
+  model: z.string().optional(),
   data: z.array(z.object({ embedding: z.array(z.number()) })),
+  usage: z
+    .object({
+      prompt_tokens: z.number().optional(),
+      cost: z.number().optional(),
+    })
+    .optional(),
 });
+
+/**
+ * The model to report as SERVED, given what the response echoed back.
+ *
+ * OpenRouter's chat endpoint echoes a fully-qualified `provider/model`, but the
+ * embeddings endpoint echoes a bare name (`text-embedding-3-small` for a
+ * requested `openai/text-embedding-3-small`) — verified live. Left alone that
+ * splits the per-model spend report into two spellings of the same model.
+ *
+ * So a bare name is qualified with the requested string, but ONLY when it is
+ * demonstrably the same model — matching the requested string's last segment. A
+ * bare name that does NOT match is a fallback route having served something
+ * else, and that is exactly the fact the report must not lose: it is kept
+ * verbatim rather than relabelled as the model we asked for.
+ */
+export function qualifyModel(echoed: string | undefined, requested: string): string {
+  if (!echoed) return requested;
+  if (echoed.includes('/')) return echoed;
+  const requestedLeaf = requested.slice(requested.lastIndexOf('/') + 1);
+  return echoed === requestedLeaf ? requested : echoed;
+}
 
 export class OpenRouterModelProvider implements IModelProvider {
   private readonly baseUrl: string;
@@ -109,7 +160,7 @@ export class OpenRouterModelProvider implements IModelProvider {
     this.fallbackModel = config.fallbackModel;
   }
 
-  async chat(options: ChatOptions): Promise<string> {
+  async chat(options: ChatOptions): Promise<ChatResult> {
     const response = await this.fetchWithFallback('/chat/completions', options.model, {
       model: options.model,
       messages: options.messages,
@@ -119,7 +170,17 @@ export class OpenRouterModelProvider implements IModelProvider {
       ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {}),
     });
     const parsed = ChatResponseSchema.parse(response);
-    return parsed.choices[0]?.message.content ?? '';
+    return {
+      text: parsed.choices[0]?.message.content ?? '',
+      model: qualifyModel(parsed.model, options.model),
+      usage: parsed.usage
+        ? {
+            promptTokens: parsed.usage.prompt_tokens ?? 0,
+            completionTokens: parsed.usage.completion_tokens ?? 0,
+            costUsd: typeof parsed.usage.cost === 'number' ? parsed.usage.cost : null,
+          }
+        : null,
+    };
   }
 
   /**
@@ -175,7 +236,9 @@ export class OpenRouterModelProvider implements IModelProvider {
             }
             const chunk = parsed as StreamChunk;
 
-            if (typeof chunk.model === 'string') servedModel = chunk.model;
+            if (typeof chunk.model === 'string') {
+              servedModel = qualifyModel(chunk.model, options.model);
+            }
             if (chunk.usage) {
               usage = {
                 promptTokens: chunk.usage.prompt_tokens ?? 0,
@@ -197,13 +260,23 @@ export class OpenRouterModelProvider implements IModelProvider {
     yield { type: 'done', usage, model: servedModel };
   }
 
-  async embed(options: EmbedOptions): Promise<number[][]> {
+  async embed(options: EmbedOptions): Promise<EmbedResult> {
     const response = await this.fetchWithFallback('/embeddings', options.model, {
       model: options.model,
       input: options.input,
     });
     const parsed = EmbedResponseSchema.parse(response);
-    return parsed.data.map((d) => d.embedding);
+    return {
+      vectors: parsed.data.map((d) => d.embedding),
+      model: qualifyModel(parsed.model, options.model),
+      usage: parsed.usage
+        ? {
+            promptTokens: parsed.usage.prompt_tokens ?? 0,
+            completionTokens: 0,
+            costUsd: typeof parsed.usage.cost === 'number' ? parsed.usage.cost : null,
+          }
+        : null,
+    };
   }
 
   private async fetchWithFallback(

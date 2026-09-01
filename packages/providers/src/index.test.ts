@@ -6,6 +6,7 @@ import {
   StubSearchProvider,
   TavilySearchProvider,
   createModelProvider,
+  qualifyModel,
 } from './index';
 import type { IModelProvider } from './model-provider';
 
@@ -30,7 +31,7 @@ describe('WS3-01: OpenRouterModelProvider', () => {
       model: 'openrouter/anthropic/claude-3-haiku',
       messages: [{ role: 'user', content: 'Hi' }],
     });
-    expect(result).toBe('Hello world');
+    expect(result.text).toBe('Hello world');
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('/chat/completions'),
       expect.objectContaining({ method: 'POST' }),
@@ -45,12 +46,12 @@ describe('WS3-01: OpenRouterModelProvider', () => {
     });
 
     const provider = new OpenRouterModelProvider({ apiKey: 'test-key' });
-    const vectors = await provider.embed({
+    const result = await provider.embed({
       model: 'openai/text-embedding-3-small',
       input: 'test text',
     });
-    expect(vectors).toHaveLength(1);
-    expect(vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
+    expect(result.vectors).toHaveLength(1);
+    expect(result.vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
   });
 
   it('model string swap changes the model sent (without code change)', async () => {
@@ -84,13 +85,13 @@ describe('WS3-02: EmbeddingProvider', () => {
     const mockModel: IModelProvider = {
       chat: vi.fn(),
       chatStream: vi.fn(),
-      embed: vi.fn().mockResolvedValue([mockVector]),
+      embed: vi.fn().mockResolvedValue({ vectors: [mockVector], model: 'stub/model', usage: null }),
     };
 
     const ep = new EmbeddingProvider(mockModel);
     const results = await ep.embed('test text');
-    expect(results).toHaveLength(1);
-    expect(results[0]).toHaveLength(EMBEDDING_DIMENSION);
+    expect(results.vectors).toHaveLength(1);
+    expect(results.vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
     expect(ep.dimension).toBe(EMBEDDING_DIMENSION);
   });
 
@@ -98,7 +99,7 @@ describe('WS3-02: EmbeddingProvider', () => {
     const mockModel: IModelProvider = {
       chat: vi.fn(),
       chatStream: vi.fn(),
-      embed: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
+      embed: vi.fn().mockResolvedValue({ vectors: [[0.1, 0.2, 0.3]], model: 'stub/model', usage: null }),
     };
 
     const ep = new EmbeddingProvider(mockModel);
@@ -171,9 +172,69 @@ describe('WS3-04: Provider fallback on error', () => {
       messages: [{ role: 'user', content: 'test' }],
     });
 
-    expect(result).toBe('fallback response');
+    expect(result.text).toBe('fallback response');
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const fallbackBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string);
     expect(fallbackBody.model).toBe('openrouter/anthropic/claude-haiku');
+  });
+});
+
+// ─── AEH-286: one spelling per model in the usage report ──────────────────────
+
+describe('AEH-286: qualifyModel — the model as SERVED, spelled once', () => {
+  it('qualifies a bare echoed name when it is the requested model', () => {
+    // OpenRouter's embeddings endpoint echoes a bare name (verified live), which
+    // would otherwise split the per-model spend report into two spellings.
+    expect(qualifyModel('text-embedding-3-small', 'openai/text-embedding-3-small')).toBe(
+      'openai/text-embedding-3-small',
+    );
+  });
+
+  it('keeps a bare echoed name that is NOT the requested model', () => {
+    // A fallback route served something else. Relabelling it as the model we
+    // asked for would destroy the one fact the report exists to record.
+    expect(qualifyModel('some-other-model', 'openai/text-embedding-3-small')).toBe(
+      'some-other-model',
+    );
+  });
+
+  it('leaves an already-qualified name alone, and falls back when nothing echoed', () => {
+    expect(qualifyModel('openai/gpt-4o-mini', 'openai/gpt-4o-mini')).toBe('openai/gpt-4o-mini');
+    expect(qualifyModel('anthropic/claude-haiku', 'anthropic/claude-opus')).toBe(
+      'anthropic/claude-haiku',
+    );
+    expect(qualifyModel(undefined, 'openrouter/anthropic/claude-3-haiku')).toBe(
+      'openrouter/anthropic/claude-3-haiku',
+    );
+  });
+
+  it('handles a multi-segment requested string by its last segment', () => {
+    expect(qualifyModel('claude-3-haiku', 'openrouter/anthropic/claude-3-haiku')).toBe(
+      'openrouter/anthropic/claude-3-haiku',
+    );
+  });
+
+  it('reports the served model through embed()', async () => {
+    const mockVector = new Array(1536).fill(0.1);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          model: 'text-embedding-3-small',
+          data: [{ embedding: mockVector }],
+          usage: { prompt_tokens: 2, cost: 4e-8 },
+        }),
+      }),
+    );
+
+    const provider = new OpenRouterModelProvider({ apiKey: 'test-key' });
+    const result = await provider.embed({
+      model: 'openai/text-embedding-3-small',
+      input: 'hello world',
+    });
+
+    expect(result.model).toBe('openai/text-embedding-3-small');
+    expect(result.usage).toEqual({ promptTokens: 2, completionTokens: 0, costUsd: 4e-8 });
   });
 });

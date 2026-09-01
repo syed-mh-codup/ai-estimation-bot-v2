@@ -125,7 +125,7 @@ describe('WS20-02: Embeddings stored for promoted presets', () => {
    * had no production caller, and was deleted in AEH-253.
    */
   it('promoted presets get embeddings so the Archivist can match them', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(400)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue({ vectors: [makeVec(400)], model: 'stub/model', usage: null });
 
     await backfillPresetEmbeddings(db, mockEmbedding, { presetIds: promotedPresetIds });
 
