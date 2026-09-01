@@ -15,6 +15,17 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env['CI'],
+  // Deliberately 0, and worth leaving at 0.
+  //
+  // A retry was tried here and removed. Because the second attempt runs against
+  // an already-compiled route, it passes for a reason that has nothing to do
+  // with the thing under test — the suite reports green and the run is marked
+  // "flaky", which is the same word for "we do not know". Measured directly: the
+  // cold /estimates/[id] assertion failed at 15s and passed on retry, so the
+  // retry would have concealed exactly the defect this ticket exists to fix.
+  //
+  // The cold compile is dealt with at its source instead — global-setup warms
+  // every heavy route before the first spec runs. Nothing left needs a retry.
   retries: 0,
   workers: 1,
   reporter: 'list',
@@ -22,9 +33,22 @@ export default defineConfig({
   // first-compile under `next dev` can exceed the 30s default when its spec runs
   // first in the suite (passes in ~11s once warm).
   timeout: 60_000,
+  // The per-test budget above does NOT reach assertions. Every `expect(...)`
+  // gets its own separate budget, defaulting to 5s — so `page.waitForURL(...)`
+  // had 60s while `expect(page).toHaveURL(...)`, the same wait written the other
+  // way, had 5. Whichever spec happened to reach a heavy route first paid its
+  // cold compile inside an assertion and failed; every later spec passed because
+  // the first one warmed the route. That rotates the failure between runs and
+  // reads as flakiness. Five assertions were patched one at a time with an
+  // explicit `{ timeout: COLD_COMPILE }` before the config itself was the
+  // suspect; raising the budget here retires those and every future instance.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: 'http://localhost:3001',
-    trace: 'on-first-retry',
+    // Not 'on-first-retry': with retries at 0 there is no first retry, so that
+    // setting captures nothing, ever. A failure is the case worth a trace — and
+    // in CI it is the only way to read what happened.
+    trace: 'retain-on-failure',
   },
   projects: [
     {
@@ -36,7 +60,10 @@ export default defineConfig({
     command: 'pnpm dev --port 3001',
     url: 'http://localhost:3001',
     reuseExistingServer: !process.env['CI'],
-    timeout: 60_000,
+    // Boot budget, not compile budget — `next dev` serves before it has compiled
+    // any route. 120s because a CI runner is slower to start Node than a laptop,
+    // and a webServer timeout aborts the whole run rather than one test.
+    timeout: 120_000,
     // Point the app-under-test at the isolated test DB. Next does not override
     // env vars already present in process.env, so this wins over .env.local.
     //

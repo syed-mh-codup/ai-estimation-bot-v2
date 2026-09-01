@@ -96,3 +96,89 @@ jobs:
         run: pnpm --filter @repo/db exec prisma migrate deploy
 
       - run: pnpm test
+
+  # The e2e suite gated nothing until now: it existed, but no job ran it, so it
+  # was only ever run by hand and a merge could not go red on it. That is how a
+  # broken /dashboard reached master under AEH-253 with lint, typecheck and test
+  # all green.
+  #
+  # DB choice: a local pgvector service, same as `test` above, rather than the
+  # Neon test branch the suite uses locally. No secret to provision, hermetic per
+  # run, and nothing to leak into a fork's PR — the Neon branch would also be
+  # shared mutable state across concurrent runs, and global-setup truncates it.
+  e2e:
+    runs-on: ubuntu-latest
+    # ~9 min of tests locally, plus install, browser download and cold compiles.
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_estimation_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # playwright.config.ts and e2e/global-setup.ts both THROW without this —
+      # deliberately, so a run can never be pointed at a real database. It is
+      # also what the config hands the app under test as DATABASE_URL/DIRECT_URL.
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5433/ai_estimation_test?schema=public
+      # The only other required server env (src/lib/env.ts REQUIRED_SERVER_ENV).
+      # A throwaway value: these sessions live for one job.
+      AUTH_SECRET: e2e-ci-not-a-real-secret-e2e-ci-not-a-real
+      NEXTAUTH_SECRET: e2e-ci-not-a-real-secret-e2e-ci-not-a-real
+      # AUTH_URL is deliberately unset — auth.config.ts sets trustHost, so the
+      # origin comes from the request and port 3001 works without configuration.
+      #
+      # Nothing else is needed. The config's webServer env blanks the Google
+      # credentials and sets OPENROUTER_STUB=1, so no spec makes a third-party
+      # call; ENCRYPTION_KEY stays unset exactly as it is in a local run.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install
+
+      # scripts/setup-test-db.sh is skipped on purpose: it shells out to
+      # `docker compose exec` to create the database, and here the service
+      # container already has it. Only the migrate half applies.
+      - name: Migrate e2e database
+        run: pnpm --filter @repo/db exec prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DIRECT_URL: ${{ env.TEST_DATABASE_URL }}
+
+      # --with-deps pulls the system libraries the bundled Chromium needs; the
+      # runner image does not carry them. Chromium only — the config declares a
+      # single project.
+      - name: Install Playwright browser
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - run: pnpm --filter web exec playwright test
+
+      # `trace: 'retain-on-failure'` leaves a trace for each failed test. On CI
+      # that is the only way to see what the browser actually did.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: apps/web/test-results/
+          retention-days: 7
