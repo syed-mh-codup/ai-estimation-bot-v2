@@ -15,16 +15,46 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env['CI'],
+  // Deliberately 0, and worth leaving at 0.
+  //
+  // A retry was tried here and removed. Because the second attempt runs against
+  // an already-compiled route, it passes for a reason that has nothing to do
+  // with the thing under test — the suite reports green and the run is marked
+  // "flaky", which is the same word for "we do not know". Measured directly: the
+  // cold /estimates/[id] assertion failed at 15s and passed on retry, so the
+  // retry would have concealed exactly the defect this ticket exists to fix.
+  //
+  // The cold compile is dealt with at its source instead — global-setup warms
+  // every heavy route before the first spec runs. Nothing left needs a retry.
   retries: 0,
   workers: 1,
   reporter: 'list',
-  // Generous per-test timeout: the agents-heavy /estimates/[id] route's cold
-  // first-compile under `next dev` can exceed the 30s default when its spec runs
-  // first in the suite (passes in ~11s once warm).
+  // Per-test budget. It no longer has to cover a cold compile — global-setup
+  // warms every heavy route first — but a few specs drive a whole multi-step
+  // flow (the refinement spec toggles, edits, awaits a write, reloads, exports
+  // and finalises) and call test.slow(), which triples whatever this is.
   timeout: 60_000,
+  // This is the line the suite was missing, and the one that made it fail on a
+  // different test every run.
+  //
+  // The per-test budget above does NOT reach assertions: every `expect(...)`
+  // gets its own separate budget, which defaults to 5s. So `page.waitForURL(…)`
+  // had 60s while `expect(page).toHaveURL(…)` — the same wait written the other
+  // way — had 5. Whichever spec happened to reach a heavy route first paid that
+  // route's compile inside an assertion and failed; every later spec passed
+  // because the first one had warmed it. The failure therefore moved between
+  // runs, which reads as flakiness and is not.
+  //
+  // 15s is a ceiling for work that should be quick, not a compile budget —
+  // global-setup's warm-up is what makes that distinction hold. Measured
+  // without it, a cold /estimates/[id] blew straight through this.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: 'http://localhost:3001',
-    trace: 'on-first-retry',
+    // Not 'on-first-retry': with retries at 0 there is no first retry, so that
+    // setting captures nothing, ever. A failure is the case worth a trace — and
+    // in CI it is the only way to read what happened.
+    trace: 'retain-on-failure',
   },
   projects: [
     {
@@ -36,7 +66,10 @@ export default defineConfig({
     command: 'pnpm dev --port 3001',
     url: 'http://localhost:3001',
     reuseExistingServer: !process.env['CI'],
-    timeout: 60_000,
+    // Boot budget, not compile budget — `next dev` serves before it has compiled
+    // any route. 120s because a CI runner is slower to start Node than a laptop,
+    // and a webServer timeout aborts the whole run rather than one test.
+    timeout: 120_000,
     // Point the app-under-test at the isolated test DB. Next does not override
     // env vars already present in process.env, so this wins over .env.local.
     //

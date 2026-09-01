@@ -2,6 +2,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { config as loadEnv } from 'dotenv';
 import bcrypt from 'bcryptjs';
+import { chromium, type FullConfig } from '@playwright/test';
 // Import the generated Prisma client directly to avoid workspace-alias
 // resolution issues in Playwright's loader.
 import { PrismaClient } from '../../../packages/db/src/generated/client/index.js';
@@ -97,7 +98,14 @@ export const COSTED_ESTIMATE = {
   itemIds: ['e2e-mi-1', 'e2e-mi-2'],
 };
 
-export default async function globalSetup() {
+/**
+ * Per-route budget for the warm-up below. Generous on purpose: this is a cold
+ * compile of the heaviest routes in the app, on a CI runner it is slower still,
+ * and paying it here is the entire point — it is not a correctness assertion.
+ */
+const WARM_TIMEOUT = 120_000;
+
+export default async function globalSetup(config: FullConfig) {
   const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
   try {
     const users: Record<string, { id: string }> = {};
@@ -298,5 +306,71 @@ export default async function globalSetup() {
     }
   } finally {
     await prisma.$disconnect();
+  }
+
+  await warmRoutes(config);
+}
+
+/**
+ * Compile every heavy route once, before the first spec runs.
+ *
+ * `next dev` compiles a route the first time it is requested, and the app's
+ * heaviest routes take longer to compile than any single assertion should be
+ * allowed to wait. Left to the specs, that cost lands on whichever one happens
+ * to reach a route first — so the suite failed on a DIFFERENT test each run, and
+ * every later test passed because the first one had warmed the route for it.
+ * That reads as flakiness and it is not: it is one route's compile, billed to an
+ * arbitrary test.
+ *
+ * Paying it here makes the first spec no different from the rest, which is what
+ * lets `expect`'s budget in playwright.config stay a number that would catch a
+ * real regression rather than one stretched to cover a compile.
+ *
+ * The requests must be AUTHENTICATED. Every route below is behind middleware,
+ * and an anonymous request is redirected before the page is ever built — it
+ * would return a tidy 307 and compile nothing.
+ */
+async function warmRoutes(config: FullConfig) {
+  const baseURL = config.projects[0]?.use?.baseURL ?? 'http://localhost:3001';
+
+  // Admin, because half the list is under /admin. Also warms /login on the way.
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ baseURL });
+  try {
+    await page.goto('/login');
+    await page.fill('#email', TEST_USERS.admin.email);
+    await page.fill('#password', TEST_USERS.admin.password);
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/dashboard/, { timeout: WARM_TIMEOUT });
+
+    // Dynamic routes are warmed through a real id: Next compiles per route
+    // pattern, so any id warms the pattern, but a 404 would short-circuit
+    // before the page component compiled.
+    const routes = [
+      `/estimates/${SEED_ESTIMATE.id}`,
+      `/estimates/${COSTED_ESTIMATE.id}`,
+      '/estimates/new',
+      '/admin/config',
+      '/admin/presets',
+      '/admin/presets/E2E-PRESET',
+      '/admin/presets/new',
+      '/admin/prompts',
+      '/admin/prompts/LIBRARIAN',
+      '/admin/prompts/LIBRARIAN/1',
+      '/admin/oracle',
+      '/admin/usage',
+      '/admin/users',
+      '/admin/mcp',
+      '/admin/taxonomy',
+      '/admin/changelog',
+      '/profile',
+    ];
+    for (const route of routes) {
+      // `domcontentloaded`, not `load`: compilation is what we are paying for,
+      // and it is finished once the server has responded with the document.
+      await page.goto(route, { waitUntil: 'domcontentloaded', timeout: WARM_TIMEOUT });
+    }
+  } finally {
+    await browser.close();
   }
 }
