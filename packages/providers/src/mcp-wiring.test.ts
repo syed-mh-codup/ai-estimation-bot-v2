@@ -89,7 +89,14 @@ describe('secret storage', () => {
   it('refuses a tampered ciphertext rather than returning garbage', () => {
     const good = encryptSecret('sh_tok_123', MASTER);
     const [iv, enc, tag] = good.split(':');
-    const tampered = [iv, `${enc?.slice(0, -2)}00`, tag].join(':');
+    // Flip the last byte to a value it provably is not, rather than writing a
+    // fixed "00" over it. The IV is random per call, so the final ciphertext
+    // byte is uniformly random — and one run in 256 it was ALREADY 00, making
+    // the "tamper" a no-op that decrypted cleanly and failed this assertion.
+    // That is the ~0.4% CI flake, and it went red on a docs-only commit.
+    const flipped = enc?.slice(-2) === '00' ? '01' : '00';
+    const tampered = [iv, `${enc?.slice(0, -2)}${flipped}`, tag].join(':');
+    expect(tampered).not.toBe(good);
     expect(() => decryptSecret(tampered, MASTER)).toThrow();
   });
 
