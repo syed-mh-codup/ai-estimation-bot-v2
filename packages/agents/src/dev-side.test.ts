@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runSpecialist } from './specialist';
 import type { IModelProvider } from '@repo/providers';
 import type { SpecialistInput } from '@repo/shared';
+import { createUsageRecorder } from './usage-recorder';
 
 /**
  * DEV stays a SINGLE combined hours figure. `touchesFrontend`/`touchesBackend`
@@ -13,7 +14,11 @@ import type { SpecialistInput } from '@repo/shared';
 
 function providerReturning(payload: unknown): IModelProvider {
   return {
-    chat: vi.fn().mockResolvedValue(JSON.stringify(payload)),
+    chat: vi.fn().mockResolvedValue({
+      text: JSON.stringify(payload),
+      model: 'stub/model',
+      usage: null,
+    }),
     embed: vi.fn(),
   } as unknown as IModelProvider;
 }
@@ -41,6 +46,7 @@ const ctx = (provider: IModelProvider) => ({
   modelProvider: provider,
   modelString: 'stub/model',
   instructions: { DEV: 'dev', QA: 'qa', PM: 'pm', BA: 'ba' },
+  recorder: createUsageRecorder({ db: { modelUsage: { create: vi.fn() } } as never, estimateId: null }),
 });
 
 describe('DEV line-item side tagging', () => {

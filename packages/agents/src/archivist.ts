@@ -4,6 +4,7 @@ import type { IEmbeddingProvider, IModelProvider } from '@repo/providers';
 import type { ArchivistOutput, ArchivistMatch, Requirement, Coverage, ImpactLevel, Phase } from '@repo/shared';
 import { ArchivistOutputSchema } from '@repo/shared';
 import { queryPresetsByVector, type RankedPreset } from './rag-retriever';
+import type { UsageRecorder } from './usage-recorder';
 
 export type ArchivistContext = {
   db: PrismaClient;
@@ -12,6 +13,7 @@ export type ArchivistContext = {
   modelString?: string;
   topK?: number;
   rerank?: boolean;
+  recorder: UsageRecorder;
 };
 
 const LLMRerankSchema = z.object({
@@ -114,7 +116,9 @@ export async function runArchivist(
   const matches: ArchivistMatch[] = [];
 
   for (const req of requirements) {
-    const [queryVector] = await ctx.embeddingProvider.embed(req.text);
+    const embedResult = await ctx.embeddingProvider.embed(req.text);
+    await ctx.recorder.record({ kind: 'ARCHIVIST', model: embedResult.model, usage: embedResult.usage });
+    const queryVector = embedResult.vectors[0];
     if (!queryVector) {
       matches.push(noMatchFor(req));
       continue;
@@ -127,7 +131,13 @@ export async function runArchivist(
     }
 
     if (ctx.rerank && ctx.modelProvider && ctx.modelString && candidates.length > 1) {
-      candidates = await rerankCandidatesForRequirement(candidates, req, ctx.modelProvider, ctx.modelString);
+      candidates = await rerankCandidatesForRequirement(
+        candidates,
+        req,
+        ctx.modelProvider,
+        ctx.modelString,
+        ctx.recorder,
+      );
     }
 
     const best = candidates[0]!;
@@ -214,13 +224,14 @@ async function rerankCandidatesForRequirement(
   requirement: Requirement,
   modelProvider: IModelProvider,
   modelString: string,
+  recorder: UsageRecorder,
 ): Promise<RankedPreset[]> {
   try {
     const candidateList = candidates
       .map((c, i) => `${i}: ${c.name} (${c.presetId}) score=${c.score.toFixed(3)} DEV=${c.devHours}h`)
       .join('\n');
 
-    const rawResponse = await modelProvider.chat({
+    const result = await modelProvider.chat({
       model: modelString,
       messages: [
         {
@@ -237,6 +248,8 @@ Respond with JSON: {"reranked": ["indices in preferred order, e.g. 2,0,1"]}`,
       ],
       temperature: 0,
     });
+    await recorder.record({ kind: 'ARCHIVIST', model: result.model, usage: result.usage });
+    const rawResponse = result.text;
 
     const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
     if (!jsonMatch?.[0]) return candidates;

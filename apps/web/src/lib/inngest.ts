@@ -13,7 +13,7 @@ export const EVENT_INGEST = 'estimate/ingest.requested' as const;
 export const EVENT_EMBED_PRESETS = 'preset/embed.requested' as const;
 export const EVENT_PROMOTE = 'estimate/finalised' as const;
 
-export type EstimateEventData = { estimateId: string };
+export type EstimateEventData = { estimateId: string; runId?: string };
 
 /**
  * Refresh preset embeddings. Omit `presetIds` to sweep the whole library.

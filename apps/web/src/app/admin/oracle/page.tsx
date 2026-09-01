@@ -38,7 +38,11 @@ export default async function AdminOraclePage({
       _count: { select: { messages: true } },
       messages: {
         where: { role: 'ASSISTANT' },
-        select: { modelString: true, promptTokens: true, completionTokens: true, costUsd: true },
+        select: {
+          usage: {
+            select: { model: true, promptTokens: true, completionTokens: true, costUsd: true },
+          },
+        },
       },
     },
   });
@@ -93,16 +97,17 @@ export default async function AdminOraclePage({
               <tbody>
                 {threads.map((t) => {
                   const tokens = t.messages.reduce(
-                    (sum, m) => sum + (m.promptTokens ?? 0) + (m.completionTokens ?? 0),
+                    (sum, m) =>
+                      sum + (m.usage?.promptTokens ?? 0) + (m.usage?.completionTokens ?? 0),
                     0,
                   );
                   // Null where a provider reported nothing, which is a
                   // different fact from "cost nothing" and must not render as
                   // a zero somebody then adds up.
-                  const priced = t.messages.filter((m) => m.costUsd !== null);
-                  const cost = priced.reduce((sum, m) => sum + (m.costUsd ?? 0), 0);
+                  const priced = t.messages.filter((m) => m.usage?.costUsd !== null);
+                  const cost = priced.reduce((sum, m) => sum + (m.usage?.costUsd ?? 0), 0);
                   const models = [
-                    ...new Set(t.messages.map((m) => m.modelString).filter(Boolean)),
+                    ...new Set(t.messages.map((m) => m.usage?.model).filter(Boolean)),
                   ] as string[];
 
                   return (

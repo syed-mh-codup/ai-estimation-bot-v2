@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ChatOptions, IModelProvider } from '@repo/providers';
+import { createUsageRecorder } from './usage-recorder';
 import { ingestFile, ingestFiles, type IngestFile } from './ingest';
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -7,17 +8,28 @@ const enc = (s: string) => new TextEncoder().encode(s);
 /** Minimal stub: chat() returns a canned string; embed unused. */
 function stubProvider(chat: (o: ChatOptions) => Promise<string> | string): IModelProvider {
   return {
-    chat: vi.fn(async (o: ChatOptions) => chat(o)),
+    chat: vi.fn(async (o: ChatOptions) => ({
+      text: await chat(o),
+      model: 'stub/model',
+      usage: null,
+    })),
     chatStream: vi.fn(),
-    embed: vi.fn(async () => [[0]]),
+    embed: vi.fn(async () => ({ vectors: [[0]], model: 'stub/model', usage: null })),
   };
+}
+
+function recorder() {
+  return createUsageRecorder({
+    db: { modelUsage: { create: vi.fn() } } as never,
+    estimateId: null,
+  });
 }
 
 describe('ingest: text + unknown (no LLM)', () => {
   it('decodes a .txt file directly without calling the model', async () => {
     const provider = stubProvider(() => 'SHOULD NOT BE CALLED');
     const file: IngestFile = { filename: 'sow.txt', mimeType: 'text/plain', bytes: enc('hello world') };
-    const out = await ingestFile(file, { modelProvider: provider });
+    const out = await ingestFile(file, { modelProvider: provider, recorder: recorder() });
     expect(out.kind).toBe('text');
     expect(out.text).toBe('hello world');
     expect(provider.chat).not.toHaveBeenCalled();
@@ -25,7 +37,7 @@ describe('ingest: text + unknown (no LLM)', () => {
 
   it('treats an unknown extension as UTF-8 text', async () => {
     const file: IngestFile = { filename: 'notes.xyz', mimeType: '', bytes: enc('raw notes') };
-    const out = await ingestFile(file, { modelProvider: stubProvider(() => '') });
+    const out = await ingestFile(file, { modelProvider: stubProvider(() => ''), recorder: recorder() });
     expect(out.kind).toBe('unknown');
     expect(out.text).toBe('raw notes');
   });
@@ -39,7 +51,7 @@ describe('ingest: image (vision)', () => {
       return 'A red square diagram';
     });
     const file: IngestFile = { filename: 'diagram.png', mimeType: 'image/png', bytes: enc('PNGDATA') };
-    const out = await ingestFile(file, { modelProvider: provider, visionModel: 'vis/model' });
+    const out = await ingestFile(file, { modelProvider: provider, recorder: recorder(), visionModel: 'vis/model' });
 
     expect(out.kind).toBe('image');
     expect(out.text).toBe('A red square diagram');
@@ -59,7 +71,7 @@ describe('ingest: pdf (file-parser plugin + engine fallback)', () => {
       return 'Parsed PDF content';
     });
     const file: IngestFile = { filename: 'brd.pdf', mimeType: 'application/pdf', bytes: enc('%PDF-1.4') };
-    const out = await ingestFile(file, { modelProvider: provider });
+    const out = await ingestFile(file, { modelProvider: provider, recorder: recorder() });
 
     expect(out.kind).toBe('pdf');
     expect(out.text).toBe('Parsed PDF content');
@@ -77,7 +89,7 @@ describe('ingest: pdf (file-parser plugin + engine fallback)', () => {
       return 'fallback text';
     });
     const file: IngestFile = { filename: 'brd.pdf', mimeType: 'application/pdf', bytes: enc('%PDF') };
-    const out = await ingestFile(file, { modelProvider: provider });
+    const out = await ingestFile(file, { modelProvider: provider, recorder: recorder() });
 
     expect(engines).toEqual(['mistral-ocr', 'pdf-text']);
     expect(out.text).toBe('fallback text');
@@ -91,7 +103,7 @@ describe('ingest: error capture + batch', () => {
       throw new Error('vision down');
     });
     const file: IngestFile = { filename: 'x.png', mimeType: 'image/png', bytes: enc('x') };
-    const out = await ingestFile(file, { modelProvider: provider });
+    const out = await ingestFile(file, { modelProvider: provider, recorder: recorder() });
     expect(out.text).toBe('');
     expect(out.error).toContain('vision down');
   });
@@ -105,6 +117,7 @@ describe('ingest: error capture + batch', () => {
     const progress: number[] = [];
     const res = await ingestFiles(files, {
       modelProvider: provider,
+      recorder: recorder(),
       onProgress: ({ pct }) => {
         progress.push(pct);
       },

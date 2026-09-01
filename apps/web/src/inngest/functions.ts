@@ -1,7 +1,7 @@
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, type IngestFile } from '@repo/agents';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, type IngestFile } from '@repo/agents';
 import {
   inngest,
   EVENT_RUN,
@@ -71,7 +71,7 @@ const runEstimateFn = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { estimateId } = event.data as EstimateEventData;
+    const { estimateId, runId } = event.data as EstimateEventData;
 
     // The pipeline checkpoints itself stage-by-stage through this runner, so
     // each agent (and each requirement's specialist council) is a separate
@@ -82,6 +82,7 @@ const runEstimateFn = inngest.createFunction(
     await runEstimate(estimateId, {
       db: prisma,
       modelProvider,
+      runId,
       step: (id, fn) => step.run(id, fn) as ReturnType<typeof fn>,
       // Archivist RAG needs the preset library embedded (`pnpm db:embed:presets`,
       // or the preset-embed function below). The run tolerates all-empty
@@ -149,6 +150,7 @@ const ingestFn = inngest.createFunction(
 
       const { text, files: parsedFiles } = await ingestFiles(files, {
         modelProvider: createModelProvider(),
+        recorder: createUsageRecorder({ db: prisma, estimateId }),
         onProgress: async ({ stage, pct }) => {
           await prisma.estimate.update({
             where: { id: estimateId },

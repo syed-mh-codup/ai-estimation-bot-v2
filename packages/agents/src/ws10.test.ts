@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runDetective, deduplicateRisks, type DetectiveContext } from './detective';
 import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
 import type { Requirement, RiskFinding } from '@repo/shared';
+import { createUsageRecorder } from './usage-recorder';
 
 // ─── Stubs ───────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ const ctx: DetectiveContext = {
   instructions: 'You are the Detective agent.',
   searchProvider: mockSearch,
   mcpProvider: mockMcp,
+  recorder: createUsageRecorder({ db: { modelUsage: { create: vi.fn() } } as never, estimateId: null }),
 };
 
 function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
@@ -55,14 +57,16 @@ describe('WS10-01: Detective agent wiring with SearchProvider + McpProvider', ()
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([
       { connectorId: 'jira', name: 'create_issue', description: 'Create a Jira issue', inputSchema: {} },
     ]);
-    vi.mocked(mockModel.chat).mockResolvedValue(
-      JSON.stringify({
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({
         risks: [
           { requirementId: 'REQ-001', claim: 'API has rate limits', citation: 'stripe.com', riskFlags: ['rate-limits'] },
         ],
         questions: [],
       }),
-    );
+      model: 'stub/model',
+      usage: null,
+    });
 
     const result = await runDetective(sampleRequirements, ctx);
 
@@ -87,7 +91,11 @@ describe('WS10-01: Detective agent wiring with SearchProvider + McpProvider', ()
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([
       { connectorId: 'jira', name: 'create_issue', description: 'Create a Jira issue', inputSchema: {} },
     ]);
-    vi.mocked(mockModel.chat).mockResolvedValue(JSON.stringify({ risks: [], questions: [] }));
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({ risks: [], questions: [] }),
+      model: 'stub/model',
+      usage: null,
+    });
 
     await runDetective(sampleRequirements, ctx);
 
@@ -102,7 +110,11 @@ describe('WS10-01: Detective agent wiring with SearchProvider + McpProvider', ()
   it('says so plainly when no MCP tools were available', async () => {
     vi.mocked(mockSearch.search).mockResolvedValue([]);
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
-    vi.mocked(mockModel.chat).mockResolvedValue(JSON.stringify({ risks: [], questions: [] }));
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({ risks: [], questions: [] }),
+      model: 'stub/model',
+      usage: null,
+    });
 
     await runDetective(sampleRequirements, ctx);
 
@@ -122,8 +134,8 @@ describe('WS10-02: Risk register — claim + citation + risk flags, plus open qu
       { title: 'Payment API docs', url: 'https://api.example.com', snippet: 'Webhook retries on failure' },
     ]);
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
-    vi.mocked(mockModel.chat).mockResolvedValue(
-      JSON.stringify({
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({
         risks: [
           {
             requirementId: 'REQ-001',
@@ -136,7 +148,9 @@ describe('WS10-02: Risk register — claim + citation + risk flags, plus open qu
           { requirementId: 'REQ-001', question: 'Does the payment provider expose a sandbox for webhook testing?', blocksEstimation: false },
         ],
       }),
-    );
+      model: 'stub/model',
+      usage: null,
+    });
 
     const result = await runDetective([makeRequirement({ text: 'Integrate payment API with webhook' })], ctx);
 
@@ -154,12 +168,14 @@ describe('WS10-02: Risk register — claim + citation + risk flags, plus open qu
   it('drops a risk/question referencing an unknown requirementId (no fabricated traceability)', async () => {
     vi.mocked(mockSearch.search).mockResolvedValue([]);
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
-    vi.mocked(mockModel.chat).mockResolvedValue(
-      JSON.stringify({
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({
         risks: [{ requirementId: 'REQ-999', claim: 'ghost risk', citation: 'nowhere' }],
         questions: [],
       }),
-    );
+      model: 'stub/model',
+      usage: null,
+    });
 
     const result = await runDetective(sampleRequirements, ctx);
     expect(result.risks).toHaveLength(0);
@@ -210,15 +226,17 @@ describe('WS10-03: Citation attribution + deduplicate risks', () => {
   it('runDetective returns deduplicated risks when the LLM produces duplicates', async () => {
     vi.mocked(mockSearch.search).mockResolvedValue([]);
     vi.mocked(mockMcp.listAllTools).mockResolvedValue([]);
-    vi.mocked(mockModel.chat).mockResolvedValue(
-      JSON.stringify({
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({
         risks: [
           { requirementId: 'REQ-001', claim: 'rate limit concern', citation: 'source-a.com', riskFlags: ['rate-limits'] },
           { requirementId: 'REQ-001', claim: 'rate limit concern', citation: 'source-b.com', riskFlags: ['rate-limits'] },
         ],
         questions: [],
       }),
-    );
+      model: 'stub/model',
+      usage: null,
+    });
 
     const result = await runDetective(sampleRequirements, ctx);
     const paymentRisks = result.risks.filter((r) => r.requirementId === 'REQ-001');

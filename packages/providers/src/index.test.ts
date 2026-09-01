@@ -30,7 +30,7 @@ describe('WS3-01: OpenRouterModelProvider', () => {
       model: 'openrouter/anthropic/claude-3-haiku',
       messages: [{ role: 'user', content: 'Hi' }],
     });
-    expect(result).toBe('Hello world');
+    expect(result.text).toBe('Hello world');
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('/chat/completions'),
       expect.objectContaining({ method: 'POST' }),
@@ -45,12 +45,12 @@ describe('WS3-01: OpenRouterModelProvider', () => {
     });
 
     const provider = new OpenRouterModelProvider({ apiKey: 'test-key' });
-    const vectors = await provider.embed({
+    const result = await provider.embed({
       model: 'openai/text-embedding-3-small',
       input: 'test text',
     });
-    expect(vectors).toHaveLength(1);
-    expect(vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
+    expect(result.vectors).toHaveLength(1);
+    expect(result.vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
   });
 
   it('model string swap changes the model sent (without code change)', async () => {
@@ -84,13 +84,13 @@ describe('WS3-02: EmbeddingProvider', () => {
     const mockModel: IModelProvider = {
       chat: vi.fn(),
       chatStream: vi.fn(),
-      embed: vi.fn().mockResolvedValue([mockVector]),
+      embed: vi.fn().mockResolvedValue({ vectors: [mockVector], model: 'stub/model', usage: null }),
     };
 
     const ep = new EmbeddingProvider(mockModel);
     const results = await ep.embed('test text');
-    expect(results).toHaveLength(1);
-    expect(results[0]).toHaveLength(EMBEDDING_DIMENSION);
+    expect(results.vectors).toHaveLength(1);
+    expect(results.vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
     expect(ep.dimension).toBe(EMBEDDING_DIMENSION);
   });
 
@@ -98,7 +98,7 @@ describe('WS3-02: EmbeddingProvider', () => {
     const mockModel: IModelProvider = {
       chat: vi.fn(),
       chatStream: vi.fn(),
-      embed: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
+      embed: vi.fn().mockResolvedValue({ vectors: [[0.1, 0.2, 0.3]], model: 'stub/model', usage: null }),
     };
 
     const ep = new EmbeddingProvider(mockModel);
@@ -171,7 +171,7 @@ describe('WS3-04: Provider fallback on error', () => {
       messages: [{ role: 'user', content: 'test' }],
     });
 
-    expect(result).toBe('fallback response');
+    expect(result.text).toBe('fallback response');
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const fallbackBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string);
     expect(fallbackBody.model).toBe('openrouter/anthropic/claude-haiku');

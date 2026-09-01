@@ -12,6 +12,7 @@ import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { SowText } from './SowText';
 import { Oracle } from './Oracle';
 import { OracleAdminPanel } from './OracleAdminPanel';
+import { ModelUsagePanel } from './ModelUsagePanel';
 import { listOracleThreads } from './oracle-actions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -330,6 +331,7 @@ export default async function EstimateDetailPage({
             <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
             <RunDiagnosticsPanel estimateId={estimate.id} />
             {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
+            {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Actions</Eyebrow>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@repo/db';
-import type { IModelProvider } from '@repo/providers';
+import type { ChatResult, IModelProvider } from '@repo/providers';
 import { runEstimate, type StepRunner, type RunDiagnostics } from './run-estimate';
 import { DEFAULT_COMPLEXITY_RULES } from './complexity';
 
@@ -33,10 +33,10 @@ const db = new PrismaClient({ datasources: { db: { url: LOCKED_URL } } });
 // A stub LLM: returns valid JSON per agent based on the prompt content. Proves
 // the full pipeline WIRING offline — not the quality of real prompts/responses.
 const stubModelProvider: IModelProvider = {
-  async chat({ messages }) {
+  async chat({ messages }): Promise<ChatResult> {
     const content = messages.map((m) => m.content).join('\n');
     if (content.includes('Decompose this SOW')) {
-      return JSON.stringify({
+      return { text: JSON.stringify({
         requirements: [
           {
             text: 'Build a B2B checkout flow',
@@ -67,27 +67,35 @@ const stubModelProvider: IModelProvider = {
             blocksEstimation: false,
           },
         ],
-      });
+      }), model: 'stub/model', usage: null };
     }
     if (content.includes('Investigate the risky and unknown parts')) {
-      return JSON.stringify({ risks: [], questions: [] });
+      return { text: JSON.stringify({ risks: [], questions: [] }), model: 'stub/model', usage: null };
     }
     if (content.includes('Estimate') && content.includes('effort for this requirement')) {
-      return JSON.stringify({
-        lineItems: [{ description: 'stub line item', hours: 2.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
-        assumptions: ['Stub assumption'],
-      });
+      return {
+        text: JSON.stringify({
+          lineItems: [{ description: 'stub line item', hours: 2.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+          assumptions: ['Stub assumption'],
+        }),
+        model: 'stub/model',
+        usage: null,
+      };
     }
     if (content.includes('Synthesise the specialists')) {
-      return JSON.stringify({
-        narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
-        cards: [
-          { menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core', thinSlice: true },
-          { menuCardId: 'MC-B2B-AUTH', phase: 'Core', thinSlice: false },
-        ],
-      });
+      return {
+        text: JSON.stringify({
+          narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
+          cards: [
+            { menuCardId: 'MC-B2B-CHECKOUT', phase: 'Core', thinSlice: true },
+            { menuCardId: 'MC-B2B-AUTH', phase: 'Core', thinSlice: false },
+          ],
+        }),
+        model: 'stub/model',
+        usage: null,
+      };
     }
-    return '{}';
+    return { text: '{}', model: 'stub/model', usage: null };
   },
   // The run pipeline never streams; Oracle is the only caller of chatStream, and
   // it does not go through runEstimate. Throwing beats returning an empty stream,
@@ -96,7 +104,7 @@ const stubModelProvider: IModelProvider = {
     throw new Error('chatStream is not stubbed for the run pipeline');
   },
   async embed() {
-    return [[0, 0, 0]];
+    return { vectors: [[0, 0, 0]], model: 'stub/model', usage: null };
   },
 };
 
@@ -358,10 +366,10 @@ describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {
  * makes this a genuine addition rather than a variant of the same assertion.
  */
 const riskyStubModelProvider: IModelProvider = {
-  async chat({ messages }) {
+  async chat({ messages }): Promise<ChatResult> {
     const content = messages.map((m) => m.content).join('\n');
     if (content.includes('Decompose this SOW')) {
-      return JSON.stringify({
+      return { text: JSON.stringify({
         requirements: [
           {
             text: 'Sync orders from Shopify',
@@ -378,10 +386,10 @@ const riskyStubModelProvider: IModelProvider = {
             blocksEstimation: false,
           },
         ],
-      });
+      }), model: 'stub/model', usage: null };
     }
     if (content.includes('Investigate the risky and unknown parts')) {
-      return JSON.stringify({
+      return { text: JSON.stringify({
         risks: [
           {
             requirementId: 'REQ-001',
@@ -399,25 +407,33 @@ const riskyStubModelProvider: IModelProvider = {
           },
         ],
         questions: [],
-      });
+      }), model: 'stub/model', usage: null };
     }
     if (content.includes('Estimate') && content.includes('effort for this requirement')) {
       // Claims nothing, so both flags stay uncovered. 3.5h is deliberately not
       // 8 — the flat DEV default this ticket deleted — so the injected card's
       // hours prove the council actually ran.
-      return JSON.stringify({
-        lineItems: [{ description: 'stub line item', hours: 3.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
-        assumptions: [],
-        coversRiskFlags: [],
-      });
+      return {
+        text: JSON.stringify({
+          lineItems: [{ description: 'stub line item', hours: 3.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
+          assumptions: [],
+          coversRiskFlags: [],
+        }),
+        model: 'stub/model',
+        usage: null,
+      };
     }
     if (content.includes('Synthesise the specialists')) {
-      return JSON.stringify({
-        narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
-        cards: [{ menuCardId: 'MC-INT-ORDER-SYNC', phase: 'Core', thinSlice: false }],
-      });
+      return {
+        text: JSON.stringify({
+          narrative: Array.from({ length: 8 }, (_, i) => `Stub narrative sentence ${i + 1}.`),
+          cards: [{ menuCardId: 'MC-INT-ORDER-SYNC', phase: 'Core', thinSlice: false }],
+        }),
+        model: 'stub/model',
+        usage: null,
+      };
     }
-    return '{}';
+    return { text: '{}', model: 'stub/model', usage: null };
   },
   // The run pipeline never streams; Oracle is the only caller of chatStream, and
   // it does not go through runEstimate. Throwing beats returning an empty stream,
@@ -426,7 +442,7 @@ const riskyStubModelProvider: IModelProvider = {
     throw new Error('chatStream is not stubbed for the run pipeline');
   },
   async embed() {
-    return [[0, 0, 0]];
+    return { vectors: [[0, 0, 0]], model: 'stub/model', usage: null };
   },
 };
 

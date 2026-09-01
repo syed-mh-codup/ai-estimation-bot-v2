@@ -13,6 +13,7 @@ import {
   type Requirement,
   type SpecialistLineItem,
 } from '@repo/shared';
+import { createUsageRecorder } from './usage-recorder';
 
 const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
 
@@ -20,6 +21,7 @@ const ctx: ArchitectContext = {
   modelProvider: mockModel,
   modelString: 'openrouter/anthropic/claude-3-haiku',
   instructions: 'You are the Architect agent.',
+  recorder: createUsageRecorder({ db: { modelUsage: { create: vi.fn() } } as never, estimateId: null }),
 };
 
 function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
@@ -143,7 +145,11 @@ describe('runArchitect — narrative + card assembly', () => {
   ];
 
   function mockArchitectResponse(narrative: string[], cards: Array<{ menuCardId: string; phase: string; thinSlice?: boolean }>) {
-    vi.mocked(mockModel.chat).mockResolvedValueOnce(JSON.stringify({ narrative, cards }));
+    vi.mocked(mockModel.chat).mockResolvedValueOnce({
+      text: JSON.stringify({ narrative, cards }),
+      model: 'stub/model',
+      usage: null,
+    });
   }
 
   it('produces a single cohesive narrative and one menu card per candidate_menu_card_id', async () => {

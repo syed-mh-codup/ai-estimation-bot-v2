@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runSpecialist, runSpecialistCouncil, type SpecialistContext } from './specialist';
 import type { IModelProvider } from '@repo/providers';
 import type { SpecialistInput, ArchivistMatch, Requirement } from '@repo/shared';
+import { createUsageRecorder } from './usage-recorder';
 
 const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
 
@@ -16,6 +17,7 @@ const ctx: SpecialistContext = {
   modelProvider: mockModel,
   modelString: 'openrouter/anthropic/claude-3-haiku',
   instructions: INSTRUCTIONS,
+  recorder: createUsageRecorder({ db: { modelUsage: { create: vi.fn() } } as never, estimateId: null }),
 };
 
 const sampleRequirement: Requirement = {
@@ -78,8 +80,8 @@ function mockLLMResponse(
   lineItems: Array<{ description: string; hours: number; complexity?: 'base' | 'elevated' | 'high'; dependsOn?: number[] }>,
   assumptions: string[] = [],
 ) {
-  vi.mocked(mockModel.chat).mockResolvedValueOnce(
-    JSON.stringify({
+  vi.mocked(mockModel.chat).mockResolvedValueOnce({
+    text: JSON.stringify({
       lineItems: lineItems.map((li) => ({
         complexity: 'base',
         dependsOn: [],
@@ -88,7 +90,9 @@ function mockLLMResponse(
       })),
       assumptions,
     }),
-  );
+    model: 'stub/model',
+    usage: null,
+  });
 }
 
 // ─── WS13-01: Dev specialist ──────────────────────────────────────────────────

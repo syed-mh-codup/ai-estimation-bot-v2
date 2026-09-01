@@ -1,6 +1,7 @@
 import { allocatePresetCode, carryPresetVector, toMenuItem, type PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
 import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { createUsageRecorder, type UsageRecorder } from './usage-recorder';
 
 // ─── Dev hours → a preset's single devHours figure ────────────────────────────
 
@@ -352,9 +353,12 @@ async function embedRetrievalRow(
     userStoryTags: string[];
   },
   embeddingProvider: IEmbeddingProvider,
+  recorder: UsageRecorder,
 ): Promise<boolean> {
   const text = presetEmbeddingText(row);
-  const [vector] = await embeddingProvider.embed(text);
+  const embedResult = await embeddingProvider.embed(text);
+  await recorder.record({ kind: 'EMBEDDING', model: embedResult.model, usage: embedResult.usage });
+  const vector = embedResult.vectors[0];
   if (!vector) return false;
 
   // Prisma's typed client can't write an Unsupported("vector") column, so the
@@ -462,9 +466,10 @@ export async function backfillPresetEmbeddings(
   }
 
   let done = 0;
+  const recorder = createUsageRecorder({ db, estimateId: null });
   for (const row of todo) {
     try {
-      if (await embedRetrievalRow(db, row, embeddingProvider)) result.embedded++;
+      if (await embedRetrievalRow(db, row, embeddingProvider, recorder)) result.embedded++;
     } catch (err) {
       // One bad row must not abort the sweep — record it and keep going, so a
       // partial failure still leaves the rest of the library indexed.

@@ -5,6 +5,7 @@ import type { Requirement, SpecialistInput } from '@repo/shared';
 import { promoteEstimate, backfillPresetEmbeddings, PROMOTION_MATCH_THRESHOLD } from './writeback';
 import { runArchivist } from './archivist';
 import { describeCoverage } from './specialist';
+import { createUsageRecorder } from './usage-recorder';
 
 /**
  * The WBS ⇄ preset library round trip, closed end to end.
@@ -124,7 +125,7 @@ async function seedCard(opts: { sourcePresetId?: string; matchScore?: number } =
  * cosine of 1.0 — set it before indexing, not just before retrieval.
  */
 function useAxis(axis: number) {
-  vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(axis)]);
+  vi.mocked(mockEmbedding.embed).mockResolvedValue({ vectors: [makeVec(axis)], model: 'stub/model', usage: null });
 }
 
 /** Retrieve the way the pipeline does: embed the requirement, search, match. */
@@ -132,6 +133,7 @@ async function retrieveAnchor() {
   const out = await runArchivist([makeRequirement()], {
     db,
     embeddingProvider: mockEmbedding,
+    recorder: createUsageRecorder({ db, estimateId: null }),
     topK: 5,
   });
   return out.matches[0]!;

@@ -36,7 +36,7 @@ export default async function AdminOracleThreadPage({
       createdAt: true,
       estimate: { select: { id: true, title: true } },
       user: { select: { email: true, name: true } },
-      messages: { orderBy: { createdAt: 'asc' } },
+      messages: { orderBy: { createdAt: 'asc' }, include: { usage: true } },
     },
   });
   if (!thread) notFound();

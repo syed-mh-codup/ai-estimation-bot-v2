@@ -3,6 +3,9 @@ import { PrismaClient } from '@repo/db';
 import { queryPresetsByVector } from './rag-retriever';
 import { runLibrarian, type LibrarianContext, type TaxonomyEntry } from './librarian';
 import type { IModelProvider } from '@repo/providers';
+import { createUsageRecorder } from './usage-recorder';
+
+const chatResult = (text: string) => ({ text, model: 'stub/model', usage: null });
 
 const DB_URL =
   process.env['DATABASE_URL'] ??
@@ -230,6 +233,7 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
     modelProvider: mockModelProvider,
     modelString: 'openrouter/anthropic/claude-3-haiku',
     instructions: 'You are the Librarian agent. Decompose SOW into requirements.',
+    recorder: createUsageRecorder({ db: db as never, estimateId: null }),
   };
 
   const taxonomy: TaxonomyEntry[] = [
@@ -239,18 +243,20 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
 
   it('maps requirements to valid taxonomy keys and assigns sequential REQ ids', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
-      JSON.stringify({
-        requirements: [
-          makeLLMRequirement(),
-          makeLLMRequirement({
-            text: 'Implement SSO with OAuth2',
-            category: 'B2B',
-            reqType: 'Authentication',
-            candidateMenuCardId: 'MC-B2B-AUTH',
-            taxonomyKey: 'auth.sso',
-          }),
-        ],
-      }),
+      chatResult(
+        JSON.stringify({
+          requirements: [
+            makeLLMRequirement(),
+            makeLLMRequirement({
+              text: 'Implement SSO with OAuth2',
+              category: 'B2B',
+              reqType: 'Authentication',
+              candidateMenuCardId: 'MC-B2B-AUTH',
+              taxonomyKey: 'auth.sso',
+            }),
+          ],
+        }),
+      ),
     );
 
     const result = await runLibrarian('Build B2B checkout with SSO', taxonomy, libCtx);
@@ -263,11 +269,13 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
 
   it('flags unmapped requirements with null taxonomyKey', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
-      JSON.stringify({
-        requirements: [
-          makeLLMRequirement({ text: 'Build quantum computing module', taxonomyKey: null }),
-        ],
-      }),
+      chatResult(
+        JSON.stringify({
+          requirements: [
+            makeLLMRequirement({ text: 'Build quantum computing module', taxonomyKey: null }),
+          ],
+        }),
+      ),
     );
 
     const result = await runLibrarian('Build quantum computing module', taxonomy, libCtx);
@@ -277,7 +285,7 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
 
   it('handles LLM response wrapped in markdown code block', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
-      '```json\n' + JSON.stringify({ requirements: [makeLLMRequirement()] }) + '\n```',
+      chatResult('```json\n' + JSON.stringify({ requirements: [makeLLMRequirement()] }) + '\n```'),
     );
 
     const result = await runLibrarian('Checkout integration', taxonomy, libCtx);
@@ -286,22 +294,24 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
   });
 
   it('throws loudly (no silent fallback) on a malformed response', async () => {
-    vi.mocked(mockModelProvider.chat).mockResolvedValue('not json at all, sorry');
+    vi.mocked(mockModelProvider.chat).mockResolvedValue(chatResult('not json at all, sorry'));
 
     await expect(runLibrarian('Checkout integration', taxonomy, libCtx)).rejects.toThrow();
   });
 
   it('accepts a category/reqType/platform outside the ecommerce example vocabulary (open classification, not a closed enum)', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
-      JSON.stringify({
-        requirements: [
-          makeLLMRequirement({
-            category: 'Conversational AI',
-            reqType: 'Simulation Design',
-            platforms: ['LLM Provider'],
-          }),
-        ],
-      }),
+      chatResult(
+        JSON.stringify({
+          requirements: [
+            makeLLMRequirement({
+              category: 'Conversational AI',
+              reqType: 'Simulation Design',
+              platforms: ['LLM Provider'],
+            }),
+          ],
+        }),
+      ),
     );
 
     const result = await runLibrarian('Checkout integration', taxonomy, libCtx);
@@ -312,9 +322,11 @@ describe('WS9-02: Librarian agent SOW → requirements with the controlled envel
 
   it('rejects a requirement with a blank category (still requires a real, non-empty label)', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(
-      JSON.stringify({
-        requirements: [makeLLMRequirement({ category: '' })],
-      }),
+      chatResult(
+        JSON.stringify({
+          requirements: [makeLLMRequirement({ category: '' })],
+        }),
+      ),
     );
 
     await expect(runLibrarian('Checkout integration', taxonomy, libCtx)).rejects.toThrow();
@@ -334,13 +346,14 @@ describe('WS9-03: Determinism — same SOW → identical requirement mapping acr
     modelProvider: mockModelProvider,
     modelString: 'openrouter/anthropic/claude-3-haiku',
     instructions: 'You are the Librarian agent.',
+    recorder: createUsageRecorder({ db: db as never, estimateId: null }),
   };
 
   const taxonomy: TaxonomyEntry[] = [
     { key: 'b2b.checkout', label: 'B2B Checkout Flow', keywords: ['checkout'] },
   ];
 
-  const fixedResponse = JSON.stringify({ requirements: [makeLLMRequirement()] });
+  const fixedResponse = chatResult(JSON.stringify({ requirements: [makeLLMRequirement()] }));
 
   it('produces identical mapping across 3 runs (temperature=0)', async () => {
     vi.mocked(mockModelProvider.chat).mockResolvedValue(fixedResponse);

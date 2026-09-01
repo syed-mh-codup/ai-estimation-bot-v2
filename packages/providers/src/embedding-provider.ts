@@ -1,10 +1,10 @@
-import type { IModelProvider } from './model-provider';
+import type { EmbedResult, IModelProvider } from './model-provider';
 
 export const EMBEDDING_DIMENSION = 1536;
 export const DEFAULT_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 export interface IEmbeddingProvider {
-  embed(text: string | string[]): Promise<number[][]>;
+  embed(text: string | string[]): Promise<EmbedResult>;
   readonly dimension: number;
 }
 
@@ -19,15 +19,15 @@ export class EmbeddingProvider implements IEmbeddingProvider {
     this.dimension = dimension;
   }
 
-  async embed(text: string | string[]): Promise<number[][]> {
-    const vectors = await this.modelProvider.embed({ model: this.model, input: text });
-    for (const v of vectors) {
+  async embed(text: string | string[]): Promise<EmbedResult> {
+    const result = await this.modelProvider.embed({ model: this.model, input: text });
+    for (const v of result.vectors) {
       if (v.length !== this.dimension) {
         throw new Error(
           `Embedding dimension mismatch: expected ${this.dimension}, got ${v.length}`,
         );
       }
     }
-    return vectors;
+    return result;
   }
 }

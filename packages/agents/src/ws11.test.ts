@@ -3,6 +3,7 @@ import { PrismaClient } from '@repo/db';
 import { runArchivist, type ArchivistContext } from './archivist';
 import type { IEmbeddingProvider, IModelProvider } from '@repo/providers';
 import type { Requirement } from '@repo/shared';
+import { createUsageRecorder } from './usage-recorder';
 
 const DB_URL =
   process.env['DATABASE_URL'] ??
@@ -23,6 +24,8 @@ const PRESET_ID3 = `ws11-preset-c-${Date.now()}`;
 
 const mockEmbedding: IEmbeddingProvider = { embed: vi.fn(), dimension: 1536 };
 const mockModel: IModelProvider = { chat: vi.fn(), chatStream: vi.fn(), embed: vi.fn() };
+const recorder = () => createUsageRecorder({ db: db as never, estimateId: null });
+const embedResult = (vectors: number[][]) => ({ vectors, model: 'stub/model', usage: null });
 
 function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
   return {
@@ -116,9 +119,9 @@ afterAll(async () => {
 describe('WS11-01: Embed each requirement + ANN match against PresetVersion.embedding', () => {
   it('returns one match per requirement, with a real coverage + score', async () => {
     // Query with dim=100 → PRESET_ID1 has cosine=1.0 (exact match)
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue(embedResult([makeVec(100)]));
 
-    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 3 };
+    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, recorder: recorder(), topK: 3 };
     const result = await runArchivist([makeRequirement()], ctx);
 
     expect(result.matches).toHaveLength(1);
@@ -131,10 +134,10 @@ describe('WS11-01: Embed each requirement + ANN match against PresetVersion.embe
 
   it('picks the nearest preset per requirement independently', async () => {
     vi.mocked(mockEmbedding.embed)
-      .mockResolvedValueOnce([makeVec(100)]) // req A → preset 1
-      .mockResolvedValueOnce([makeVec(200)]); // req B → preset 2
+      .mockResolvedValueOnce(embedResult([makeVec(100)])) // req A → preset 1
+      .mockResolvedValueOnce(embedResult([makeVec(200)])); // req B → preset 2
 
-    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 3 };
+    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, recorder: recorder(), topK: 3 };
     const result = await runArchivist(
       [makeRequirement({ id: 'REQ-001' }), makeRequirement({ id: 'REQ-002', text: 'Generic e-commerce' })],
       ctx,
@@ -146,15 +149,15 @@ describe('WS11-01: Embed each requirement + ANN match against PresetVersion.embe
   });
 
   it('returns empty matches when requirements list is empty', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
-    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding };
+    vi.mocked(mockEmbedding.embed).mockResolvedValue(embedResult([makeVec(100)]));
+    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, recorder: recorder() };
     const result = await runArchivist([], ctx);
     expect(result.matches).toHaveLength(0);
   });
 
   it('returns coverage:none (never fabricating a preset) when nothing embeds', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([]);
-    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding };
+    vi.mocked(mockEmbedding.embed).mockResolvedValue(embedResult([]));
+    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, recorder: recorder() };
     const result = await runArchivist([makeRequirement()], ctx);
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0]!.coverage).toBe('none');
@@ -166,9 +169,9 @@ describe('WS11-01: Embed each requirement + ANN match against PresetVersion.embe
 
 describe('WS11-02: Match payload schema-valid, version-pinned, carries adjustment signals', () => {
   it('a full-coverage match carries presetId, presetVersion, devHours, and adjustments', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue(embedResult([makeVec(100)]));
 
-    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, topK: 2 };
+    const ctx: ArchivistContext = { db, embeddingProvider: mockEmbedding, recorder: recorder(), topK: 2 };
     const result = await runArchivist([makeRequirement()], ctx);
 
     const match = result.matches[0]!;
@@ -190,15 +193,20 @@ describe('WS11-03: Optional LLM re-rank of top-k candidates per requirement', ()
     // PRESET_ID1 and PRESET_ID2 moderate, nonzero similarity — so promoting
     // PRESET_ID2 via rerank still lands on a real (non-"none") coverage.
     const blended = makeVec(100).map((v, i) => (i === 200 ? 0.6 : v));
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([blended]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue(embedResult([blended]));
     // PRESET_ID1 is the vector-nearest (index 0); force the LLM to prefer index 1 instead.
-    vi.mocked(mockModel.chat).mockResolvedValue(JSON.stringify({ reranked: ['1', '0', '2'] }));
+    vi.mocked(mockModel.chat).mockResolvedValue({
+      text: JSON.stringify({ reranked: ['1', '0', '2'] }),
+      model: 'stub/model',
+      usage: null,
+    });
 
     const ctx: ArchivistContext = {
       db,
       embeddingProvider: mockEmbedding,
       modelProvider: mockModel,
       modelString: 'openrouter/anthropic/claude-3-haiku',
+      recorder: recorder(),
       topK: 3,
       rerank: true,
     };
@@ -209,7 +217,7 @@ describe('WS11-03: Optional LLM re-rank of top-k candidates per requirement', ()
   });
 
   it('falls back to vector order when re-rank fails', async () => {
-    vi.mocked(mockEmbedding.embed).mockResolvedValue([makeVec(100)]);
+    vi.mocked(mockEmbedding.embed).mockResolvedValue(embedResult([makeVec(100)]));
     vi.mocked(mockModel.chat).mockRejectedValue(new Error('LLM error'));
 
     const ctx: ArchivistContext = {
@@ -217,6 +225,7 @@ describe('WS11-03: Optional LLM re-rank of top-k candidates per requirement', ()
       embeddingProvider: mockEmbedding,
       modelProvider: mockModel,
       modelString: 'openrouter/anthropic/claude-3-haiku',
+      recorder: recorder(),
       topK: 2,
       rerank: true,
     };

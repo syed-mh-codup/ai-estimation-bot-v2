@@ -1,5 +1,7 @@
 import type { z } from 'zod';
+import type { UsageKind } from '@repo/db';
 import type { ChatMessage, IModelProvider } from '@repo/providers';
+import type { UsageRecorder } from './usage-recorder';
 
 export class LLMJsonError extends Error {
   constructor(
@@ -26,8 +28,16 @@ export async function chatJSON<T>(
   options: { model: string; messages: ChatMessage[]; temperature?: number },
   schema: z.ZodType<T>,
   agentLabel: string,
+  attribution: { kind: UsageKind; recorder: UsageRecorder },
 ): Promise<T> {
-  const raw = await modelProvider.chat({ ...options, responseFormat: 'json_object' });
+  const result = await modelProvider.chat({ ...options, responseFormat: 'json_object' });
+  // Record before parsing: a parse failure is still a real, billed model call.
+  await attribution.recorder.record({
+    kind: attribution.kind,
+    model: result.model,
+    usage: result.usage,
+  });
+  const raw = result.text;
 
   let json: unknown;
   try {
