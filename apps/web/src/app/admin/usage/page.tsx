@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Prisma, prisma, usageLabel } from '@repo/db';
+import { prisma, usageLabel } from '@repo/db';
 import type { UsageKind } from '@repo/db';
 import { Card, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
@@ -42,9 +42,13 @@ export default async function AdminUsagePage({
   // `_all` counts calls; `costUsd` counts only the ones that came back priced,
   // so `_all - costUsd` is exactly how many the totals absorbed as zero.
   const counts = { _all: true, costUsd: true } as const;
-  const estimateFilter = estimateId
-    ? Prisma.sql`WHERE "estimateId" = ${estimateId}`
-    : Prisma.empty;
+  // Bound as a plain value, NOT spliced in as a Prisma.sql fragment. A fragment
+  // has to survive an `instanceof Sql` check inside the client, and the copy of
+  // the client this page bundles is not always the copy the fragment was built
+  // from — when it isn't, the fragment is silently bound as a parameter and
+  // Postgres rejects `FROM "ModelUsage" $1` with a syntax error. A null-safe
+  // predicate needs no fragment at all, so the whole hazard goes away.
+  const filterId = estimateId ?? null;
 
   const [byKindModel, byEstimateRun, totals, trend] = await Promise.all([
     // Bounded by the kind x model vocabulary. Feeds both the per-agent and the
@@ -62,7 +66,7 @@ export default async function AdminUsagePage({
              COALESCE(SUM("costUsd"), 0)::float8 AS cost,
              (COUNT(*) FILTER (WHERE "costUsd" IS NULL))::int AS unpriced
       FROM "ModelUsage"
-      ${estimateFilter}
+      WHERE (${filterId}::text IS NULL OR "estimateId" = ${filterId})
       GROUP BY 1
       ORDER BY 1 DESC
       LIMIT ${TREND_DAYS}
