@@ -29,19 +29,25 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: 'list',
-  // Generous per-test timeout: the agents-heavy /estimates/[id] route's cold
-  // first-compile under `next dev` can exceed the 30s default when its spec runs
-  // first in the suite (passes in ~11s once warm).
+  // Per-test budget. It no longer has to cover a cold compile — global-setup
+  // warms every heavy route first — but a few specs drive a whole multi-step
+  // flow (the refinement spec toggles, edits, awaits a write, reloads, exports
+  // and finalises) and call test.slow(), which triples whatever this is.
   timeout: 60_000,
-  // The per-test budget above does NOT reach assertions. Every `expect(...)`
-  // gets its own separate budget, defaulting to 5s — so `page.waitForURL(...)`
-  // had 60s while `expect(page).toHaveURL(...)`, the same wait written the other
-  // way, had 5. Whichever spec happened to reach a heavy route first paid its
-  // cold compile inside an assertion and failed; every later spec passed because
-  // the first one warmed the route. That rotates the failure between runs and
-  // reads as flakiness. Five assertions were patched one at a time with an
-  // explicit `{ timeout: COLD_COMPILE }` before the config itself was the
-  // suspect; raising the budget here retires those and every future instance.
+  // This is the line the suite was missing, and the one that made it fail on a
+  // different test every run.
+  //
+  // The per-test budget above does NOT reach assertions: every `expect(...)`
+  // gets its own separate budget, which defaults to 5s. So `page.waitForURL(…)`
+  // had 60s while `expect(page).toHaveURL(…)` — the same wait written the other
+  // way — had 5. Whichever spec happened to reach a heavy route first paid that
+  // route's compile inside an assertion and failed; every later spec passed
+  // because the first one had warmed it. The failure therefore moved between
+  // runs, which reads as flakiness and is not.
+  //
+  // 15s is a ceiling for work that should be quick, not a compile budget —
+  // global-setup's warm-up is what makes that distinction hold. Measured
+  // without it, a cold /estimates/[id] blew straight through this.
   expect: { timeout: 15_000 },
   use: {
     baseURL: 'http://localhost:3001',
