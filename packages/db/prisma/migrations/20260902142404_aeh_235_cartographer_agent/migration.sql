@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "AgentKind" ADD VALUE 'CARTOGRAPHER';
+
+-- AlterEnum
+ALTER TYPE "UsageKind" ADD VALUE 'CARTOGRAPHER';

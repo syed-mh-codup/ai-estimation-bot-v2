@@ -9,11 +9,16 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-235 slice 1 built, uncommitted
+## Current: AEH-235 slices 1 and 2 built
 
-The scope configurator. Slice 1 is written and green: typecheck, lint,
-`pnpm test` (63 files), `audit:fields`, `audit:exports`, `pnpm --filter web
-build`, and `e2e/scope.spec.ts` (2 specs). **Not committed yet.**
+The scope configurator. Green: typecheck, lint, `pnpm test` (64 files, 577
+passing), `audit:fields`, `audit:exports`, `pnpm --filter web build`, and
+`e2e/scope.spec.ts` (4 specs).
+
+⚠️ The e2e SUITE has pre-existing flakiness unrelated to this work.
+`estimates-create.spec.ts:17` fails reproducibly on clean master;
+`oracle.spec.ts` fails non-deterministically with different specs each run. Both
+verified by stashing this branch and re-running. Belongs on AEH-282.
 
 ### The framing, which is the thing not to undo
 
@@ -51,9 +56,20 @@ disabled toggle and the refusal branch in `setItemEnabled` all dead in
 production. `MenuItem.foundation` is a real column now; never seed it from that
 flag. See [[preset-graph-is-empty]].
 
-Slice 2 is the generating agent (CARTOGRAPHER), which fills the same
-`MenuItemDependency` rows with `source: INFERRED` through the same
-`replaceEstimateGraph` guards. Nothing in slice 1 changes shape for it.
+Slice 2 (CARTOGRAPHER) is built: it fills the same `MenuItemDependency` rows
+with `source: INFERRED` through the same `replaceEstimateGraph` guards, so a
+derived graph and a typed one are held to one standard.
+
+On demand via `POST /api/estimates/[id]/scope-map`, not part of a run — heavy
+model, and most estimates are never configured. **The cost of that:** a re-run
+replaces every card and so drops the graph, which then has to be asked for
+again. If the spend is ever judged worthwhile, calling `runCartographer` from
+the run's persist step is the whole change.
+
+Prompt install is `pnpm db:seed:cartographer` (or `db:seed:prompt <KIND>`).
+`seed-prompt-oracle.ts` was generalised into `seed-prompt-one.ts` rather than
+copied — a second agent needing the same careful install is exactly when
+duplicating it starts the drift that file exists to prevent.
 
 Three fixture traps in `docs/preset-dependency-reference.md`, all verified
 against the file: it is 43 data rows though its own summary says 44; it already
@@ -65,9 +81,10 @@ the cycle test passes vacuously.
 ### Two migrations, all four databases
 
 `20260902105647_aeh_235_estimate_dependency_graph`,
-`20260902110953_aeh_235_scope_scenario` and
-`20260902133000_aeh_235_drop_preset_dependency_source`, all applied to local
-`ai_estimation`, local `ai_estimation_test`, Neon test and Neon dev/main (29
+`20260902110953_aeh_235_scope_scenario`,
+`20260902133000_aeh_235_drop_preset_dependency_source` and
+`20260902142404_aeh_235_cartographer_agent`, all applied to local
+`ai_estimation`, local `ai_estimation_test`, Neon test and Neon dev/main (30
 migrations each). The first two purely additive; the third rebuilds the
 `DependencySource` enum to drop `PRESET` (Postgres cannot remove a value in
 place), verified as zero-row on all four before applying. Neon dev/main verified intact afterwards: 140 cards, 33
@@ -88,10 +105,10 @@ ones. Raised, never settled — worth deciding before the next one starts.
 
 ## Databases
 
-    local docker  ai_estimation        29 migrations
-    local docker  ai_estimation_test   29 migrations
-    Neon test     (ep-wild-heart)      29 migrations
-    Neon dev/main (ep-polished-credit) 29 migrations
+    local docker  ai_estimation        30 migrations
+    local docker  ai_estimation_test   30 migrations
+    Neon test     (ep-wild-heart)      30 migrations
+    Neon dev/main (ep-polished-credit) 30 migrations
 
 ⚠️ `packages/db/.env` points at **Neon dev/main**, so a bare `prisma migrate dev`
 from that package runs against real data and can offer to reset it. Always pass

@@ -15,7 +15,9 @@
     "db:seed": "tsx src/seed.ts",
     "db:seed:admin": "tsx src/seed-admin.ts",
     "db:seed:taxonomy": "tsx src/seed-taxonomy.ts",
-    "db:seed:oracle": "tsx src/seed-prompt-oracle.ts"
+    "db:seed:prompt": "tsx src/seed-prompt-one.ts",
+    "db:seed:oracle": "tsx src/seed-prompt-one.ts ORACLE",
+    "db:seed:cartographer": "tsx src/seed-prompt-one.ts CARTOGRAPHER"
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",

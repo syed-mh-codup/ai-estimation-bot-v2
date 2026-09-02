@@ -412,3 +412,36 @@ export const SearchResultSchema = z.object({
   snippet: z.string(),
 });
 export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+// ─── Cartographer ────────────────────────────────────────────────────────────
+
+/**
+ * One dependency the Cartographer read out of an estimate's menu card. AEH-235.
+ *
+ * Cards are referenced by their 1-based position in the list the model was
+ * shown, not by id. Cuids are noise that invites transcription errors, and
+ * `taxonomyKey` is not unique within an estimate (it is literally `'custom'`
+ * for every hand-added card). The mapping back to ids happens in code, so a
+ * number the model invents fails to resolve and is dropped rather than
+ * silently landing on the wrong card.
+ */
+export const CartographerEdgeSchema = z.object({
+  /** The card that cannot be delivered first. */
+  dependent: z.number().int().positive(),
+  /** The card that has to exist before it. */
+  prerequisite: z.number().int().positive(),
+  /**
+   * Why, in one sentence. Defaulted rather than required: an edge with a sound
+   * direction and no explanation is still worth keeping, and refusing the whole
+   * response over a missing string would throw away the rest of the graph.
+   */
+  why: z.string().default(''),
+});
+export const CartographerOutputSchema = z.object({
+  edges: z.array(CartographerEdgeSchema).default([]),
+  /** Cards nothing in the estimate runs without. Often empty, and that is fine. */
+  foundation: z.array(z.number().int().positive()).default([]),
+  /** Anything a human should know about how this scope was read. */
+  notes: z.string().default(''),
+});
+export type CartographerOutput = z.infer<typeof CartographerOutputSchema>;

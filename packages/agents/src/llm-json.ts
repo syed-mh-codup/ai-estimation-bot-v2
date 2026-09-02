@@ -23,13 +23,28 @@ export class LLMJsonError extends Error {
  * "fallback" looked like a legitimate low estimate). Callers that want
  * resilience should retry via `withRetry`, not swallow the error here.
  */
-export async function chatJSON<T>(
+/**
+ * Generic over the SCHEMA, not over its output type, and that is load-bearing.
+ *
+ * The obvious signature is `<T>(… schema: z.ZodType<T>) => Promise<T>`. It is
+ * subtly wrong: a schema whose top-level fields carry `.default()` has an input
+ * type that differs from its output type, and inference then resolves `T` to
+ * the INPUT — so every defaulted field arrives at the call site as
+ * possibly-undefined even though `parse` has just filled it in, and callers
+ * either add non-null assertions or re-handle absence that cannot occur.
+ *
+ * `z.infer<S>` is the output type by definition, so this returns what `parse`
+ * actually produced. Same z.input/z.infer trap the schema comments warn about
+ * (it hid 47 typecheck errors once); this is the version of it that bites
+ * consumers rather than fixtures.
+ */
+export async function chatJSON<S extends z.ZodTypeAny>(
   modelProvider: IModelProvider,
   options: { model: string; messages: ChatMessage[]; temperature?: number },
-  schema: z.ZodType<T>,
+  schema: S,
   agentLabel: string,
   attribution: { kind: UsageKind; recorder: UsageRecorder },
-): Promise<T> {
+): Promise<z.infer<S>> {
   const result = await modelProvider.chat({ ...options, responseFormat: 'json_object' });
   // Record before parsing: a parse failure is still a real, billed model call.
   await attribution.recorder.record({

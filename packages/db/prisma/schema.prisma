@@ -62,6 +62,10 @@ enum AgentKind {
   /// it is an agent rather than an artifact type, which is why it belongs in
   /// this enum. See packages/db/src/agent-catalogue.ts for what each kind is.
   ORACLE
+  /// Not part of a run either. Works out which of one estimate's cards depend
+  /// on which, so the scope configurator has a graph to cascade over. On demand
+  /// because it uses a heavy model and most estimates never need one. AEH-235.
+  CARTOGRAPHER
 }
 
 /// The attribution vocabulary for ModelUsage rows. Owned in code by
@@ -79,6 +83,7 @@ enum UsageKind {
   SPECIALIST_BA
   ARCHITECT
   ORACLE
+  CARTOGRAPHER
   INGEST
   /// Preset-library embedding only. An Archivist query embed is recorded as
   /// ARCHIVIST, because "which agent is burning the money" is the question the

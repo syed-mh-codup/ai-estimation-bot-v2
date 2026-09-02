@@ -36,6 +36,7 @@ export const AGENT_USAGE_KIND: Record<AgentKind, UsageKind> = {
   SPECIALIST_BA: 'SPECIALIST_BA',
   ARCHITECT: 'ARCHITECT',
   ORACLE: 'ORACLE',
+  CARTOGRAPHER: 'CARTOGRAPHER',
 };
 
 /** The model surfaces that are not agents. */

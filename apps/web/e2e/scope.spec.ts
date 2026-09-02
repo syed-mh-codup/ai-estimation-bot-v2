@@ -158,3 +158,95 @@ test.describe('scope configurator', () => {
     await expect(page.getByTestId('rollup-excluded')).toBeHidden();
   });
 });
+
+/**
+ * Deliberately last in the file.
+ *
+ * Playwright runs describes in declaration order, these specs share one
+ * estimate, and deriving REPLACES its graph and its foundation flags. Run
+ * before the hand-authoring specs above, this block leaves card 1 marked
+ * always-included — at which point their toggle on it is correctly inert and
+ * they fail for a reason that has nothing to do with what they test.
+ *
+ * The alternative, having every block reset the estimate first, buys
+ * independence this file does not need and costs a fixture reset per spec.
+ */
+test.describe('deriving the graph with the Cartographer', () => {
+  test.slow();
+
+  // Deriving REPLACES the graph, so it asks first whenever there is something
+  // to lose — and by this point in the file there always is. Playwright
+  // auto-DISMISSES dialogs, which would make every click below a silent no-op,
+  // so the accept has to be registered for the whole block rather than per
+  // spec. Registered on every navigation because `router.refresh()` and
+  // `page.reload()` both re-arm it.
+  test.beforeEach(async ({ page }) => {
+    page.on('dialog', (d) => void d.accept());
+  });
+
+  test('works out the dependencies, then the configurator cascades on them', async ({ page }) => {
+    await login(page);
+    await openScope(page);
+
+    // The stub DERIVES its answer from the corpus it is handed — it reads the
+    // card numbers out of the rendered list and chains them — so this exercises
+    // the real number-to-id mapping. A canned payload would pass even if that
+    // mapping were broken, which is the whole reason the stub works this way.
+    await page.getByTestId('scope-graph-derive').click();
+    await expect(page.getByTestId('scope-graph-derived')).toBeVisible({ timeout: COLD_COMPILE });
+    await expect(page.getByTestId('scope-graph-derived')).toContainText('Found 1 dependency');
+
+    // With a graph, the configurator appears and cascades over it. The stub
+    // chains card 2 onto card 1 and marks card 1 as always-included, so card 1
+    // renders as foundation and its toggle does nothing.
+    await expect(page.getByTestId('scope-totals')).toBeVisible({ timeout: COLD_COMPILE });
+    await expect(page.getByTestId(`scope-foundation-${FIRST}`)).toBeVisible();
+
+    // Reload before measuring. The derive finishes with `router.refresh()`,
+    // which re-renders the server component asynchronously — reading a count
+    // mid-refresh gets the pre-refresh number and the assertion then races the
+    // new one. A reload makes the state unambiguously server-rendered.
+    await page.reload();
+    await expect(page.getByTestId('scope-totals')).toBeVisible({ timeout: COLD_COMPILE });
+
+    // Establish a known selection before measuring one. The specs above leave
+    // the scenario in whatever state they finished in, and "toggle a card off"
+    // is only meaningful if it was on — otherwise the click turns it ON and the
+    // count goes the other way, which is what caught this out. Reset makes it
+    // as-proposed, which for this estimate is everything on.
+    await page.getByTestId('scope-reset').click();
+    await expect(page.getByTestId('scope-modules')).toContainText('2 modules of 2');
+    await saveSettled(page, SECOND!);
+
+    // Now the cascade, over a graph nobody typed: card 2 needs card 1, so
+    // switching card 2 off drops it alone and leaves the foundation standing.
+    await page.getByTestId(`scope-toggle-${SECOND}`).click();
+    await expect(page.getByTestId('scope-modules')).toContainText('1 module of 2');
+    await saveSettled(page, SECOND!);
+  });
+
+  test('a second pass replaces the graph rather than stacking on it', async ({ page }) => {
+    await login(page);
+    await openScope(page);
+
+    // Derive twice in a row. The claim is that the second pass REPLACES — so
+    // the recorded count has to be the same afterwards, not double. That is
+    // asserted on the count itself rather than on the page still rendering,
+    // which an earlier version of this spec did and which proved nothing.
+    await page.getByTestId('scope-graph-derive').click();
+    await expect(page.getByTestId('scope-graph-derived')).toContainText('Found 1 dependency', {
+      timeout: COLD_COMPILE,
+    });
+    await expect(page.getByTestId('scope-graph-count')).toContainText('1 recorded', {
+      timeout: COLD_COMPILE,
+    });
+
+    await page.getByTestId('scope-graph-derive').click();
+    await expect(page.getByTestId('scope-graph-derived')).toContainText('Found 1 dependency', {
+      timeout: COLD_COMPILE,
+    });
+    await expect(page.getByTestId('scope-graph-count')).toContainText('1 recorded', {
+      timeout: COLD_COMPILE,
+    });
+  });
+});
