@@ -22,9 +22,12 @@ const DB_URL =
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
 const MATCHED = 'TEST-PROMO-MATCHED';
+/** Target for the dependency-edge cases. Needs only a Preset row: the edge's
+ *  prerequisite end is the stable preset id, not a version. */
+const PREREQ = 'TEST-PROMO-PREREQ';
 let userId = '';
 let estimateId = '';
-const createdPresetIds = new Set<string>([MATCHED]);
+const createdPresetIds = new Set<string>([MATCHED, PREREQ]);
 
 // Parsed, not cast. `as MenuItem` on an input-shaped literal is the
 // z.input/z.infer trap that hid 47 errors while CI was down (4271478): every
@@ -125,7 +128,7 @@ beforeEach(async () => {
         },
       },
       composition: {
-        create: { requires: [], blocks: [], canParallel: true },
+        create: { canParallel: true },
       },
     },
   });
@@ -433,5 +436,55 @@ describe('the split concerns stay whole across a version bump', () => {
     // vector's source text. That mismatch is the staleness signal the backfill
     // re-embeds on — the preset stays findable in the meantime.
     expect(presetEmbeddingText(v2!.retrieval!)).not.toBe(state?.txt);
+  });
+
+  // AEH-242. Edges hang off the version, exactly like the vector, so a writer
+  // that creates a version without carrying them leaves the new active version
+  // with none. Nothing errors and nothing on screen changes — the preset simply
+  // stops declaring what it needs, and a configurator quietly stops pulling that
+  // work in. Both cases below were verified to fail with `carryPresetEdges`
+  // commented out of the writer under test.
+  async function givePrerequisite(presetId: string, prerequisitePresetId: string, note: string) {
+    await db.preset.upsert({
+      where: { id: prerequisitePresetId },
+      update: {},
+      create: { id: prerequisitePresetId },
+    });
+    const v = await db.presetVersion.findFirst({ where: { presetId, active: true }, select: { id: true } });
+    await db.presetDependency.create({
+      data: { dependentVersionId: v!.id, prerequisitePresetId, note },
+    });
+  }
+
+  async function edgesOfActive(presetId: string) {
+    const v = await db.presetVersion.findFirst({
+      where: { presetId, active: true },
+      include: { dependencies: true },
+    });
+    return v!.dependencies;
+  }
+
+  it('promotion carries the dependency edges onto the new version', async () => {
+    await givePrerequisite(MATCHED, PREREQ, 'needs the platform first');
+
+    await promoteMenuItemsToPresets(db, estimateId, [
+      card({ sourcePresetId: MATCHED, matchScore: PROMOTION_MATCH_THRESHOLD + 0.05 }),
+    ]);
+
+    const edges = await edgesOfActive(MATCHED);
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.prerequisitePresetId).toBe(PREREQ);
+    // The reason travels too — an edge with no explanation is one nobody can audit.
+    expect(edges[0]?.note).toBe('needs the platform first');
+  });
+
+  it('recordActuals carries the dependency edges onto the new version', async () => {
+    await givePrerequisite(MATCHED, PREREQ, 'needs the platform first');
+
+    await recordActuals(db, { presetId: MATCHED, role: 'DEV', actualHours: 61 });
+
+    const edges = await edgesOfActive(MATCHED);
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.prerequisitePresetId).toBe(PREREQ);
   });
 });

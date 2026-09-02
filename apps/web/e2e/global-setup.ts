@@ -185,7 +185,7 @@ export default async function globalSetup(config: FullConfig) {
             notes: '',
           },
         },
-        composition: { create: { requires: [], blocks: [], canParallel: true } },
+        composition: { create: { canParallel: true } },
       },
       include: { retrieval: true },
     });

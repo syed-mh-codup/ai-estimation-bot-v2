@@ -25,9 +25,10 @@ describe('AEH-228: prisma schema parser', () => {
   it('finds all models and enums', () => {
     // 17 models / 13 enums before AEH-244 split PresetVersion's flat row into
     // PresetRetrieval + PresetAnchor + PresetComposition (three new models),
-    // then AEH-240 added EstimateReminder and the ReminderKind enum, and AEH-286
-    // added ModelUsage and the UsageKind enum.
-    expect(schema.models.size).toBe(22);
+    // then AEH-240 added EstimateReminder and the ReminderKind enum, AEH-286
+    // added ModelUsage and the UsageKind enum, and AEH-242 added
+    // PresetDependency (no enum — the edge has one kind by design).
+    expect(schema.models.size).toBe(23);
     expect(schema.enums.size).toBe(15);
   });
 

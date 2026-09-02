@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { PrismaClient } from '@repo/db';
+import { loadPresetGraph, type PrismaClient } from '@repo/db';
+import { prerequisitesOf } from '@repo/shared';
 import type { IEmbeddingProvider, IModelProvider } from '@repo/providers';
 import type { ArchivistOutput, ArchivistMatch, Requirement, Coverage, ImpactLevel, Phase } from '@repo/shared';
 import { ArchivistOutputSchema } from '@repo/shared';
@@ -56,7 +57,10 @@ function presetCaveatsFor(meta: {
   presetId: string;
   notes: string;
   spikeNeeded: boolean;
-  blocks: string[];
+  /** DIRECT prerequisites, by display name. Deliberately not the transitive set:
+   *  a caveat naming eighteen presets is noise, and the immediate ones are what
+   *  a human sanity-checks the estimate against. */
+  prerequisiteNames: string[];
   canParallel: boolean;
 }): string[] {
   const out: string[] = [];
@@ -65,8 +69,10 @@ function presetCaveatsFor(meta: {
   if (meta.spikeNeeded) {
     out.push(`${meta.presetId} has historically needed a discovery spike before delivery.`);
   }
-  if (meta.blocks.length > 0) {
-    out.push(`${meta.presetId} blocks ${meta.blocks.join(', ')} — schedule it ahead of them.`);
+  if (meta.prerequisiteNames.length > 0) {
+    out.push(
+      `${meta.presetId} needs ${meta.prerequisiteNames.join(', ')} delivered first — check they are in scope.`,
+    );
   }
   if (!meta.canParallel) {
     out.push(`${meta.presetId} has not been delivered in parallel with other work.`);
@@ -94,7 +100,7 @@ function noMatchFor(req: Requirement): ArchivistMatch {
       risk: 'Medium',
     },
     rationale: 'No historical analogue found — net-new scope, build up from first principles.',
-    sequencing: { requires: [], blocks: [], canParallel: true },
+    sequencing: { prerequisitePresetIds: [], canParallel: true },
     presetCaveats: [],
   };
 }
@@ -114,6 +120,11 @@ export async function runArchivist(
 
   const topK = ctx.topK ?? 5;
   const matches: ArchivistMatch[] = [];
+
+  // One load for the whole run. Every match needs reachability over the same
+  // graph, and it is a few hundred rows — a query per requirement would be the
+  // same data fetched N times.
+  const graph = await loadPresetGraph(ctx.db);
 
   for (const req of requirements) {
     const embedResult = await ctx.embeddingProvider.embed(req.text);
@@ -170,7 +181,7 @@ export async function runArchivist(
           select: { name: true, notes: true },
         },
         composition: {
-          select: { requires: true, blocks: true, canParallel: true },
+          select: { canParallel: true },
         },
       },
     });
@@ -182,7 +193,18 @@ export async function runArchivist(
 
     const anchor = meta.anchor;
     const name = meta.retrieval.name;
-    const sequencing = meta.composition ?? { requires: [], blocks: [], canParallel: true };
+    // Transitive, not direct. The Architect decides whether a card is safe to
+    // remove by asking whether any OTHER card's prerequisites reach it, and it
+    // has no graph of its own — so the reachable set has to travel in the DTO.
+    // Closures here are small (the retired library's largest was 18).
+    const prerequisitePresetIds = [...prerequisitesOf(graph, meta.presetId)];
+    const directPrerequisiteNames = (graph.edges.get(meta.presetId) ?? []).map(
+      (id) => graph.nodes.get(id)?.name ?? id,
+    );
+    const sequencing = {
+      prerequisitePresetIds,
+      canParallel: meta.composition?.canParallel ?? true,
+    };
 
     matches.push({
       requirementId: req.id,
@@ -206,7 +228,13 @@ export async function runArchivist(
           ? `Closely matches preset "${name}" (${meta.presetId}).`
           : `Partially matches preset "${name}" (${meta.presetId}) — verify coverage gap before anchoring fully.`,
       sequencing,
-      presetCaveats: presetCaveatsFor({ presetId: meta.presetId, notes: meta.retrieval.notes, spikeNeeded: anchor.spikeNeeded, ...sequencing }),
+      presetCaveats: presetCaveatsFor({
+        presetId: meta.presetId,
+        notes: meta.retrieval.notes,
+        spikeNeeded: anchor.spikeNeeded,
+        prerequisiteNames: directPrerequisiteNames,
+        canParallel: sequencing.canParallel,
+      }),
       presetPhase: toCardPhase(anchor.phase),
     });
   }

@@ -277,7 +277,7 @@ describe('WBS ⇄ preset library round trip', () => {
             notes: '',
           },
         },
-        composition: { create: { requires: [], blocks: [], canParallel: true } },
+        composition: { create: { canParallel: true } },
       },
     });
 

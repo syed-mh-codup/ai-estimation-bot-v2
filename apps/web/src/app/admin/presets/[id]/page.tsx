@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound } from 'next/navigation';
-import { prisma, carryPresetVector } from '@repo/db';
+import { prisma, carryPresetVector, carryPresetEdges, loadPresetGraph } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { inngest, EVENT_EMBED_PRESETS } from '@/lib/inngest';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
+import { DependencyEditor } from './dependency-editor';
 import { Input, Textarea, Select, FieldLabel } from '@/components/ui/input';
 
 const LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const;
@@ -45,7 +46,6 @@ async function savePreset(formData: FormData) {
   if (!active?.anchor || !active.retrieval || !active.composition || !last) return;
   const prevAnchor = active.anchor;
   const prevRetrieval = active.retrieval;
-  const prevComposition = active.composition;
   const nextVersion = last.version + 1;
 
   // Editable fields from the form; fields not exposed in the form are carried
@@ -119,11 +119,16 @@ async function savePreset(formData: FormData) {
     await tx.presetComposition.create({
       data: {
         presetVersionId: created.id,
-        requires: prevComposition.requires,
-        blocks: prevComposition.blocks,
         canParallel: formData.get('canParallel') === 'on',
       },
     });
+
+    // Edges are per-version, so a save that did not carry them would silently
+    // strip every prerequisite the moment an admin edited an unrelated field.
+    // Same failure mode as the vector carry above: no error, nothing on screen,
+    // and the configurator quietly stops pulling in the work this preset needs.
+    // AEH-242.
+    await carryPresetEdges(tx, active.id, created.id);
   });
 
   revalidatePath(`/admin/presets/${presetId}`);
@@ -186,13 +191,18 @@ function diffVersions(curr: VersionRow, prev: VersionRow): Array<{ field: string
 
 export default async function PresetEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [preset, versions] = await Promise.all([
+  const [preset, versions, graph] = await Promise.all([
     prisma.preset.findUnique({ where: { id }, select: { code: true, origin: true } }),
     prisma.presetVersion.findMany({
       where: { presetId: id },
       orderBy: { version: 'desc' },
       include: { anchor: true, retrieval: true, composition: true },
     }),
+    // The whole graph, serialised to the client once. The picker answers
+    // "what does this drag in?" per keystroke and per hover, and a round trip
+    // for each would make the one interaction this ticket exists to get right
+    // feel worse than the dropdowns it replaces.
+    loadPresetGraph(prisma),
   ]);
   const active = versions.find((v) => v.active) ?? versions[0];
   if (!active?.anchor || !active.retrieval || !active.composition) {
@@ -415,6 +425,25 @@ export default async function PresetEditorPage({ params }: { params: Promise<{ i
           </Button>
         </div>
       </form>
+
+      <section className="mt-8 max-w-3xl">
+        <Heading>Dependencies</Heading>
+        <Card className="mt-2">
+          <CardBody className="p-4 sm:p-5">
+            <DependencyEditor
+              presetId={id}
+              adjacency={Object.fromEntries(graph.edges)}
+              nodes={[...graph.nodes.values()].map((n) => ({
+                presetId: n.presetId,
+                code: n.code,
+                name: n.name,
+                devHours: n.devHours,
+              }))}
+              notes={Object.fromEntries(graph.notes)}
+            />
+          </CardBody>
+        </Card>
+      </section>
 
       {diff.length > 0 && (
         <section className="mt-8 max-w-3xl">

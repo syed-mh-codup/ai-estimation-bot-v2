@@ -63,7 +63,7 @@ async function makePreset(presetId: string, name: string, keywords: string[]) {
         },
       },
       composition: {
-        create: { requires: [], blocks: [], canParallel: true },
+        create: { canParallel: true },
       },
     },
     include: { retrieval: true },

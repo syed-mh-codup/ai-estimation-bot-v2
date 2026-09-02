@@ -1,4 +1,4 @@
-import { allocatePresetCode, carryPresetVector, toMenuItem, type PrismaClient } from '@repo/db';
+import { allocatePresetCode, carryPresetEdges, carryPresetVector, toMenuItem, type PrismaClient } from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
 import type { MenuItem, RoleLineItem } from '@repo/shared';
 import { createUsageRecorder, type UsageRecorder } from './usage-recorder';
@@ -140,6 +140,7 @@ export async function promoteMenuItemsToPresets(
       where: { presetId },
       orderBy: { version: 'desc' },
       select: {
+        id: true,
         version: true,
         anchor: {
           select: {
@@ -163,7 +164,7 @@ export async function promoteMenuItemsToPresets(
           select: { id: true, name: true, description: true, keywords: true, notes: true, userStoryTags: true },
         },
         composition: {
-          select: { requires: true, blocks: true, canParallel: true },
+          select: { canParallel: true },
         },
       },
     });
@@ -257,11 +258,21 @@ export async function promoteMenuItemsToPresets(
       await tx.presetComposition.create({
         data: {
           presetVersionId: version.id,
-          requires: carryComposition?.requires ?? [],
-          blocks: carryComposition?.blocks ?? [],
           canParallel: carryComposition?.canParallel ?? true,
         },
       });
+
+      // Dependency edges hang off the version, so a new version starts with
+      // none. Carrying them is not optional: skip it and the preset silently
+      // loses every prerequisite the moment an estimate is finalised against it,
+      // which no test and no screen would show. Same hazard class as the vector
+      // carry above. AEH-242.
+      //
+      // Gated on a prior version rather than on `strongMatch`, matching the
+      // vector: a newly minted preset has no edges to carry.
+      if (latestVersion) {
+        await carryPresetEdges(tx, latestVersion.id, version.id);
+      }
     });
 
     promoted.push(presetId);
@@ -502,6 +513,7 @@ export async function recordActuals(
   const current = await db.presetVersion.findFirst({
     where: { presetId: entry.presetId, active: true },
     select: {
+      id: true,
       version: true,
       sourceEstimateId: true,
       anchor: true,
@@ -589,11 +601,15 @@ export async function recordActuals(
     await tx.presetComposition.create({
       data: {
         presetVersionId: version.id,
-        requires: composition.requires,
-        blocks: composition.blocks,
         canParallel: composition.canParallel,
       },
     });
+
+    // An actuals entry changes the anchor's hours and nothing about how this
+    // work relates to other work — so the edges carry across verbatim. Omitting
+    // this would make every post-delivery calibration quietly strip the preset's
+    // prerequisites. AEH-242.
+    await carryPresetEdges(tx, current.id, version.id);
   });
 
   return { version: newVersion };

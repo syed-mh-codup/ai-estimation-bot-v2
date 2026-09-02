@@ -54,7 +54,7 @@ const sampleMatch: ArchivistMatch = {
     risk: 'Medium',
   },
   rationale: 'matches B2B checkout preset',
-  sequencing: { requires: [], blocks: [], canParallel: true },
+  sequencing: { prerequisitePresetIds: [], canParallel: true },
   presetCaveats: [],
 };
 

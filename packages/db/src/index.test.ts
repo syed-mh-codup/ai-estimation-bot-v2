@@ -63,7 +63,7 @@ describe('WS1-02: Preset + PresetVersion CRUD', () => {
           },
         },
         composition: {
-          create: { requires: [], blocks: [], canParallel: true },
+          create: { canParallel: true },
         },
       },
     });

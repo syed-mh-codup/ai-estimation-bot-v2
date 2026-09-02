@@ -252,11 +252,13 @@ model TaxonomyNodeVersion {
 
 model Preset {
   /// cuid. Opaque and never allocated by a human — see `code` for the readable
-  /// handle. The seeded 45 keep the ids they were imported under (P01–P45),
-  /// which are load-bearing: requires/blocks form a real dependency graph
-  /// between presets, MenuItem.sourcePresetId rows point at them, and live
-  /// agent prompts name the range.
-  id       String          @id @default(cuid())
+  /// handle. Load-bearing as an identity: MenuItem.sourcePresetId points at it,
+  /// and PresetDependency uses it as the stable end of every edge.
+  ///
+  /// The xlsx-seeded ids (P01–P45) were retired with the spreadsheet in AEH-242;
+  /// nothing should assume that range still exists. AEH-306 removes the last
+  /// references to it from the agent prompts.
+  id         String             @id @default(cuid())
   /// Readable handle — "P46". Unique, shown everywhere, never typed by a user:
   /// allocated from a Postgres sequence (see allocatePresetCode) so concurrent
   /// finalises can't collide the way max()+1 would.
@@ -264,10 +266,14 @@ model Preset {
   /// Numbers are free-flowing — no zero padding, no fixed width. Codes imported
   /// from the xlsx keep that file's own formatting (P01–P45) because people
   /// cross-reference the spreadsheet; allocated codes are plain (P46, P100).
-  code     String?         @unique
+  code       String?            @unique
   /// Where this preset came from. See PresetOrigin.
-  origin   PresetOrigin    @default(MANUAL)
-  versions PresetVersion[]
+  origin     PresetOrigin       @default(MANUAL)
+  versions   PresetVersion[]
+  /// Edges pointing AT this preset — the versions that declare they need it.
+  /// Read `dependentsOf` rather than walking this by hand; one hop is rarely
+  /// the answer you want.
+  dependents PresetDependency[]
 }
 
 model PresetVersion {
@@ -280,14 +286,16 @@ model PresetVersion {
   /// The estimate anchor — one per version, carrying the hours, side flags and
   /// comparison signals a preset contributes to an estimate. AEH-244 split this
   /// out so the anchor can become a first-class costed-work record (AEH-243).
-  anchor      PresetAnchor?
+  anchor       PresetAnchor?
   /// The retrieval surface — one per version, self-contained: it holds every
   /// field the embedding is built from, so computing a row's own vector never
   /// requires a join to a sibling table.
-  retrieval   PresetRetrieval?
-  /// The composition rules — one per version, so requires/blocks/canParallel
-  /// keep their own history exactly like the anchor and retrieval do.
-  composition PresetComposition?
+  retrieval    PresetRetrieval?
+  /// The composition rules — one per version, so `canParallel` keeps its own
+  /// history exactly like the anchor and retrieval do.
+  composition  PresetComposition?
+  /// What this version says it needs before it can be delivered. AEH-242.
+  dependencies PresetDependency[]
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -374,21 +382,66 @@ model PresetAnchor {
   taxonomyKey      String?
 }
 
-/// How a preset relates to other modules — composition rules. One row per
-/// version, so requires/blocks/canParallel keep their own history. AEH-244;
-/// AEH-242 will likely turn requires/blocks into proper FK references.
+/// Composition rules that are properties of the preset ITSELF rather than of a
+/// relationship. One row per version, keeping its own history. AEH-244.
+///
+/// This held `requires` and `blocks` as untyped string arrays until AEH-242 moved
+/// them to PresetDependency. What is left is a node property: a statement about
+/// this work on its own, not about a pair.
 model PresetComposition {
   id              String        @id @default(cuid())
   presetVersionId String        @unique
   presetVersion   PresetVersion @relation(fields: [presetVersionId], references: [id])
-  /// Preset codes this one must precede (e.g. ["P17"]). No FK — AEH-242 will
-  /// add referential integrity.
-  requires        String[]
-  /// Preset codes this one blocks (e.g. ["P18"]). No FK — same as requires.
-  blocks          String[]
+  /// Whether this work has historically been delivered alongside other work.
+  /// A scheduling hint for resource planning, NOT a dependency: two presets can
+  /// both be un-parallelisable without either needing the other.
   canParallel     Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+}
+
+/// One dependency edge: `dependentVersion` needs `prerequisitePreset` before it
+/// can be delivered. AEH-242.
+///
+/// ONE directed kind, deliberately. This replaces two hand-maintained string
+/// arrays — `requires` ("I need those") and `blocks` ("I must precede those") —
+/// which express the same relation from opposite ends. Kept apart, they drifted:
+/// in the retired library 35 of 88 edges existed only in `blocks` and 19 only in
+/// `requires`, and their union held a cycle (P27 -> P34 -> P38 -> P27) that no
+/// code could catch, because nothing enforced direction or integrity. A second
+/// kind is a second chance for the data to contradict itself. Adding a `kind`
+/// column later is cheap; removing one after rows exist is not.
+///
+/// The two ends are deliberately asymmetric:
+///   - the dependent is a VERSION, so composition keeps the per-version history
+///     AEH-244 gave it — "what did v3 of this preset say it needed" stays
+///     answerable.
+///   - the prerequisite is a PRESET, because a version is a moving target. An
+///     edge pinned to a version would break the moment that target is
+///     re-versioned, which happens on every actuals writeback.
+///
+/// The field names state the direction. A column called `requires` read as a
+/// noun is exactly the ambiguity this model exists to remove.
+///
+/// Two invariants SQL cannot express here, enforced in `preset-graph.ts` and
+/// covered by its tests: no self-edge (the two ends live in different tables, so
+/// a CHECK cannot see both), and no cycle.
+model PresetDependency {
+  id                   String        @id @default(cuid())
+  /// The version that declares the need.
+  dependentVersionId   String
+  dependentVersion     PresetVersion @relation(fields: [dependentVersionId], references: [id], onDelete: Cascade)
+  /// What it needs. Stable across the target's own versioning.
+  prerequisitePresetId String
+  prerequisitePreset   Preset        @relation(fields: [prerequisitePresetId], references: [id], onDelete: Cascade)
+  /// Why this edge exists, in a sentence — "certificates cannot be delivered
+  /// without transactional email". Optional, but it is the difference between a
+  /// graph a human can audit and one they have to take on faith.
+  note                 String?
+  createdAt            DateTime      @default(now())
+
+  @@unique([dependentVersionId, prerequisitePresetId])
+  @@index([prerequisitePresetId])
 }
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────
@@ -738,7 +791,7 @@ model OracleMessage {
   /// the one home for all AI spend — rather than on this row, so a single report
   /// can answer "what did this cost" across Oracle and the run crew. A message
   /// has at most one usage row.
-  usage     ModelUsage?
+  usage ModelUsage?
 
   createdAt DateTime @default(now())
 
@@ -753,11 +806,11 @@ model OracleMessage {
 /// than a guess. Rows accumulate across re-runs; nothing here is replaced
 /// wholesale the way Estimate.agentState is.
 model ModelUsage {
-  id       String   @id @default(cuid())
+  id               String         @id @default(cuid())
   /// Null for preset embedding backfill (no estimate). SetNull, not Cascade: the
   /// spend record must outlive a deleted estimate.
   estimateId       String?
-  estimate         Estimate?       @relation(fields: [estimateId], references: [id], onDelete: SetNull)
+  estimate         Estimate?      @relation(fields: [estimateId], references: [id], onDelete: SetNull)
   /// The run this call happened in. Null for Oracle/ingest/embedding.
   runId            String?
   kind             UsageKind
@@ -770,11 +823,11 @@ model ModelUsage {
   /// Oracle assistant turns link back to their message so the transcript can
   /// still show per-message cost. SetNull so a usage row survives deleting the
   /// message/thread, matching the estimate rule above.
-  oracleMessageId  String?         @unique
-  oracleMessage    OracleMessage?  @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
+  oracleMessageId  String?        @unique
+  oracleMessage    OracleMessage? @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
   threadId         String?
-  thread           OracleThread?   @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  createdAt        DateTime        @default(now())
+  thread           OracleThread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
 
   @@index([estimateId, createdAt])
   @@index([kind])
