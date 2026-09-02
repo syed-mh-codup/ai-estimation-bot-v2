@@ -431,6 +431,17 @@ export async function runEstimate(
         });
         const ids = existing.map((m) => m.id);
         if (ids.length) {
+          // Configured scopes go with the cards they were cut from. Their picks
+          // cascade away on their own (they point at MenuItem rows), but the
+          // scenario shell does not — it hangs off the estimate — and a
+          // scenario whose every pick has vanished renders as "nothing is in
+          // scope", which is a lie rather than an empty state. The dependency
+          // graph cascades from MenuItem and needs no help here.
+          //
+          // This is the same rule as the graph itself: dependencies and the
+          // scopes cut from them are properties of THIS set of cards, and a
+          // re-run replaced them. AEH-235.
+          await tx.scopeScenario.deleteMany({ where: { estimateId } });
           await tx.roleLineItem.deleteMany({ where: { menuItemId: { in: ids } } });
           await tx.menuItem.deleteMany({ where: { id: { in: ids } } });
         }

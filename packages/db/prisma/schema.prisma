@@ -199,6 +199,9 @@ model User {
   /// ones they created. See Estimate.custodianId.
   custodianOf       Estimate[]     @relation("EstimateCustodian")
   oracleThreads     OracleThread[]
+  /// Configured scopes this user cut. Attribution, not ownership: a scenario is
+  /// a record of a conversation somebody had.
+  scopeScenarios    ScopeScenario[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -546,6 +549,12 @@ model Estimate {
   reminders       EstimateReminder[]
   sections        EstimateSection[]
   menuItems       MenuItem[]
+  /// This estimate's dependency graph, between its own cards. First-class data
+  /// about the project, not a projection of the preset library. See AEH-235.
+  dependencies    MenuItemDependency[]
+  /// Configured scopes cut from this estimate for presales. Planning artifacts:
+  /// they never write back to the estimate's own card state.
+  scopeScenarios  ScopeScenario[]
   uploadedFiles   UploadedFile[]
   hiddenWork      HiddenWorkFinding[]
   oracleThreads   OracleThread[]
@@ -692,12 +701,132 @@ model MenuItem {
   section        EstimateSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   /// Manual ordering within a section (drag-and-drop). Ascending.
   order          Int              @default(0)
+  /// Always included in a configured scope: the toggle is shown but inert.
+  ///
+  /// A per-estimate decision, not a preset flag, and deliberately not derived
+  /// from `meta.notSafelyRemovable` — that value is a constant. It is computed
+  /// from `sequencing.prerequisitePresetIds`, which the Archivist derives by
+  /// walking PresetDependency, and that table is empty, so it is false for
+  /// every card in existence. See AEH-235.
+  foundation     Boolean          @default(false)
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
   lineItems      RoleLineItem[]
+  /// This card's place in its estimate's dependency graph. Two sides, because
+  /// an edge is directed and both ends are cards in the same estimate.
+  dependsOn      MenuItemDependency[] @relation("DependentCard")
+  requiredBy     MenuItemDependency[] @relation("PrerequisiteCard")
+  /// Scenarios in which somebody explicitly switched this card on.
+  scopePicks     ScopeScenarioPick[]
 
+  @@index([estimateId])
   @@index([sectionId])
+}
+
+/// One configured scope over an estimate — a planning artifact.
+///
+/// Separate from the estimate's own `MenuItem.enabled` on purpose. The estimate
+/// screen is where a team validates what the work actually is before finalising;
+/// this is a presales planning tool, and a client-facing what-if must not
+/// rewrite the estimate underneath the people who own it. So a scenario holds
+/// its own state, carries its own author and name, and is auditable on its own.
+///
+/// Several scenarios per estimate are allowed by the schema (different cuts for
+/// different conversations), even though the first screen only drives one.
+model ScopeScenario {
+  id          String              @id @default(cuid())
+  estimateId  String
+  estimate    Estimate            @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  name        String
+  /// Who cut this scope. Not the estimate's owner — the person in the room.
+  createdById String
+  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  picks       ScopeScenarioPick[]
+
+  @@index([estimateId])
+}
+
+/// One card a human explicitly switched on in a scenario.
+///
+/// Picks are the ONLY durable selection state. What is actually switched on is
+/// derived from them on every read by `resolveSelection`, which pulls in each
+/// pick's prerequisites transitively and adds the estimate's foundation cards.
+///
+/// Storing the resolved selection instead would mean two representations of one
+/// fact, drifting apart the moment an edge changes underneath them — and it
+/// would lose provenance, which is the thing the UI most needs to show. A card
+/// that is on without a pick is on because something else needs it, and that is
+/// exactly what a client has to be told when a cascade adds work they did not
+/// ask for. The reference artifact this feature was specified against could not
+/// distinguish the two.
+model ScopeScenarioPick {
+  id         String        @id @default(cuid())
+  scenarioId String
+  scenario   ScopeScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([scenarioId, menuItemId])
+  @@index([menuItemId])
+}
+
+/// How an edge in an estimate's dependency graph came to exist.
+enum DependencySource {
+  /// Derived for this estimate from its own scope.
+  INFERRED
+  /// Suggested by the preset library: both cards matched presets, and one of
+  /// those presets records a prerequisite on the other. A hint carried forward
+  /// from past delivery, never a requirement — most cards match no preset.
+  PRESET
+  /// Authored by a human.
+  MANUAL
+}
+
+/// One dependency between two cards of the SAME estimate: `dependent` cannot be
+/// delivered before `prerequisite`.
+///
+/// The estimate owns its dependency graph. That is the whole point of this
+/// model: dependencies are a property of the project being built, so they are
+/// computed for that project and live on it. The preset library's own graph
+/// (PresetDependency, AEH-242) is the secondary copy — what promotion preserved
+/// from some past estimate — and it reaches a new estimate only as a `PRESET`
+/// hint, because presets are matched in on eligibility one card at a time and
+/// nothing guarantees the cards they came from are all present again.
+///
+/// Requiring presets here would make the configurator unavailable on real work:
+/// only 12 of 140 cards carry a `sourcePresetId` at all.
+///
+/// Cascade on both ends, and no attempt to survive a re-run. A run deletes and
+/// recreates every MenuItem, so an edge keyed on a card id cannot outlive one —
+/// and should not, because the cards it joined are gone and a graph over
+/// replaced work would be a lie. The graph is recomputed with the estimate.
+model MenuItemDependency {
+  id             String           @id @default(cuid())
+  /// Denormalised from both ends so a whole estimate's graph loads in one query
+  /// without joining through MenuItem twice. Both cards are always in this
+  /// estimate; nothing may write an edge that leaves it.
+  estimateId     String
+  estimate       Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  dependentId    String
+  dependent      MenuItem         @relation("DependentCard", fields: [dependentId], references: [id], onDelete: Cascade)
+  prerequisiteId String
+  prerequisite   MenuItem         @relation("PrerequisiteCard", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+  /// Why this edge exists, in a sentence — "certificates cannot be issued
+  /// before transactional email works". Optional, but it is the difference
+  /// between a graph a human can audit and one they have to take on faith, and
+  /// it is what the cascade notice shows when work disappears.
+  note           String?
+  source         DependencySource @default(INFERRED)
+  createdAt      DateTime         @default(now())
+
+  /// One edge per ordered pair. A second reading of the same dependency is the
+  /// same dependency.
+  @@unique([dependentId, prerequisiteId])
+  @@index([estimateId])
+  @@index([prerequisiteId])
 }
 
 model RoleLineItem {
