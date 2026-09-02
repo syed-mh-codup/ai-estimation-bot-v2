@@ -55,7 +55,14 @@ prevents after a restored backup is not.
 
 typecheck, lint, `pnpm test` (60 files, 506 passed, 9 skipped),
 `pnpm --filter web build`, `audit:fields` (167 audited, 0 findings),
-`audit:exports` clean.
+`audit:exports` clean, and **`pnpm test:e2e` — 51 passed in 10.1m, no failures**.
+
+That e2e run closes a gap AEH-244 recorded and could not close: it shipped with
+`admin-presets.spec.ts` migrated to the per-version shape but never executed,
+because AEH-282 was open against the suite. Those three specs ran here, so the
+guarantee that an admin save does not drop a preset out of retrieval now rests
+on the spec rather than on two unit cases — and it covers `savePreset` calling
+`carryPresetEdges` inside its transaction as well.
 
 Three tests were verified to fail against the old behaviour and pass against the
 new, rather than merely asserted: the `notSafelyRemovable` case, and both
