@@ -9,12 +9,11 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight — AEH-242 closed, awaiting push
+## Current: nothing in flight
 
-AEH-242 is Done. Merged to master as `9f9ca2b`; the implementation record lives
-on the ticket, not here. **Master is NOT pushed** — the user is pushing to both
-remotes (github and bitbucket) themselves. The branch
-`feat/aeh-242-dependency-edges` is still on disk and can go once that lands.
+AEH-242 is Done, merged and pushed. Master is at `add6548` on both remotes
+(github and bitbucket). The feature branch is deleted. The implementation
+record lives on the ticket, not here.
 
 Two things this left for whoever picks up next:
 
