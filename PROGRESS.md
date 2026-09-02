@@ -9,13 +9,38 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## Current: AEH-235 planned, not started
 
-AEH-242 is Done, merged and pushed. Master is at `add6548` on both remotes
-(github and bitbucket). The feature branch is deleted. The implementation
-record lives on the ticket, not here.
+The scope configurator. Planned 2026-09-02; ticket is In Progress. **No code
+written yet** — the only change on master is this file. Next action: slice 1,
+starting with the `Walkable` widening and the `hours.ts` / `toItemDTO`
+extractions, which are independent of the schema.
 
-Two things this left for whoever picks up next:
+Plan: `~/.claude/plans/federated-spinning-sundae.md` (approved). Findings and
+scope decisions are on the ticket as the 2026-09-02 comment.
+
+The one thing to not re-derive: **the preset dependency graph is empty.**
+`PresetDependency` has 0 rows on Neon dev/main, and only 12 of 140 `MenuItem`
+rows carry a `sourcePresetId`. So a cascade that walks the preset graph from
+cards is inert on every estimate, and `notSafelyRemovable` is *structurally*
+false everywhere — which makes the "Load bearing" chip, its disabled toggle and
+the refusal branch in `setItemEnabled` all dead in production. Do not seed
+`foundation` from it; `MenuItem.phase` is the honest seed. See the
+[[preset-graph-is-empty]] memory.
+
+Sequencing decision worth not undoing: slice 1 is the configurator over a
+**hand-authored** graph with no LLM at all, slice 2 is the generating agent. The
+agent's output is unverifiable until something can render a graph, and slice 1's
+schema is what the agent must write into.
+
+Three fixture traps in `docs/preset-dependency-reference.md`, all verified
+against the file: it is 43 data rows though its own summary says 44; it already
+contains a dangling target (`P06` blocks `P22`, which has no row); and the
+`P34 -> P27 -> P38 -> P34` cycle only closes once `blocks` is normalised into
+`requires`, so a builder reading only the `requires` column gets a clean DAG and
+the cycle test passes vacuously.
+
+Also still open from AEH-242:
 
 **AEH-306 (High)** — every agent prompt still asserts the preset library is the
 ecommerce/B2B range P01–P45. Voiding that library makes it false in all ten, and
