@@ -57,6 +57,15 @@ typecheck, lint, `pnpm test` (60 files, 506 passed, 9 skipped),
 `pnpm --filter web build`, `audit:fields` (167 audited, 0 findings),
 `audit:exports` clean, and **`pnpm test:e2e` — 51 passed in 10.1m, no failures**.
 
+All four databases are on the migration, Neon dev/main included (applied
+2026-09-02 with the user's go-ahead, since it drops two columns holding real
+data). Verified there afterwards: the two arrays are gone, `PresetDependency`
+carries its unique index, its prerequisite index and both cascading foreign
+keys, and all 79 active versions still hold an anchor, a retrieval row, a
+composition row and a non-null embedding — the library stayed searchable
+through the change. The 43 rows that carried edges are preserved in
+`docs/preset-dependency-reference.md`, checked complete before the drop.
+
 That e2e run closes a gap AEH-244 recorded and could not close: it shipped with
 `admin-presets.spec.ts` migrated to the per-version shape but never executed,
 because AEH-282 was open against the suite. Those three specs ran here, so the
@@ -71,10 +80,6 @@ client re-implementing two walks the server already exported.
 
 ### Left open
 
-- **Neon dev/main has NOT been migrated.** The migration drops two columns
-  holding real data. Local `ai_estimation`, local `ai_estimation_test` and Neon
-  test (the e2e database) are all done. Needs a go-ahead before it runs against
-  dev/main, even though the presets there are being discarded.
 - Not merged or pushed.
 - The other preset-rework sections (AEH-243/245/246 and §5) each still want
   their own migration against a table that is still moving. Worth deciding
@@ -85,7 +90,7 @@ client re-implementing two walks the server already exported.
     local docker  ai_estimation        26 migrations
     local docker  ai_estimation_test   26 migrations
     Neon test     (ep-wild-heart)      26 migrations
-    Neon dev/main (ep-polished-credit) 25 migrations  ⚠️ BEHIND — AEH-242 not applied
+    Neon dev/main (ep-polished-credit) 26 migrations
 
 ⚠️ `packages/db/.env` points at **Neon dev/main**, so a bare `prisma migrate dev`
 from that package runs against real data and can offer to reset it. Always pass
