@@ -107,11 +107,12 @@ async function createPreset(_state: NewPresetState, formData: FormData): Promise
       await tx.presetComposition.create({
         data: {
           presetVersionId: version.id,
-          requires: [],
-          blocks: [],
           canParallel: true,
         },
       });
+      // No dependency edges on a new preset by design — they are added from the
+      // editor, where the graph is visible and a cycle can be prevented rather
+      // than validated after the fact. AEH-242.
       return preset;
     });
     presetId = created.id;

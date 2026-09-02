@@ -31,8 +31,13 @@ pnpm db:setup
 ```
 This runs `prisma migrate deploy` then seeds, in order:
 1. `db:seed` — admin/estimator users, active `EstimationConfig` v1, 3 sample-SOW estimates, 9 agent prompts.
-2. `db:seed:presets` — 45 presets (P01–P45) from `docs/Estimate Presets (ISM).xlsx`.
-3. `db:seed:taxonomy` — derives the taxonomy from presets and links them.
+2. `db:seed:taxonomy` — derives the taxonomy from presets and links them.
+
+> **There is no preset seed.** `db:seed:presets` and the spreadsheet it imported were
+> retired in AEH-242 along with the library they produced. A fresh database starts with
+> no presets; they are created in the admin UI, or promoted from a finalised estimate.
+> `db:seed:taxonomy` derives from whatever presets exist, so on an empty library it is
+> a no-op rather than an error.
 
 > Re-running is idempotent. To re-seed only (DB already migrated): `pnpm db:seed`.
 
@@ -46,7 +51,7 @@ pnpm db:embed:presets --force      # re-embed every active preset
 pnpm db:embed:presets P01 P42      # limit to specific preset ids
 ```
 
-Run it after `db:seed:presets`, and after any bulk edit to the library. It is idempotent, so
+Run it after creating or importing presets, and after any bulk edit to the library. It is idempotent, so
 re-running when nothing changed costs nothing. **Until presets are embedded the Archivist can't
 see them at all** — `queryPresetsByVector` filters on `embedding IS NOT NULL`, so an un-embedded
 preset never matches anything and every requirement comes back `coverage: none`. The pipeline

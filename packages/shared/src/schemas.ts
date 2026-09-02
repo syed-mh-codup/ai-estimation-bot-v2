@@ -203,8 +203,18 @@ export type DetectiveOutput = z.infer<typeof DetectiveOutputSchema>;
 // ─── Archivist IO ────────────────────────────────────────────────────────────
 
 export const SequencingSchema = z.object({
-  requires: z.array(z.string()).default([]),
-  blocks: z.array(z.string()).default([]),
+  /**
+   * Preset ids this preset needs delivered before it — resolved transitively
+   * from the dependency graph (AEH-242), not the loose code strings the old
+   * `requires`/`blocks` arrays held.
+   *
+   * PRESET ids, never requirement ids. Conflating the two is exactly what left
+   * `notSafelyRemovable` dead in production: the Architect tested these values
+   * against `REQ-001`-shaped ids they could never match, and the only test
+   * covering it hand-fed a shape the Archivist never produced. The name says
+   * which it is so that cannot recur.
+   */
+  prerequisitePresetIds: z.array(z.string()).default([]),
   canParallel: z.boolean().default(true),
 });
 
@@ -234,7 +244,7 @@ export const ArchivistMatchSchema = z.object({
   adjustments: ArchivistAdjustmentsSchema,
   /** Specific rationale, e.g. "matches B2B contextual pricing via @inContext, but adds volume tiers not in P28". */
   rationale: z.string(),
-  sequencing: SequencingSchema.default({ requires: [], blocks: [], canParallel: true }),
+  sequencing: SequencingSchema.default({ prerequisitePresetIds: [], canParallel: true }),
   /**
    * What the matched preset records about DELIVERING this kind of work, as
    * opposed to sizing it: its notes (assumptions and exclusions an admin typed),

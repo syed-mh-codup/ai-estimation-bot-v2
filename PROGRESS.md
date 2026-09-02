@@ -9,23 +9,98 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## Current: AEH-242 — dependency edges become first class (IN PROGRESS)
 
-**AEH-240 and AEH-244 are both closed, merged and pushed.** Master is at
-`d478808` on both remotes (github and origin/bitbucket). AEH-240 was stacked on
-the unmerged AEH-244 branch, so landing it landed both — hence the merge commit
-rather than a fast-forward. The implementation records are in the two tickets,
-not here.
+Branch `feat/aeh-242-dependency-edges`, committed at `9caa213`. Not merged, not
+pushed. The plan that produced it is in this file's git history at the previous
+revision if the reasoning is needed.
 
-One thing was never exercised and is worth knowing: no e2e spec covers the
-custodian or the deadline. See AEH-282 below.
+### What shipped
+
+`PresetDependency` replaces `PresetComposition.requires` and `.blocks`:
+
+    dependentVersionId   -> PresetVersion.id   (declares the need; keeps history)
+    prerequisitePresetId -> Preset.id          (stable target; survives versioning)
+    note                 String?
+    @@unique([dependentVersionId, prerequisitePresetId])
+
+One directed kind, no `kind` column — the two arrays said the same thing from
+opposite ends, and keeping them apart is what let them drift (35 of 88 edges
+existed only in `blocks`, 19 only in `requires`, and the union held a cycle).
+
+Graph walks live in `packages/shared/src/preset-graph.ts`, loading and carrying
+in `packages/db/src/preset-graph.ts`. That split is load-bearing: importing a
+walk from `@repo/db` pulls Prisma into the client bundle, and **only
+`next build` catches it** — typecheck, lint and tests all passed on the version
+that could not build. Sharing the walks is also what stops the admin picker
+offering an edge the server action then rejects.
+
+UI: dependency editor on each preset page (`dependency-editor.tsx` +
+`dependency-actions.ts`), and a layered delivery-wave view at
+`/admin/presets/graph` carrying waves, total hours and the critical path.
+
+### Two bugs fixed on the way
+
+`computeRequiredRequirementIds` compared preset codes against `REQ-001`-shaped
+ids, so `notSafelyRemovable` was false for **every card in production** and the
+editor offered to remove foundation work. Its test passed only by hand-feeding a
+shape the Archivist never emits. Renaming the DTO field to
+`prerequisitePresetIds` is what made the compiler point at it.
+
+`syncPresetCodeSequence` was orphaned by deleting the seed. Rehomed into the
+bootstrap seed — the xlsx importer that called it is gone, the code collision it
+prevents after a restored backup is not.
+
+### Verification
+
+typecheck, lint, `pnpm test` (60 files, 506 passed, 9 skipped),
+`pnpm --filter web build`, `audit:fields` (167 audited, 0 findings),
+`audit:exports` clean, and **`pnpm test:e2e` — 51 passed in 10.1m, no failures**.
+
+All four databases are on the migration, Neon dev/main included (applied
+2026-09-02 with the user's go-ahead, since it drops two columns holding real
+data). Verified there afterwards: the two arrays are gone, `PresetDependency`
+carries its unique index, its prerequisite index and both cascading foreign
+keys, and all 79 active versions still hold an anchor, a retrieval row, a
+composition row and a non-null embedding — the library stayed searchable
+through the change. The 43 rows that carried edges are preserved in
+`docs/preset-dependency-reference.md`, checked complete before the drop.
+
+That e2e run closes a gap AEH-244 recorded and could not close: it shipped with
+`admin-presets.spec.ts` migrated to the per-version shape but never executed,
+because AEH-282 was open against the suite. Those three specs ran here, so the
+guarantee that an admin save does not drop a preset out of retrieval now rests
+on the spec rather than on two unit cases — and it covers `savePreset` calling
+`carryPresetEdges` inside its transaction as well.
+
+Three tests were verified to fail against the old behaviour and pass against the
+new, rather than merely asserted: the `notSafelyRemovable` case, and both
+`carryPresetEdges` cases. The export audit earned its keep here — it caught the
+client re-implementing two walks the server already exported.
+
+### Left open
+
+- Not merged or pushed.
+- The other preset-rework sections (AEH-243/245/246 and §5) each still want
+  their own migration against a table that is still moving. Worth deciding
+  whether they land as one reshape — raised, not settled.
 
 ## Databases
 
-    local docker  ai_estimation        24 migrations
-    local docker  ai_estimation_test   24 migrations
-    Neon test     (ep-wild-heart)      24 migrations
-    Neon dev/main (ep-polished-credit) 24 migrations
+    local docker  ai_estimation        26 migrations
+    local docker  ai_estimation_test   26 migrations
+    Neon test     (ep-wild-heart)      26 migrations
+    Neon dev/main (ep-polished-credit) 26 migrations
+
+⚠️ `packages/db/.env` points at **Neon dev/main**, so a bare `prisma migrate dev`
+from that package runs against real data and can offer to reset it. Always pass
+an explicit DATABASE_URL/DIRECT_URL when migrating locally. Related: the
+`prisma-shadow-db-wiped-neon` memory.
+
+⚠️ Stale `packages/*/dist` shadows source through TypeScript project references —
+a barrel export can appear "not exported" until the referenced project is
+rebuilt. `tsc -b` (what `pnpm typecheck` runs) is correct; a bare `tsc --noEmit`
+per package is not.
 
 ⚠️ Local docker `ai_estimation` has **demo deadlines** set on its six most recent
 estimates (one overdue, one due today, one in two days, one in nine, two

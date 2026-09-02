@@ -27,7 +27,7 @@ function match(over: Partial<ArchivistMatch> = {}): ArchivistMatch {
       risk: 'Medium',
     },
     rationale: 'matches',
-    sequencing: { requires: [], blocks: [], canParallel: true },
+    sequencing: { prerequisitePresetIds: [], canParallel: true },
     ...over,
   });
 }

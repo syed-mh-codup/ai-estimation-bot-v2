@@ -24,6 +24,7 @@ Build top-to-bottom; within a workstream, tasks with satisfied dependencies may 
 - **WS1-01 [SLICE]** Prisma init in `packages/db`; datasource + generator; pgvector preview flag. — depends: WS0-03
   DoD: `prisma generate` succeeds; client importable.
 - **WS1-02 [SLICE]** Model: `User` + `Role`; `Preset` + `PresetVersion` (all xlsx-mirrored fields). — depends: WS1-01
+  - *Superseded: the xlsx mirror was split by AEH-244 and the importer retired by AEH-242.*
   DoD: migration applies; create/read a PresetVersion in a test.
 - **WS1-03** Model: `TaxonomyNode` + `TaxonomyNodeVersion` + `ChangeMotivation` enum. — depends: WS1-01
   DoD: migration applies; node + version CRUD test passes.
@@ -292,7 +293,8 @@ Build top-to-bottom; within a workstream, tasks with satisfied dependencies may 
 
 - **WS28-01** Production env config + secrets management (OpenRouter, DB, Google SA, encryption key). — depends: WS19-01, WS3-01
   DoD: app boots against prod-like env from secrets, not hardcoded values.
-- **WS28-02** DB migrate + seed runbook (incl. xlsx import) for fresh deploy. — depends: WS1-09, "seed script"
+- **WS28-02** DB migrate + seed runbook for fresh deploy. — depends: WS1-09, "seed script"
+  - *The xlsx import step was retired in AEH-242; a fresh deploy starts with no presets.*
   DoD: documented one-command migrate+seed brings up a working instance with 45 presets embedded.
 - **WS28-03 ∥** Deploy target (Vercel for web; Node host for agents/workers) + health check. — depends: WS28-01
   DoD: deployed instance serves login + runs a stubbed estimate end-to-end.

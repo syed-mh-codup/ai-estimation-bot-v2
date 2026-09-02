@@ -1,8 +1,14 @@
 # AI Estimation Agent — Data Model & Seeding
 
 This is the **target shape**, not final SQL. Claude Code should treat it as the spec for the
-Prisma schema and refine types/indexes as it implements. The preset fields mirror the columns
-in `preset_library_v2.xlsx` exactly so the seed importer is a 1:1 map.
+Prisma schema and refine types/indexes as it implements.
+
+> **Historical from here on where presets are concerned.** This document describes the preset
+> model as a 1:1 mirror of `preset_library_v2.xlsx`. That mapping no longer exists: AEH-244
+> split the flat row into `PresetRetrieval` / `PresetAnchor` / `PresetComposition`, and AEH-242
+> retired the spreadsheet and the importer entirely, replacing the `requires` / `blocks` string
+> arrays with the `PresetDependency` edge table. `packages/db/prisma/schema.prisma` is the
+> authority; §4 and §10 below are kept for the reasoning, not the shape.
 
 ## 1. Conventions
 
@@ -59,7 +65,7 @@ model TaxonomyNodeVersion {
 enum ChangeMotivation { UPSKILL TECH_ADVANCEMENT NEW_PROCESS POST_DELIVERY_VALIDATION CORRECTION OTHER }
 ```
 
-## 4. Preset library (historical corpus — seeded from the xlsx)
+## 4. Preset library (historical corpus — superseded, see the note at the top)
 
 One `Preset` (logical) + immutable `PresetVersion`s. Fields map 1:1 to the spreadsheet.
 
@@ -231,7 +237,7 @@ A read model (DB view or query) that unions all `*Version` create events across 
 taxonomy, prompts, and config into a single chronological feed: *what changed, when, by whom,
 why, and the motivation enum.* Surface it in the admin UI.
 
-## 10. Seeding from `preset_library_v2.xlsx`
+## 10. Seeding from `preset_library_v2.xlsx` (RETIRED — AEH-242)
 
 The `📋 Master Database` sheet has 45 rows (P01–P45). The seed script:
 

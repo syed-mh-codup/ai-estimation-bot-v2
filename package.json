@@ -16,7 +16,7 @@
     "audit": "pnpm --filter @repo/audit audit",
     "audit:fields": "pnpm --filter @repo/audit audit:fields",
     "audit:exports": "pnpm --filter @repo/audit audit:exports",
-    "db:seed": "pnpm --filter @repo/db db:seed && pnpm --filter @repo/db db:seed:presets && pnpm --filter @repo/db db:seed:taxonomy",
+    "db:seed": "pnpm --filter @repo/db db:seed && pnpm --filter @repo/db db:seed:taxonomy",
     "db:seed:admin": "pnpm --filter @repo/db db:seed:admin",
     "db:embed:presets": "pnpm --filter @repo/agents embed:presets",
     "db:setup": "pnpm --filter @repo/db exec prisma migrate deploy && pnpm run db:seed",

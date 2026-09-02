@@ -90,7 +90,7 @@ beforeAll(async () => {
                 notes: '',
               },
             },
-            composition: { create: { requires: [], blocks: [], canParallel: true } },
+            composition: { create: { canParallel: true } },
           },
         },
       },

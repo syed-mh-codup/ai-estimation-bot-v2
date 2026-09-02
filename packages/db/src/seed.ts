@@ -21,6 +21,7 @@ import { SEED_PROMPTS } from './seed-prompts.js';
 // bands agents/fixtures.test.ts asserts, which is two sources of truth for
 // one fixture.
 import { SAMPLE_SOWS } from '@repo/shared';
+import { syncPresetCodeSequence } from './preset-code';
 
 // tsx does not auto-load .env, and Prisma Client does not load it at runtime.
 // Read packages/db/.env ourselves (dependency-free) if DATABASE_URL is unset.
@@ -182,6 +183,14 @@ async function main() {
         },
       });
     }
+
+    // Move the preset-code sequence past anything already in the table. The
+    // xlsx importer used to do this and was retired with the spreadsheet
+    // (AEH-242); the hazard it guarded outlived it. A restored backup can carry
+    // preset codes the sequence has never issued, and the next allocation would
+    // then collide on a unique column. Idempotent and forward-only, so running
+    // it on every seed costs nothing.
+    await syncPresetCodeSequence(prisma);
 
     const devCount = SEED_DEV_DATA ? Object.keys(SEED_USERS).length : 0;
     console.log(

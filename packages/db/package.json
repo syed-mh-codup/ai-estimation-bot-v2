@@ -14,7 +14,6 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx src/seed.ts",
     "db:seed:admin": "tsx src/seed-admin.ts",
-    "db:seed:presets": "tsx src/seed-presets.ts",
     "db:seed:taxonomy": "tsx src/seed-taxonomy.ts",
     "db:seed:oracle": "tsx src/seed-prompt-oracle.ts"
   },
@@ -29,7 +28,6 @@
     "prisma": "^5.17.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
-    "vitest": "^2.0.5",
-    "xlsx": "^0.18.5"
+    "vitest": "^2.0.5"
   }
 }
