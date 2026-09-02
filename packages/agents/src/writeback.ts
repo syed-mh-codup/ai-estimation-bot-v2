@@ -1,6 +1,13 @@
-import { allocatePresetCode, carryPresetEdges, carryPresetVector, toMenuItem, type PrismaClient } from '@repo/db';
+import {
+  allocatePresetCode,
+  carryPresetEdges,
+  carryPresetVector,
+  loadPresetGraph,
+  toMenuItem,
+  type PrismaClient,
+} from '@repo/db';
 import type { IEmbeddingProvider } from '@repo/providers';
-import type { MenuItem, RoleLineItem } from '@repo/shared';
+import { wouldCreateCycle, type MenuItem, type RoleLineItem } from '@repo/shared';
 import { createUsageRecorder, type UsageRecorder } from './usage-recorder';
 
 // ─── Dev hours → a preset's single devHours figure ────────────────────────────
@@ -65,6 +72,13 @@ export type PromoteResult = {
   versioned: string[];
   /** Promotions that minted a brand-new preset (no strong match). */
   created: string[];
+  /**
+   * Dependency edges carried from the estimate's own graph onto the presets
+   * this promotion produced, and those that could not be. See
+   * `carryEstimateGraphToPresets`.
+   */
+  edgesCarried: number;
+  edgesSkipped: number;
 };
 
 /**
@@ -84,6 +98,14 @@ export async function promoteMenuItemsToPresets(
   menuItems: MenuItem[],
 ): Promise<PromoteResult> {
   const enabled = menuItems.filter((m) => m.enabled);
+  /**
+   * menuItemId -> the preset and version this card became.
+   *
+   * Collected across the loop because translating the estimate's dependency
+   * graph needs BOTH ends resolved, and a card's prerequisite may be promoted
+   * several iterations later. See `carryEstimateGraphToPresets` below.
+   */
+  const landedAs = new Map<string, { presetId: string; versionId: string }>();
   const promoted: string[] = [];
   const skipped: string[] = [];
   const versioned: string[] = [];
@@ -184,7 +206,7 @@ export async function promoteMenuItemsToPresets(
     // One transaction: deactivate → create version → create anchor/retrieval/
     // composition. Without it there is a version→anchor gap where an active
     // version exists but the preset vanishes from search and the editor 404s.
-    await db.$transaction(async (tx) => {
+    const landedVersionId = await db.$transaction(async (tx) => {
       if (latestVersion) {
         await tx.presetVersion.updateMany({ where: { presetId }, data: { active: false } });
       }
@@ -273,13 +295,137 @@ export async function promoteMenuItemsToPresets(
       if (latestVersion) {
         await carryPresetEdges(tx, latestVersion.id, version.id);
       }
+
+      return version.id;
     });
 
+    landedAs.set(item.id, { presetId, versionId: landedVersionId });
     promoted.push(presetId);
     (strongMatch ? versioned : created).push(presetId);
   }
 
-  return { promoted, skipped, versioned, created };
+  // After the loop, because an edge needs both of its cards resolved and a
+  // prerequisite may have been promoted several iterations later.
+  const edges = await carryEstimateGraphToPresets(db, estimateId, landedAs);
+
+  return { promoted, skipped, versioned, created, ...edges };
+}
+
+/**
+ * Translate an estimate's dependency graph onto the presets it just produced.
+ *
+ * This is the ONLY direction dependency knowledge travels, and it is one-way.
+ * An estimate's graph is the real one — computed for that project, because that
+ * is where dependencies are a fact — and promotion preserves it so the
+ * knowledge is not lost when the estimate stops being the thing anyone looks at.
+ *
+ * What it becomes on the preset side is a record, not a source. The library
+ * reads it for its own views — delivery waves, the critical path, what a preset
+ * historically needed — and nothing reads it back into a new estimate. Every
+ * project is different, so one project's ordering is at most something a human
+ * consults; treating it as an input would be asserting that two pieces of work
+ * are ordered because they were ordered somewhere else once.
+ *
+ * That is why the losses below cost nothing. A record with holes in it is still
+ * a record; a source with holes in it would be a bug:
+ *
+ *   - An edge whose other end was skipped (already promoted from this estimate)
+ *     or disabled has nowhere to land.
+ *   - Two cards that both promoted onto the SAME preset collapse into a
+ *     self-edge, which is meaningless and dropped.
+ *   - An edge that would close a loop in the LIBRARY graph is dropped. The
+ *     estimate's graph is acyclic, but the library's is a different graph:
+ *     merging edges carried from a previous version with edges derived here can
+ *     close a cycle that neither contained. AEH-242 made cycles unrepresentable
+ *     in the editor, and promotion must not be the back door that reintroduces
+ *     one.
+ *
+ * Edges are considered in a stable sorted order so the same promotion always
+ * produces the same library, rather than letting card order decide which edge
+ * of a would-be cycle survives.
+ */
+export async function carryEstimateGraphToPresets(
+  db: PrismaClient,
+  estimateId: string,
+  landedAs: Map<string, { presetId: string; versionId: string }>,
+): Promise<{ edgesCarried: number; edgesSkipped: number }> {
+  if (landedAs.size === 0) return { edgesCarried: 0, edgesSkipped: 0 };
+
+  const cardEdges = await db.menuItemDependency.findMany({
+    where: { estimateId },
+    select: { dependentId: true, prerequisiteId: true, note: true },
+  });
+  if (cardEdges.length === 0) return { edgesCarried: 0, edgesSkipped: 0 };
+
+  const graph = await loadPresetGraph(db);
+  let edgesCarried = 0;
+  let edgesSkipped = 0;
+
+  const candidates = cardEdges
+    .map((e) => ({
+      dependent: landedAs.get(e.dependentId),
+      prerequisite: landedAs.get(e.prerequisiteId),
+      note: e.note,
+    }))
+    .filter(
+      (c): c is { dependent: { presetId: string; versionId: string }; prerequisite: { presetId: string; versionId: string }; note: string | null } =>
+        c.dependent !== undefined && c.prerequisite !== undefined,
+    )
+    .sort(
+      (a, b) =>
+        a.dependent.presetId.localeCompare(b.dependent.presetId) ||
+        a.prerequisite.presetId.localeCompare(b.prerequisite.presetId),
+    );
+
+  edgesSkipped += cardEdges.length - candidates.length;
+
+  for (const c of candidates) {
+    if (c.dependent.presetId === c.prerequisite.presetId) {
+      edgesSkipped += 1;
+      continue;
+    }
+    if (!graph.nodes.has(c.prerequisite.presetId) || !graph.nodes.has(c.dependent.presetId)) {
+      // Defensive, and expected to be unreachable: the snapshot is taken after
+      // the promotion loop, so every preset this promotion touched has an
+      // active version by now and is in the graph. It survives the case where
+      // something deactivated a version concurrently, because a cycle check
+      // that cannot see a node cannot clear it — and writing an edge whose
+      // reachability is unknown is how the previous model acquired a cycle
+      // nothing could detect.
+      edgesSkipped += 1;
+      continue;
+    }
+    if (wouldCreateCycle(graph, c.dependent.presetId, c.prerequisite.presetId)) {
+      edgesSkipped += 1;
+      continue;
+    }
+
+    await db.presetDependency.upsert({
+      where: {
+        dependentVersionId_prerequisitePresetId: {
+          dependentVersionId: c.dependent.versionId,
+          prerequisitePresetId: c.prerequisite.presetId,
+        },
+      },
+      create: {
+        dependentVersionId: c.dependent.versionId,
+        prerequisitePresetId: c.prerequisite.presetId,
+        note: c.note ?? `Carried from estimate ${estimateId}`,
+      },
+      update: {},
+    });
+
+    // Keep the local snapshot honest so the next edge's cycle check sees the
+    // one just written. Without this, two edges that are individually fine can
+    // close a loop between them.
+    graph.edges.set(c.dependent.presetId, [
+      ...(graph.edges.get(c.dependent.presetId) ?? []),
+      c.prerequisite.presetId,
+    ]);
+    edgesCarried += 1;
+  }
+
+  return { edgesCarried, edgesSkipped };
 }
 
 /**
@@ -316,7 +462,9 @@ export async function promoteEstimate(
     // "work we inferred" versus "work they asked for" answerable later. AEH-263.
     include: { menuItems: { include: { lineItems: true } } },
   });
-  if (!est) return { promoted: [], skipped: [], versioned: [], created: [] };
+  if (!est) {
+    return { promoted: [], skipped: [], versioned: [], created: [], edgesCarried: 0, edgesSkipped: 0 };
+  }
 
   const items: MenuItem[] = est.menuItems.map(toMenuItem);
 

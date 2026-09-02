@@ -19,3 +19,4 @@ export * from './rollup';
 export * from './sheets-export';
 export * from './writeback';
 export * from './oracle';
+export * from './cartographer';

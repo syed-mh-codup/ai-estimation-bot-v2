@@ -1,5 +1,5 @@
 /**
- * The preset dependency graph — pure traversals. AEH-242.
+ * Dependency graph traversals — pure. AEH-242, widened for AEH-235.
  *
  * These live in `shared`, not `db`, for a reason the type checker cannot state:
  * the admin picker runs them in the browser on a serialised graph, and anything
@@ -11,6 +11,23 @@
  * decides what to offer and the action decides what to accept — two
  * implementations of that walk would eventually disagree, and the UI would offer
  * an edge the server then rejects.
+ *
+ * There are TWO dependency graphs in this system, and one of them is the real
+ * one:
+ *
+ *   - An ESTIMATE's graph, between its own menu cards. This is the one that
+ *     matters — for delivery and for the scope configurator. It is computed for
+ *     that project, because dependencies are a property of the thing being
+ *     built, and every project is different enough that its graph may look
+ *     nothing like any other's.
+ *   - The PRESET library's graph, between presets. A record of what past work
+ *     needed, preserved by promotion so the knowledge is not lost, and used for
+ *     library-side views (delivery waves, the critical path). It is NOT read
+ *     back into an estimate — see MenuItemDependency in the schema for why.
+ *
+ * Every walk below is a graph algorithm over string ids, so both graphs use the
+ * same tested implementations via `Walkable`. Only `candidatePrerequisitesFor`
+ * is preset-specific, because it returns renderable nodes.
  */
 
 /** One node, carrying just enough to render it without a second query. */
@@ -27,6 +44,22 @@ export type PresetGraph = {
   /** presetId -> the presetIds it needs. Every node has an entry, possibly empty. */
   edges: Map<string, string[]>;
   nodes: Map<string, PresetGraphNode>;
+};
+
+/**
+ * Everything the pure walks actually need: who needs whom, plus which ids are
+ * real nodes. **No node field is ever read** through this type, which is what
+ * makes one implementation correct for both graphs above.
+ *
+ * `ReadonlyMap` rather than `Map` deliberately. It has no `set`, so a
+ * `Map<string, PresetGraphNode>` or a `Map<string, EstimateGraphNode>` is
+ * assignable to `nodes: ReadonlyMap<string, unknown>` unambiguously, instead of
+ * relying on TypeScript's bivariant treatment of method parameters. It also
+ * states the contract: a walk reads the graph, never edits it.
+ */
+export type Walkable = {
+  edges: ReadonlyMap<string, readonly string[]>;
+  nodes: ReadonlyMap<string, unknown>;
 };
 
 /** presetId -> the note explaining why, keyed by `${dependentId}->${prerequisiteId}`. */
@@ -46,7 +79,7 @@ export function edgeKey(dependentPresetId: string, prerequisitePresetId: string)
  * a cycle in the data yields a finite (if meaningless) answer instead of
  * hanging. The editor prevents cycles; this survives one written another way.
  */
-export function prerequisitesOf(graph: PresetGraph, presetId: string): Set<string> {
+export function prerequisitesOf(graph: Walkable, presetId: string): Set<string> {
   const out = new Set<string>();
   const stack = [...(graph.edges.get(presetId) ?? [])];
   while (stack.length > 0) {
@@ -65,7 +98,7 @@ export function prerequisitesOf(graph: PresetGraph, presetId: string): Set<strin
  * cards and you get "what would removing this break, here", which is the only
  * form the configurator can act on. Omit it for the library-wide answer.
  */
-export function dependentsOf(graph: PresetGraph, presetId: string, within?: Iterable<string>): Set<string> {
+export function dependentsOf(graph: Walkable, presetId: string, within?: Iterable<string>): Set<string> {
   const scope = within ? new Set(within) : null;
   const out = new Set<string>();
   let grew = true;
@@ -91,7 +124,7 @@ export function dependentsOf(graph: PresetGraph, presetId: string, within?: Iter
  * the work can be done in, so the configurator's cascade would never terminate
  * and the delivery waves would be undefined.
  */
-export function wouldCreateCycle(graph: PresetGraph, dependentPresetId: string, prerequisitePresetId: string): boolean {
+export function wouldCreateCycle(graph: Walkable, dependentPresetId: string, prerequisitePresetId: string): boolean {
   if (dependentPresetId === prerequisitePresetId) return true;
   return prerequisitesOf(graph, prerequisitePresetId).has(dependentPresetId);
 }
@@ -104,14 +137,29 @@ export function wouldCreateCycle(graph: PresetGraph, dependentPresetId: string, 
  * in your head: an invalid edge is not rejected, it is never offered.
  */
 export function candidatePrerequisitesFor(graph: PresetGraph, presetId: string): PresetGraphNode[] {
-  const existing = new Set(graph.edges.get(presetId) ?? []);
-  const downstream = dependentsOf(graph, presetId);
-  const out: PresetGraphNode[] = [];
-  for (const [id, node] of graph.nodes) {
-    if (id === presetId || existing.has(id) || downstream.has(id)) continue;
-    out.push(node);
+  return candidatePrerequisiteIds(graph, presetId)
+    .map((id) => graph.nodes.get(id))
+    .filter((n): n is PresetGraphNode => n !== undefined)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The same answer as `candidatePrerequisitesFor`, as bare ids.
+ *
+ * Split out because an estimate's card graph needs the identical rule but has
+ * nothing to do with `PresetGraphNode` — and two copies of "which edges are
+ * legal" is precisely how a picker ends up offering an edge the server then
+ * rejects. Callers that want renderable nodes map the ids themselves.
+ */
+export function candidatePrerequisiteIds(graph: Walkable, id: string): string[] {
+  const existing = new Set(graph.edges.get(id) ?? []);
+  const downstream = dependentsOf(graph, id);
+  const out: string[] = [];
+  for (const candidate of graph.nodes.keys()) {
+    if (candidate === id || existing.has(candidate) || downstream.has(candidate)) continue;
+    out.push(candidate);
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
 }
 
 /**
@@ -123,7 +171,7 @@ export function candidatePrerequisitesFor(graph: PresetGraph, presetId: string):
  * that path, and the dependency is gone with no trace it ever existed. The
  * editor labels these ("also required via Z") and leaves the call to a human.
  */
-export function redundantEdgesOf(graph: PresetGraph, presetId: string): Map<string, string[]> {
+export function redundantEdgesOf(graph: Walkable, presetId: string): Map<string, string[]> {
   const direct = graph.edges.get(presetId) ?? [];
   const out = new Map<string, string[]>();
   for (const target of direct) {
@@ -148,7 +196,7 @@ export function redundantEdgesOf(graph: PresetGraph, presetId: string): Map<stri
  * plan is worse than showing it in the wrong place. `findCycles` names the
  * culprits.
  */
-export function topologicalLayers(graph: PresetGraph, within?: Iterable<string>): string[][] {
+export function topologicalLayers(graph: Walkable, within?: Iterable<string>): string[][] {
   const scope = within ? new Set(within) : new Set(graph.nodes.keys());
   const remaining = new Set([...scope].filter((id) => graph.nodes.has(id)));
   const placed = new Set<string>();
@@ -182,7 +230,7 @@ export function topologicalLayers(graph: PresetGraph, within?: Iterable<string>)
  * an invariant with no test is a hope. Used by the DAG invariant test and worth
  * running after any bulk import.
  */
-export function findCycles(graph: PresetGraph): string[][] {
+export function findCycles(graph: Walkable): string[][] {
   const cycles: string[][] = [];
   const seen = new Set<string>();
   const onPath = new Set<string>();

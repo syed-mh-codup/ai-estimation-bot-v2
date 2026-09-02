@@ -79,6 +79,62 @@ TONE
 
 You are talking to a professional estimator who knows this domain. Be direct and brief. Do not restate the question, do not open with pleasantries, and do not close by offering further help. Lead with the answer.`;
 
+/**
+ * The Cartographer's model. Heavy, for the same reason Oracle's is.
+ *
+ * Working out which of thirty cards must precede which is a judgement about
+ * delivery, made once, over the whole menu card at once. A small model produces
+ * plausible-looking edges — everything depends on authentication, nothing
+ * depends on anything else — and a plausible-looking dependency graph is worse
+ * than none, because the configurator will cascade over it in front of a client.
+ * The output is also cheap to check by eye and expensive to get subtly wrong,
+ * which is the profile that justifies the spend. Admin-editable like the rest.
+ */
+const CARTOGRAPHER_MODEL = 'anthropic/claude-sonnet-5';
+
+/**
+ * The Cartographer's contract.
+ *
+ * Two things are deliberately NOT here, because code owns them and an admin
+ * editing this must not be able to break them: the card numbering (assigned
+ * when the corpus is rendered, and mapped back to ids afterwards) and the
+ * validation of what comes back. Edges naming an unknown card, self-edges and
+ * anything that would close a loop are dropped by `replaceEstimateGraph`
+ * whatever this prompt says, so the instructions below are about JUDGEMENT
+ * rather than about format safety.
+ *
+ * The restraint instruction is the load-bearing part. The failure that matters
+ * is not a missing edge, it is a graph so densely connected that switching
+ * anything off collapses the estimate — at which point a business analyst stops
+ * trusting the tool and goes back to a spreadsheet.
+ */
+const CARTOGRAPHER_BODY = `You are the Cartographer. You are given the menu card for ONE software estimate: a numbered list of the work it contains. Work out which parts cannot be delivered before which other parts.
+
+Return JSON only, in this shape:
+
+{"edges":[{"dependent":3,"prerequisite":1,"why":"..."}],"foundation":[1,2],"notes":"..."}
+
+- "dependent" and "prerequisite" are card numbers from the list you were given. Card N cannot be built until card M exists means {"dependent":N,"prerequisite":M}.
+- "why" is ONE short sentence, in plain language, naming the actual reason. "Certificates cannot be issued before transactional email works" is useful. "Depends on it" is not.
+- "foundation" lists cards that are always included because nothing in the estimate runs without them — the platform, the data layer, the environment. Usually a handful; often none.
+- "notes" is optional: anything a human should know about your reading of this scope.
+
+## What to record
+
+Record a dependency only where the work genuinely cannot proceed. The test is delivery order, not theme: two cards about payments are not dependent just because both concern payments, and a card is not dependent on another merely because it would be sensible to do them together.
+
+Record only DIRECT dependencies. If C needs B and B needs A, do not also record C needs A — that follows, and stating it separately makes the graph harder to correct later.
+
+## Restraint is the whole job
+
+Most cards in most estimates depend on nothing. A graph where everything depends on a foundation card is not a useful graph: it says switching that card off destroys the estimate, which a person already knows, and it says nothing about what can safely be dropped. Fewer, well-argued edges beat a dense web every time.
+
+If two cards could be delivered in either order, there is no dependency. If you are unsure, leave it out — a missing edge is corrected by a human in seconds, whereas a wrong one causes work to disappear from a client's scope with no explanation.
+
+## What you are not doing
+
+You are not estimating, re-scoping, or judging whether the work is worth doing. You are not ordering work by priority or by phase — a card being "later" is not a dependency. Do not invent cards, and do not reference numbers that are not in the list.`;
+
 export type SeedPrompt = { kind: AgentKind; body: string; modelString: string };
 
 /** Bodies only. `modelString` is optional and defaults to MODEL below. */
@@ -121,6 +177,8 @@ const SEED: { kind: AgentKind; body: string; modelString?: string }[] = [
   },
   // Carries its own model — see ORACLE_MODEL above for why.
   { kind: 'ORACLE', body: ORACLE_BODY, modelString: ORACLE_MODEL },
+  // Likewise. See CARTOGRAPHER_MODEL.
+  { kind: 'CARTOGRAPHER', body: CARTOGRAPHER_BODY, modelString: CARTOGRAPHER_MODEL },
 ];
 
 export const SEED_PROMPTS: SeedPrompt[] = SEED.map((p) => ({

@@ -92,7 +92,10 @@ export function RollupCard() {
       {/* Switched-off work is still priced. Saying so stops the total reading
           like the whole scope. */}
       {itemsOff > 0 && (
-        <div className="mt-2.5 flex justify-between gap-2 border-t border-dashed border-line pt-2.5 text-[11.5px] text-ink-3">
+        <div
+          data-testid="rollup-excluded"
+          className="mt-2.5 flex justify-between gap-2 border-t border-dashed border-line pt-2.5 text-[11.5px] text-ink-3"
+        >
           <span>
             <span className="num">{itemsOff}</span> item{itemsOff === 1 ? '' : 's'} switched off
           </span>

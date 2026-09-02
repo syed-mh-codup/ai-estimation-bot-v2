@@ -8,6 +8,7 @@ import {
   candidatePrerequisitesFor,
   dependentsOf,
   prerequisitesOf,
+  previewAdds as sharedPreviewAdds,
   redundantEdgesOf,
   type PresetGraph,
 } from '@repo/shared';
@@ -90,14 +91,12 @@ export function DependencyEditor({ presetId, adjacency, nodes, notes }: Dependen
       .slice(0, 8);
   }, [graph, query, presetId]);
 
-  // Rule 3: what would this one click actually pull in?
-  const previewAdds = useMemo(() => {
-    if (!preview) return [];
-    const incoming = new Set([preview, ...prerequisitesOf(graph, preview)]);
-    for (const already of allPrereqs) incoming.delete(already);
-    incoming.delete(preview);
-    return [...incoming];
-  }, [preview, graph, allPrereqs]);
+  // Rule 3: what would this one click actually pull in? The walk is shared with
+  // the estimate-scope configurator so the two cannot answer it differently.
+  const previewAdds = useMemo(
+    () => (preview ? sharedPreviewAdds(graph, preview, allPrereqs) : []),
+    [preview, graph, allPrereqs],
+  );
 
   const run = (fn: () => Promise<{ error?: string }>) => {
     setError(null);

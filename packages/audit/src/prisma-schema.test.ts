@@ -26,10 +26,18 @@ describe('AEH-228: prisma schema parser', () => {
     // 17 models / 13 enums before AEH-244 split PresetVersion's flat row into
     // PresetRetrieval + PresetAnchor + PresetComposition (three new models),
     // then AEH-240 added EstimateReminder and the ReminderKind enum, AEH-286
-    // added ModelUsage and the UsageKind enum, and AEH-242 added
-    // PresetDependency (no enum — the edge has one kind by design).
-    expect(schema.models.size).toBe(23);
-    expect(schema.enums.size).toBe(15);
+    // added ModelUsage and the UsageKind enum, AEH-242 added
+    // PresetDependency (no enum — the edge has one kind by design), and
+    // AEH-235 added three models and one enum: MenuItemDependency (the
+    // estimate's own dependency graph) with DependencySource, plus
+    // ScopeScenario + ScopeScenarioPick for the configured scopes cut from it.
+    // The enum exists where PresetDependency's does not because an estimate's
+    // edge has a provenance worth querying: worked out for this project, or
+    // typed by a person. It deliberately has no third value for "suggested by
+    // the preset library" — library edges are a record of past work and are
+    // never propagated into an estimate.
+    expect(schema.models.size).toBe(26);
+    expect(schema.enums.size).toBe(16);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {

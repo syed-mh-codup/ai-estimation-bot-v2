@@ -190,6 +190,19 @@ export const AGENT_CATALOGUE: AgentProfile[] = [
     produces: ['Grounded answers', 'Verbatim citations'],
   },
   {
+    kind: 'CARTOGRAPHER',
+    label: 'Cartographer',
+    track: 'SUPPLEMENTAL',
+    order: 2,
+    blurb: 'Works out which parts of one estimate depend on which.',
+    summary:
+      'Reads an estimate\u2019s menu card and decides, for each card, what has to exist before it can be delivered \u2014 plus which cards are foundation work that nothing runs without. That graph is what lets the scope configurator cascade: turn a module on and its prerequisites come with it, turn one off and the work that cannot exist without it goes too.',
+    detail:
+      'Runs on demand against one estimate, never as part of a run, because it uses a heavy model and most estimates are never configured. It reads the menu card \u2014 every card with its taxonomy key, phase, hours and the requirements behind it \u2014 and returns directed edges between cards plus a foundation set, each edge carrying one sentence saying why. Dependencies are a property of the project being built, so it works them out for THIS estimate rather than looking them up: the preset library records what past work needed, but every project is different and one project\u2019s ordering is not evidence about another\u2019s. Its output is validated before it is stored \u2014 an edge naming a card that does not exist is dropped, a self-edge is dropped, and an edge that would close a dependency loop is refused, because a cycle means there is no order the work can be done in. What survives is a graph a human can then correct by hand; nothing here is treated as the last word.',
+    consumes: ['Menu card', 'Requirements'],
+    produces: ['Card dependencies', 'Foundation set'],
+  },
+  {
     kind: 'SUPERVISOR',
     label: 'Supervisor',
     track: 'REFERENCE',

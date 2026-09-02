@@ -9,29 +9,81 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-235 planned, not started
+## Current: AEH-235 slices 1 and 2 built
 
-The scope configurator. Planned 2026-09-02; ticket is In Progress. **No code
-written yet** — the only change on master is this file. Next action: slice 1,
-starting with the `Walkable` widening and the `hours.ts` / `toItemDTO`
-extractions, which are independent of the schema.
+The scope configurator. Green: typecheck, lint, `pnpm test` (64 files, 577
+passing), `audit:fields`, `audit:exports`, `pnpm --filter web build`, and
+`e2e/scope.spec.ts` (4 specs).
 
-Plan: `~/.claude/plans/federated-spinning-sundae.md` (approved). Findings and
-scope decisions are on the ticket as the 2026-09-02 comment.
+⚠️ The e2e SUITE has pre-existing flakiness unrelated to this work.
+`estimates-create.spec.ts:17` fails reproducibly on clean master;
+`oracle.spec.ts` fails non-deterministically with different specs each run. Both
+verified by stashing this branch and re-running. Belongs on AEH-282.
 
-The one thing to not re-derive: **the preset dependency graph is empty.**
-`PresetDependency` has 0 rows on Neon dev/main, and only 12 of 140 `MenuItem`
-rows carry a `sourcePresetId`. So a cascade that walks the preset graph from
-cards is inert on every estimate, and `notSafelyRemovable` is *structurally*
-false everywhere — which makes the "Load bearing" chip, its disabled toggle and
-the refusal branch in `setItemEnabled` all dead in production. Do not seed
-`foundation` from it; `MenuItem.phase` is the honest seed. See the
-[[preset-graph-is-empty]] memory.
+⚠️ **Do not reach for e2e to test UI logic here.** The full suite is ~13 min and
+even one spec file is ~5. There are no component tests in this repo at all —
+`vitest.config.ts` is `environment: 'node'`, the include pattern is
+`*.test.ts`, and there is no jsdom or testing-library — so anything left inside
+a component can ONLY be covered by Playwright. The answer is not to add a
+browser test, it is to keep the logic out of the component:
+`scope-interaction.ts` and `scope-dto.ts` are pure, and their 27 tests run in
+~150ms versus minutes. e2e now holds only the claims a browser has to make (a
+real round trip, a reload, the estimate staying untouched).
 
-Sequencing decision worth not undoing: slice 1 is the configurator over a
-**hand-authored** graph with no LLM at all, slice 2 is the generating agent. The
-agent's output is unverifiable until something can render a graph, and slice 1's
-schema is what the agent must write into.
+Adding jsdom + @testing-library/react would let the components themselves be
+tested and is probably worth doing — a dependency + config decision nobody has
+taken yet.
+
+### The framing, which is the thing not to undo
+
+**The estimate owns its dependency graph.** Dependencies are a property of the
+project being built, so they are computed for that project and stored on it
+(`MenuItemDependency`, keyed to the estimate, edges between its own cards).
+
+The preset library's graph is a **record, not a source**. Promotion preserves an
+estimate's graph into it (`carryEstimateGraphToPresets` in `writeback.ts`) so the
+knowledge is not lost, and the library reads it for its own views — delivery
+waves, the critical path. **Nothing reads it back into an estimate**, and there
+is deliberately no mechanism to: every project is different, so one project's
+ordering is not evidence about another's. Decided 2026-09-02, and it is why
+`DependencySource` has only INFERRED and MANUAL — a `PRESET` value existed
+briefly and was dropped in migration 29.
+
+Nothing in the configurator requires a preset. That is not a nicety — only 12 of
+140 cards carry a `sourcePresetId`, so a preset-gated configurator would be
+unavailable on every real estimate. `estimate-graph.test.ts` sets
+`sourcePresetId: null` on every fixture card deliberately, so a regression that
+reintroduced the requirement fails rather than passing on a helpful fixture.
+
+Superseded by this: the approved plan at
+`~/.claude/plans/federated-spinning-sundae.md` still describes the older
+`ScopeMap`-owns-everything design, where the graph was a configurator artifact
+derived as a workaround for the empty preset library. Read the framing above
+instead. What survives from the plan: the cascade semantics, `Walkable`, the
+three guards, the fixture traps, and slice-1-before-the-agent.
+
+### Still true and worth not re-deriving
+
+`PresetDependency` has 0 rows on Neon dev/main. So `notSafelyRemovable` is
+*structurally* false everywhere, which makes the "Load bearing" chip, its
+disabled toggle and the refusal branch in `setItemEnabled` all dead in
+production. `MenuItem.foundation` is a real column now; never seed it from that
+flag. See [[preset-graph-is-empty]].
+
+Slice 2 (CARTOGRAPHER) is built: it fills the same `MenuItemDependency` rows
+with `source: INFERRED` through the same `replaceEstimateGraph` guards, so a
+derived graph and a typed one are held to one standard.
+
+On demand via `POST /api/estimates/[id]/scope-map`, not part of a run — heavy
+model, and most estimates are never configured. **The cost of that:** a re-run
+replaces every card and so drops the graph, which then has to be asked for
+again. If the spend is ever judged worthwhile, calling `runCartographer` from
+the run's persist step is the whole change.
+
+Prompt install is `pnpm db:seed:cartographer` (or `db:seed:prompt <KIND>`).
+`seed-prompt-oracle.ts` was generalised into `seed-prompt-one.ts` rather than
+copied — a second agent needing the same careful install is exactly when
+duplicating it starts the drift that file exists to prevent.
 
 Three fixture traps in `docs/preset-dependency-reference.md`, all verified
 against the file: it is 43 data rows though its own summary says 44; it already
@@ -39,6 +91,18 @@ contains a dangling target (`P06` blocks `P22`, which has no row); and the
 `P34 -> P27 -> P38 -> P34` cycle only closes once `blocks` is normalised into
 `requires`, so a builder reading only the `requires` column gets a clean DAG and
 the cycle test passes vacuously.
+
+### Two migrations, all four databases
+
+`20260902105647_aeh_235_estimate_dependency_graph`,
+`20260902110953_aeh_235_scope_scenario`,
+`20260902133000_aeh_235_drop_preset_dependency_source` and
+`20260902142404_aeh_235_cartographer_agent`, all applied to local
+`ai_estimation`, local `ai_estimation_test`, Neon test and Neon dev/main (30
+migrations each). The first two purely additive; the third rebuilds the
+`DependencySource` enum to drop `PRESET` (Postgres cannot remove a value in
+place), verified as zero-row on all four before applying. Neon dev/main verified intact afterwards: 140 cards, 33
+prompt versions, 79 searchable preset versions.
 
 Also still open from AEH-242:
 
@@ -55,10 +119,10 @@ ones. Raised, never settled — worth deciding before the next one starts.
 
 ## Databases
 
-    local docker  ai_estimation        26 migrations
-    local docker  ai_estimation_test   26 migrations
-    Neon test     (ep-wild-heart)      26 migrations
-    Neon dev/main (ep-polished-credit) 26 migrations
+    local docker  ai_estimation        30 migrations
+    local docker  ai_estimation_test   30 migrations
+    Neon test     (ep-wild-heart)      30 migrations
+    Neon dev/main (ep-polished-credit) 30 migrations
 
 ⚠️ `packages/db/.env` points at **Neon dev/main**, so a bare `prisma migrate dev`
 from that package runs against real data and can offer to reset it. Always pass

@@ -263,6 +263,14 @@ export default async function globalSetup(config: FullConfig) {
     }
 
     // Pre-costed estimate for WS23. Full reset each run (the test mutates it).
+    //
+    // Configured scopes first. Their picks cascade from MenuItem, but the
+    // scenario shell hangs off the estimate and would survive the card delete
+    // below with every pick gone — which reads as "nothing is in scope" rather
+    // than as a fresh start, and makes the scope spec's counts depend on what
+    // the previous run happened to leave behind. `runEstimate` does the same
+    // thing for the same reason. AEH-235.
+    await prisma.scopeScenario.deleteMany({ where: { estimateId: COSTED_ESTIMATE.id } });
     await prisma.roleLineItem.deleteMany({
       where: { menuItemId: { in: COSTED_ESTIMATE.itemIds } },
     });
