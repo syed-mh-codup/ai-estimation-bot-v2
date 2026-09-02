@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Eyebrow } from '@/components/ui/card';
 
 import { saveEstimateGraph, setCardFoundation } from './scope-actions';
+import { ScopeDerive } from './ScopeDerive';
 import { graphFromDTO, type ScopeGraphDTO } from './scope-dto';
 
 /**
@@ -208,100 +209,35 @@ function initialFoundation(graph: ScopeGraphDTO, cardId: string): boolean | unde
 export function ScopeGraphEditorPanel({
   estimateId,
   graph,
+  scenarioCount,
 }: {
   estimateId: string;
   graph: ScopeGraphDTO;
+  scenarioCount: number;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [deriving, setDeriving] = useState(false);
-  const [outcome, setOutcome] = useState<string | null>(null);
   const edgeCount = Object.values(graph.adjacency).reduce((n, deps) => n + deps.length, 0);
-
-  /**
-   * Ask the Cartographer to work the graph out.
-   *
-   * Replaces the whole graph, including anything typed by hand, so it asks
-   * first when there is something to lose. A "work this out for me" action that
-   * quietly discarded a colleague's edges would be the kind of surprise this
-   * feature exists to avoid.
-   */
-  const derive = async () => {
-    if (
-      edgeCount > 0 &&
-      !window.confirm(
-        `This replaces all ${edgeCount} recorded dependencies, including any you typed by hand. Continue?`,
-      )
-    ) {
-      return;
-    }
-    setDeriving(true);
-    setOutcome(null);
-    try {
-      const res = await fetch(`/api/estimates/${estimateId}/scope-map`, { method: 'POST' });
-      const body = (await res.json()) as {
-        error?: string;
-        written?: number;
-        rejected?: Array<{ reason: string; detail: string }>;
-        foundation?: string[];
-        notes?: string;
-      };
-      if (!res.ok) {
-        setOutcome(body.error ?? `Could not derive the graph (${res.status}).`);
-        return;
-      }
-      const parts = [
-        `Found ${body.written ?? 0} ${body.written === 1 ? 'dependency' : 'dependencies'}`,
-      ];
-      if (body.foundation?.length) parts.push(`${body.foundation.length} always-included`);
-      // Refusals are surfaced, never swallowed: they are how you find out the
-      // model proposed a loop or a card that does not exist.
-      if (body.rejected?.length) parts.push(`${body.rejected.length} proposal(s) refused`);
-      setOutcome(`${parts.join(' · ')}.${body.notes ? ` ${body.notes}` : ''}`);
-      router.refresh();
-    } catch (e) {
-      setOutcome(e instanceof Error ? e.message : 'Could not reach the server');
-    } finally {
-      setDeriving(false);
-    }
-  };
 
   return (
     <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
       <div className="flex items-baseline justify-between gap-3">
-        <div>
-          <Eyebrow>Dependencies</Eyebrow>
-          <p data-testid="scope-graph-count" className="mt-1 text-[11.5px] text-ink-4">
-            {edgeCount === 0
-              ? 'None recorded yet — the cascade has nothing to act on.'
-              : `${edgeCount} recorded on this estimate.`}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Button
-            variant="ghost"
-            onClick={derive}
-            disabled={deriving}
-            data-testid="scope-graph-derive"
-            title="Read the menu card and work out what depends on what"
-          >
-            {deriving ? 'Working…' : 'Work it out'}
-          </Button>
-          <Button variant="ghost" onClick={() => setOpen((o) => !o)} data-testid="scope-graph-toggle">
-            {open ? 'Done' : 'Edit'}
-          </Button>
-        </div>
+        <Eyebrow>Dependencies</Eyebrow>
+        <Button variant="ghost" onClick={() => setOpen((o) => !o)} data-testid="scope-graph-toggle">
+          {open ? 'Done' : 'Edit by hand'}
+        </Button>
       </div>
-      {outcome && (
-        <p
-          data-testid="scope-graph-derived"
-          className="mt-2 rounded-[8px] border border-line bg-surface-2 px-3 py-2 text-[12.5px] text-ink-2"
-        >
-          {outcome}
-        </p>
-      )}
+
+      <div className="mt-1.5">
+        <ScopeDerive
+          estimateId={estimateId}
+          edgeCount={edgeCount}
+          manualCount={graph.manualEdgeCount}
+          scenarioCount={scenarioCount}
+        />
+      </div>
+
       {open && (
-        <div className="mt-3">
+        <div className="mt-3 border-t border-line-soft pt-3">
           <ScopeGraphEditor estimateId={estimateId} graph={graph} />
         </div>
       )}

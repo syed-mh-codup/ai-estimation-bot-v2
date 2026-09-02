@@ -1,12 +1,14 @@
 import { replaceEstimateGraph, type PrismaClient } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
 import {
+  CARTOGRAPHER_STAGES,
   CartographerOutputSchema,
   type CartographerOutput,
+  type CartographerProgress,
   type Requirement,
 } from '@repo/shared';
 
-import { chatJSON } from './llm-json';
+import { streamJSON } from './llm-json';
 import { createUsageRecorder } from './usage-recorder';
 
 /**
@@ -142,6 +144,8 @@ export function renderScopeCorpus(corpus: ScopeCorpus): string {
 export type CartographerResult = {
   /** Edges accepted and stored. */
   written: number;
+  /** Hand-authored edges left exactly as they were. */
+  preserved: number;
   /** Proposed and refused, with the reason — reported, never silent. */
   rejected: Array<{ reason: string; detail: string }>;
   /** Cards marked always-included. */
@@ -158,25 +162,38 @@ export type CartographerResult = {
  * `replaceEstimateGraph`. Two paths into one validator, so a derived graph and
  * a typed one cannot end up held to different standards.
  *
- * Replaces the estimate's graph wholesale, which also means it discards any
- * hand-authored edges. That is the honest behaviour for a "work this out for
- * me" action and it is why the UI has to say so before running it.
+ * Replaces the DERIVED half of the graph. Hand-authored edges are preserved and
+ * take precedence — a derived edge that would contradict one is refused. Saved
+ * configurations are untouched: their picks reference cards, not edges, so they
+ * survive, though what a pick drags in naturally changes with the graph.
  */
 export async function runCartographer(args: {
   db: PrismaClient;
   estimateId: string;
   modelProvider: IModelProvider;
   prompt: { body: string; modelString: string };
+  /** Called as the work advances. Optional: tests and scripts ignore it. */
+  onProgress?: (p: CartographerProgress) => void;
 }): Promise<CartographerResult> {
-  const { db, estimateId, modelProvider, prompt } = args;
+  const { db, estimateId, modelProvider, prompt, onProgress } = args;
 
+  const report = (
+    stage: CartographerProgress['stage'],
+    extra: Omit<CartographerProgress, 'stage' | 'label' | 'pct'> = {},
+  ): void => {
+    const meta = CARTOGRAPHER_STAGES.find((st) => st.key === stage)!;
+    onProgress?.({ stage, label: meta.name, pct: meta.from, ...extra });
+  };
+
+  report('reading');
   const corpus = await buildScopeCorpus(db, estimateId);
   if (!corpus) {
     throw new Error('Nothing to map: this estimate has no menu card yet.');
   }
 
+  report('asking', { cards: corpus.cards.length, edgesFound: 0 });
   const recorder = createUsageRecorder({ db, estimateId });
-  const output: CartographerOutput = await chatJSON(
+  const output: CartographerOutput = await streamJSON(
     modelProvider,
     {
       model: prompt.modelString,
@@ -192,7 +209,19 @@ export async function runCartographer(args: {
     CartographerOutputSchema,
     'CARTOGRAPHER',
     { kind: 'CARTOGRAPHER', recorder },
+    (accumulated) => {
+      // Counted off the partial response rather than interpolated. Every edge
+      // object carries exactly one `"dependent"` key, so the occurrences are
+      // the edges emitted so far — a real number, which is the whole point of
+      // showing it instead of a guessed percentage.
+      report('asking', {
+        cards: corpus.cards.length,
+        edgesFound: countOccurrences(accumulated, '"dependent"'),
+      });
+    },
   );
+
+  report('checking', { cards: corpus.cards.length, edgesFound: output.edges.length });
 
   const byNumber = new Map(corpus.cards.map((c) => [c.number, c]));
   const rejected: CartographerResult['rejected'] = [];
@@ -219,7 +248,14 @@ export async function runCartographer(args: {
     ];
   });
 
-  const result = await replaceEstimateGraph(db, estimateId, edges, 'INFERRED');
+  report('saving', { cards: corpus.cards.length, edgesFound: edges.length });
+  // Hand-authored edges survive. Re-deriving supersedes the machine's previous
+  // reading, not somebody's typed-in knowledge — and because preserved edges
+  // are seeded first, a derived edge that would contradict one is refused
+  // rather than overriding it.
+  const result = await replaceEstimateGraph(db, estimateId, edges, 'INFERRED', {
+    preserve: ['MANUAL'],
+  });
   const titleOf = new Map(corpus.cards.map((c) => [c.menuItemId, c.title]));
   for (const r of result.rejected) {
     rejected.push({
@@ -251,8 +287,20 @@ export async function runCartographer(args: {
 
   return {
     written: result.written.length,
+    preserved: result.preserved,
     rejected,
     foundation: foundationIds,
     notes: output.notes.trim(),
   };
+}
+
+/** Non-overlapping occurrences of `needle`. */
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  let at = haystack.indexOf(needle);
+  while (at !== -1) {
+    count += 1;
+    at = haystack.indexOf(needle, at + needle.length);
+  }
+  return count;
 }

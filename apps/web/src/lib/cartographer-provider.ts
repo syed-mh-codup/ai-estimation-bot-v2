@@ -64,10 +64,19 @@ function stubCartographerProvider(): IModelProvider {
     async chat(options: ChatOptions) {
       return { text: graphFor(options), model: 'stub/cartographer', usage: null };
     },
-    chatStream() {
-      // The Cartographer never streams: one request is one JSON answer, and
-      // there is no partial graph worth rendering.
-      throw new Error('chatStream is not available for the Cartographer');
+    /**
+     * Streamed in a few chunks rather than one, so the e2e actually exercises
+     * the progress path: a single frame would leave the accumulating counter
+     * untested and the stage transitions indistinguishable from a buffered
+     * response.
+     */
+    async *chatStream(options: ChatOptions) {
+      const text = graphFor(options);
+      const size = Math.max(1, Math.ceil(text.length / 4));
+      for (let at = 0; at < text.length; at += size) {
+        yield { type: 'delta' as const, text: text.slice(at, at + size) };
+      }
+      yield { type: 'done' as const, usage: null, model: 'stub/cartographer' };
     },
     async embed() {
       throw new Error('embed is not available for the Cartographer');

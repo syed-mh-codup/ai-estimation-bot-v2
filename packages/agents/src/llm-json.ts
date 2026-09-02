@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { UsageKind } from '@repo/db';
-import type { ChatMessage, IModelProvider } from '@repo/providers';
+import type { ChatMessage, IModelProvider, TokenUsage } from '@repo/providers';
 import type { UsageRecorder } from './usage-recorder';
 
 export class LLMJsonError extends Error {
@@ -52,8 +52,18 @@ export async function chatJSON<S extends z.ZodTypeAny>(
     model: result.model,
     usage: result.usage,
   });
-  const raw = result.text;
+  return parseLLMJson(result.text, schema, agentLabel);
+}
 
+/**
+ * The raw text -> validated value step, shared by the buffered and streamed
+ * callers so they cannot diverge on what counts as an acceptable response.
+ */
+function parseLLMJson<S extends z.ZodTypeAny>(
+  raw: string,
+  schema: S,
+  agentLabel: string,
+): z.infer<S> {
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -80,4 +90,47 @@ export async function chatJSON<S extends z.ZodTypeAny>(
     );
   }
   return parsed.data;
+}
+
+/**
+ * `chatJSON`, streamed, so a caller can report progress while it runs.
+ *
+ * Same discipline: record the spend before parsing (a parse failure is still a
+ * billed call), validate against the schema, throw `LLMJsonError` with the raw
+ * text rather than substituting a fallback value.
+ *
+ * The trade-off worth naming: `chatStream` does NOT fall back to another model
+ * on error, where `chat` does — see the note on `IModelProvider`. So this buys
+ * visibility at the cost of resilience, and it is the right trade only for work
+ * a user is actively watching and can simply ask for again. Do not reach for it
+ * inside a run.
+ *
+ * `onProgress` receives the text accumulated so far, not each delta, because
+ * what callers want is a running read of the whole answer (how many items have
+ * appeared) rather than the increments.
+ */
+export async function streamJSON<S extends z.ZodTypeAny>(
+  modelProvider: IModelProvider,
+  options: { model: string; messages: ChatMessage[]; temperature?: number },
+  schema: S,
+  agentLabel: string,
+  attribution: { kind: UsageKind; recorder: UsageRecorder },
+  onProgress?: (accumulated: string) => void,
+): Promise<z.infer<S>> {
+  let raw = '';
+  let usage: TokenUsage | null = null;
+  let served = options.model;
+
+  for await (const ev of modelProvider.chatStream({ ...options, responseFormat: 'json_object' })) {
+    if (ev.type === 'delta') {
+      raw += ev.text;
+      onProgress?.(raw);
+    } else {
+      usage = ev.usage;
+      served = ev.model;
+    }
+  }
+
+  await attribution.recorder.record({ kind: attribution.kind, model: served, usage });
+  return parseLLMJson(raw, schema, agentLabel);
 }

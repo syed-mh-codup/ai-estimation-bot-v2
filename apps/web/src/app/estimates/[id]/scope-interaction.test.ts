@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { SelectionState, Walkable } from '@repo/shared';
 
 import {
+  deriveSummary,
   pushUndo,
   resolveToggle,
   saveStateOf,
+  splitSseFrames,
   UNDO_LIMIT,
   type ToggleTarget,
 } from './scope-interaction';
@@ -167,5 +169,73 @@ describe('saveStateOf', () => {
     // Otherwise a second change would show "Saved" from the previous one while
     // the new write is still going — the exact reassurance you must not give.
     expect(saveStateOf({ pending: true, savedAt: 1_700_000_000_000 })).toBe('saving');
+  });
+});
+
+describe('splitSseFrames', () => {
+  it('reads complete frames and carries the remainder', () => {
+    // A network read can end mid-frame. Getting this wrong is invisible on a
+    // single-frame response and drops progress the moment it is chunked.
+    const { events, rest } = splitSseFrames(
+      'data: {"type":"progress","stage":"reading","label":"Reading","pct":0}\n\ndata: {"type":"pro',
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'progress', stage: 'reading' });
+    expect(rest).toBe('data: {"type":"pro');
+  });
+
+  it('reassembles across reads', () => {
+    const first = splitSseFrames('data: {"type":"done","result":{"writ');
+    expect(first.events).toEqual([]);
+    const second = splitSseFrames(
+      `${first.rest}ten":2,"preserved":0,"rejected":[],"foundation":[],"notes":""}}\n\n`,
+    );
+    expect(second.events[0]).toMatchObject({ type: 'done' });
+  });
+
+  it('skips a malformed frame rather than failing the operation', () => {
+    const { events } = splitSseFrames('data: not-json\n\ndata: {"type":"error","error":"nope"}\n\n');
+    expect(events).toEqual([{ type: 'error', error: 'nope' }]);
+  });
+
+  it('is empty for an empty buffer', () => {
+    expect(splitSseFrames('').events).toEqual([]);
+  });
+});
+
+describe('deriveSummary', () => {
+  const base = { written: 0, preserved: 0, rejected: [], foundation: [], notes: '' };
+
+  it('reads naturally for one dependency', () => {
+    expect(deriveSummary({ ...base, written: 1 })).toBe('Found 1 dependency.');
+  });
+
+  it('says what it kept, so a re-derive does not look destructive', () => {
+    expect(deriveSummary({ ...base, written: 4, preserved: 2 })).toBe(
+      'Found 4 dependencies · kept 2 you typed.',
+    );
+  });
+
+  it('names refusals rather than swallowing them', () => {
+    // They are how anyone finds out the model proposed a loop or invented a
+    // card. A summary of successes only would look like a complete graph.
+    const summary = deriveSummary({
+      ...base,
+      written: 3,
+      rejected: [{ reason: 'CYCLE', detail: 'A → B' }],
+    });
+    expect(summary).toContain('1 proposal refused');
+  });
+
+  it('carries the model’s own note when it left one', () => {
+    expect(deriveSummary({ ...base, written: 2, notes: 'Read as two tracks.' })).toBe(
+      'Found 2 dependencies. Read as two tracks.',
+    );
+  });
+
+  it('reports an empty graph as a real answer', () => {
+    // Most cards in most estimates depend on nothing, and the prompt argues for
+    // restraint — "no edges" must not read as a failure.
+    expect(deriveSummary(base)).toBe('Found 0 dependencies.');
   });
 });

@@ -8,7 +8,8 @@ import { Eyebrow } from '@/components/ui/card';
 
 import { ScopeConfigurator } from '../ScopeConfigurator';
 import { ScopeGraphEditorPanel } from '../ScopeGraphEditor';
-import { loadOrCreateScenario, loadScopeGraph } from '../scope-actions';
+import { ScopeScenarios } from '../ScopeScenarios';
+import { listScenarios, loadOrCreateScenario, loadScenario, loadScopeGraph } from '../scope-actions';
 
 /**
  * The scope configurator — a presales planning view over one estimate. AEH-235.
@@ -27,8 +28,15 @@ import { loadOrCreateScenario, loadScopeGraph } from '../scope-actions';
  * no preset at all, so gating on preset matches would hide this feature from
  * essentially every real estimate.
  */
-export default async function ScopePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ScopePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ scenario?: string }>;
+}) {
   const { id } = await params;
+  const { scenario: wanted } = await searchParams;
 
   const session = await auth();
   if (!session?.user) redirect('/login');
@@ -90,11 +98,13 @@ export default async function ScopePage({ params }: { params: Promise<{ id: stri
             </div>
           )}
 
-          <ScopeGraphEditorPanel estimateId={id} graph={graph} />
+          <ScopeGraphEditorPanel
+            estimateId={id}
+            graph={graph}
+            scenarioCount={(await listScenarios(id)).length}
+          />
 
-          {hasGraph && (
-            <ScopeConfigurator graph={graph} scenario={await loadOrCreateScenario(id)} />
-          )}
+          {hasGraph && <Configured estimateId={id} graph={graph} wanted={wanted} />}
         </div>
       )}
     </main>
@@ -123,5 +133,40 @@ function EmptyState({
         {cta}
       </Link>
     </div>
+  );
+}
+
+/**
+ * The configurator, plus the configurations saved against this estimate.
+ *
+ * `?scenario=…` selects one, which is what makes a link shareable — a colleague
+ * opening the URL sees the same cut of scope, with no export step. An id that
+ * does not resolve (deleted, or from another estimate) falls back to the most
+ * recent rather than erroring: a stale link should show something useful and
+ * let the picker correct it.
+ */
+async function Configured({
+  estimateId,
+  graph,
+  wanted,
+}: {
+  estimateId: string;
+  graph: Awaited<ReturnType<typeof loadScopeGraph>>;
+  wanted: string | undefined;
+}) {
+  const asked = wanted ? await loadScenario(estimateId, wanted) : null;
+  const scenario = asked ?? (await loadOrCreateScenario(estimateId));
+  const scenarios = await listScenarios(estimateId);
+
+  return (
+    <>
+      <ScopeScenarios
+        estimateId={estimateId}
+        scenarios={scenarios}
+        currentId={scenario.id}
+        currentPicks={scenario.picks}
+      />
+      <ScopeConfigurator graph={graph} scenario={scenario} />
+    </>
   );
 }

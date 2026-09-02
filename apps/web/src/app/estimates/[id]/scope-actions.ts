@@ -4,7 +4,13 @@ import { loadEstimateGraph, prisma, replaceEstimateGraph, selectableOf } from '@
 
 import { requireUser } from '@/lib/rbac';
 
-import { asRunPicks, toScopeGraphDTO, type ScenarioDTO, type ScopeGraphDTO } from './scope-dto';
+import {
+  asRunPicks,
+  toScopeGraphDTO,
+  type ScenarioDTO,
+  type ScenarioSummary,
+  type ScopeGraphDTO,
+} from './scope-dto';
 
 /**
  * Server actions for the scope configurator. AEH-235.
@@ -166,4 +172,118 @@ export async function saveEstimateGraph(
     written: result.written.length,
     rejected: result.rejected.map((r) => ({ reason: r.reason })),
   };
+}
+
+// ─── Saved configurations ────────────────────────────────────────────────────
+
+/**
+ * Every configuration saved against this estimate, newest first.
+ *
+ * Not scoped to the current user, deliberately. A configured scope is a record
+ * of a conversation the presales team had, and the point of saving one is that
+ * a colleague can open it — contrast `OracleThread`, which is private to its
+ * author because a half-finished line of questioning is not a deliverable.
+ */
+export async function listScenarios(estimateId: string): Promise<ScenarioSummary[]> {
+  await requireUser();
+  const rows = await prisma.scopeScenario.findMany({
+    where: { estimateId },
+    orderBy: { updatedAt: 'desc' },
+    select: {
+      id: true,
+      name: true,
+      updatedAt: true,
+      createdBy: { select: { name: true, email: true } },
+      _count: { select: { picks: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    updatedAt: r.updatedAt.toISOString(),
+    // Name where there is one, otherwise the local part of the email — a bare
+    // address in a picker is noise, and the full one is nobody's business.
+    author: r.createdBy.name ?? r.createdBy.email.split('@')[0] ?? 'someone',
+    pickCount: r._count.picks,
+  }));
+}
+
+/** Load one configuration by id, refusing one that belongs to another estimate. */
+export async function loadScenario(estimateId: string, scenarioId: string): Promise<ScenarioDTO | null> {
+  await requireUser();
+  const row = await prisma.scopeScenario.findUnique({
+    where: { id: scenarioId },
+    include: { picks: { select: { menuItemId: true } } },
+  });
+  // A scenario id from another estimate's URL must not resolve against this
+  // one — the picks would be dropped on read and the screen would look like an
+  // empty configuration rather than the wrong one.
+  if (!row || row.estimateId !== estimateId) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    picks: row.picks.map((p) => p.menuItemId),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Save the current selection as a new named configuration.
+ *
+ * Copies the picks rather than moving them, so the configuration it was saved
+ * from is left exactly as it was. Somebody saving "Leanest viable" halfway
+ * through exploring has not finished exploring.
+ */
+export async function saveScenarioAs(
+  estimateId: string,
+  name: string,
+  picks: string[],
+): Promise<ScenarioDTO> {
+  const user = await requireUser();
+  await estimateExists(estimateId);
+
+  const trimmed = name.trim();
+  if (trimmed.length === 0) throw new Error('Give the configuration a name.');
+  if (trimmed.length > 80) throw new Error('That name is too long (80 characters max).');
+
+  const own = await prisma.menuItem.findMany({
+    where: { estimateId, id: { in: picks } },
+    select: { id: true },
+  });
+
+  const created = await prisma.scopeScenario.create({
+    data: {
+      estimateId,
+      name: trimmed,
+      createdById: user.id,
+      picks: { create: own.map((c) => ({ menuItemId: c.id })) },
+    },
+    include: { picks: { select: { menuItemId: true } } },
+  });
+  return {
+    id: created.id,
+    name: created.name,
+    picks: created.picks.map((p) => p.menuItemId),
+    updatedAt: created.updatedAt.toISOString(),
+  };
+}
+
+export async function renameScenario(scenarioId: string, name: string): Promise<void> {
+  await requireUser();
+  const trimmed = name.trim();
+  if (trimmed.length === 0) throw new Error('Give the configuration a name.');
+  if (trimmed.length > 80) throw new Error('That name is too long (80 characters max).');
+  await prisma.scopeScenario.update({ where: { id: scenarioId }, data: { name: trimmed } });
+}
+
+/**
+ * Delete a configuration.
+ *
+ * Anyone who can see the estimate can delete one, matching who can create one.
+ * A scenario is cheap to recreate and shared by design; an ownership rule here
+ * would mostly mean stale configurations nobody is allowed to tidy up.
+ */
+export async function deleteScenario(scenarioId: string): Promise<void> {
+  await requireUser();
+  await prisma.scopeScenario.delete({ where: { id: scenarioId } }).catch(() => {});
 }

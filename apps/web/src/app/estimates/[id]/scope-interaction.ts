@@ -144,3 +144,76 @@ export function saveStateOf(args: { pending: boolean; savedAt: number }): SaveSt
 function plural(n: number, word: string): string {
   return n === 1 ? word : `${word}s`;
 }
+
+// ─── Deriving: reading the progress stream ───────────────────────────────────
+
+/** One frame from `POST /api/estimates/[id]/scope-map`. */
+export type DeriveEvent =
+  | {
+      type: 'progress';
+      stage: string;
+      label: string;
+      pct: number;
+      cards?: number;
+      edgesFound?: number;
+    }
+  | { type: 'done'; result: DeriveResult }
+  | { type: 'error'; error: string };
+
+export type DeriveResult = {
+  written: number;
+  /** Hand-authored edges left as they were. */
+  preserved: number;
+  rejected: Array<{ reason: string; detail: string }>;
+  foundation: string[];
+  notes: string;
+};
+
+/**
+ * Split an SSE buffer into complete frames, keeping whatever is left over.
+ *
+ * A network read can end mid-frame, so the tail has to be carried into the next
+ * one. Getting this wrong is invisible in the happy case — a single-frame
+ * response works whatever you do — and then drops progress the moment the
+ * stream is genuinely chunked, which is exactly when it matters.
+ *
+ * Unparseable frames are skipped rather than thrown: a progress stream is not
+ * worth failing an operation over.
+ */
+export function splitSseFrames(buffer: string): { events: DeriveEvent[]; rest: string } {
+  const parts = buffer.split('\n\n');
+  // The last element is either an incomplete frame or an empty string; either
+  // way it belongs to the next read, not this one.
+  const rest = parts.pop() ?? '';
+  const events: DeriveEvent[] = [];
+  for (const part of parts) {
+    const line = part.split('\n').find((l) => l.startsWith('data: '));
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line.slice('data: '.length)) as DeriveEvent);
+    } catch {
+      /* a malformed progress frame is not worth failing over */
+    }
+  }
+  return { events, rest };
+}
+
+/**
+ * What to tell the user once a derivation finishes.
+ *
+ * Refusals are named, not swallowed. They are how anyone finds out the model
+ * proposed a dependency loop or invented a card, and a summary that reported
+ * only the successes would make a half-understood graph look like a complete
+ * one.
+ */
+export function deriveSummary(result: DeriveResult): string {
+  const parts = [`Found ${result.written} ${result.written === 1 ? 'dependency' : 'dependencies'}`];
+  if (result.preserved > 0) parts.push(`kept ${result.preserved} you typed`);
+  if (result.foundation.length > 0) parts.push(`${result.foundation.length} always-included`);
+  if (result.rejected.length > 0) {
+    parts.push(
+      `${result.rejected.length} ${result.rejected.length === 1 ? 'proposal' : 'proposals'} refused`,
+    );
+  }
+  return `${parts.join(' · ')}.${result.notes ? ` ${result.notes}` : ''}`;
+}

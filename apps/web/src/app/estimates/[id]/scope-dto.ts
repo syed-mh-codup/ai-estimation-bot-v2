@@ -32,10 +32,22 @@ export type ScopeCardDTO = {
 
 export type ScopeGraphDTO = {
   cards: ScopeCardDTO[];
+  /** Of the edges below, how many a person typed. Survives a re-derive. */
+  manualEdgeCount: number;
   /** cardId -> the cardIds it needs. Rebuilt into a graph on the client. */
   adjacency: Record<string, string[]>;
   /** `${dependentId}->${prerequisiteId}` -> why, for the cascade notice. */
   notes: Record<string, string>;
+};
+
+/** One saved configuration, as the picker lists it. */
+export type ScenarioSummary = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  /** Who cut it — attribution, so a colleague knows whose thinking this was. */
+  author: string;
+  pickCount: number;
 };
 
 export type ScenarioDTO = {
@@ -99,7 +111,7 @@ export function toScopeGraphDTO(
     needs: adjacency[n.menuItemId] ?? [],
   }));
 
-  return { cards, adjacency, notes };
+  return { cards, adjacency, notes, manualEdgeCount: graph.manualEdgeCount };
 }
 
 /** Rebuild a walkable graph from the serialised form, on either side. */

@@ -18,13 +18,19 @@ export const maxDuration = 300;
 /**
  * Derive an estimate's dependency graph on demand. AEH-235.
  *
- * A plain route handler, not Inngest and not streamed.
+ * Server-sent events over POST, like the Oracle route, so the client can show
+ * what is happening rather than spinning silently for the better part of a
+ * minute.
  *
  * Not Inngest, for the reason the Oracle route gives: there is nothing durable
  * to resume, and the run/ingest progress columns are per-job-type, so a third
- * set on `Estimate` would be a worse trade than a synchronous call. Not
- * streamed either, unlike Oracle — a partial dependency graph is not something
- * you can render, so there is no interim state worth sending.
+ * set on `Estimate` would be a worse trade. Streaming instead of polling for
+ * the same reason — there is no DB-backed state to poll, and inventing one for
+ * a sub-minute action a user is watching would be the wrong shape.
+ *
+ * What streams is PROGRESS, not the graph. A partial dependency graph is not
+ * renderable; a running count of the dependencies found is, and it is the one
+ * honest measure of how far along the slow part is.
  *
  * On demand rather than part of a run because it uses a heavy model and most
  * estimates are never configured. Note what that costs: a re-run replaces every
@@ -71,19 +77,43 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     );
   }
 
-  try {
-    const result = await runCartographer({
-      db: prisma,
-      estimateId,
-      modelProvider: cartographerModelProvider(),
-      prompt,
-    });
-    return NextResponse.json(result, { status: 200 });
-  } catch (err) {
-    // The model returning something off-contract is a 502, not a 500: the
-    // request was fine and the failure is upstream. Distinguishing them is what
-    // makes "it broke" answerable without reading logs.
-    const message = err instanceof Error ? err.message : 'Could not derive the dependency graph';
-    return NextResponse.json({ error: message }, { status: 502 });
-  }
+  const encoder = new TextEncoder();
+  const send = (controller: ReadableStreamDefaultController, payload: unknown) =>
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        const result = await runCartographer({
+          db: prisma,
+          estimateId,
+          modelProvider: cartographerModelProvider(),
+          prompt,
+          onProgress: (p) => send(controller, { type: 'progress', ...p }),
+        });
+        send(controller, { type: 'done', result });
+      } catch (err) {
+        // The failure is reported IN the stream, not as a status code: by the
+        // time the model answers off-contract the response has already begun,
+        // so there is no status left to set. The client shows what it says.
+        send(controller, {
+          type: 'error',
+          error: err instanceof Error ? err.message : 'Could not derive the dependency graph',
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      // Nginx and friends buffer by default, which would hold every frame back
+      // until the end and defeat the entire point.
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }

@@ -43,6 +43,14 @@ export type EstimateGraph = {
   /** menuItemId -> the menuItemIds it needs. Every node has an entry. */
   edges: Map<string, string[]>;
   nodes: Map<string, EstimateGraphNode>;
+  /**
+   * How many edges a person typed, as opposed to derived.
+   *
+   * Surfaced because the UI has to be able to say what a re-derive will and
+   * will not touch, and "some of these are yours" is not something it can work
+   * out from the adjacency alone.
+   */
+  manualEdgeCount: number;
 };
 
 /**
@@ -77,13 +85,14 @@ export async function loadEstimateGraph(
     }),
     db.menuItemDependency.findMany({
       where: { estimateId },
-      select: { dependentId: true, prerequisiteId: true, note: true },
+      select: { dependentId: true, prerequisiteId: true, note: true, source: true },
     }),
   ]);
 
   const nodes = new Map<string, EstimateGraphNode>();
   const edges = new Map<string, string[]>();
   const notes: EdgeNotes = new Map();
+  let manualEdgeCount = 0;
 
   for (const c of cards) {
     nodes.set(c.id, {
@@ -110,10 +119,11 @@ export async function loadEstimateGraph(
     // same way loadPresetGraph drops edges into dead presets.
     if (!nodes.has(d.dependentId) || !nodes.has(d.prerequisiteId)) continue;
     edges.get(d.dependentId)!.push(d.prerequisiteId);
+    if (d.source === 'MANUAL') manualEdgeCount += 1;
     if (d.note) notes.set(edgeKey(d.dependentId, d.prerequisiteId), d.note);
   }
 
-  return { nodes, edges, notes };
+  return { nodes, edges, notes, manualEdgeCount };
 }
 
 /**
@@ -141,6 +151,8 @@ export type EdgeWriteResult = {
   written: EdgeInput[];
   /** Edges refused, each with the reason, so a caller can report rather than guess. */
   rejected: Array<EdgeInput & { reason: 'UNKNOWN_CARD' | 'SELF_EDGE' | 'CYCLE' | 'DUPLICATE' }>;
+  /** Existing edges left alone because their source was preserved. */
+  preserved: number;
 };
 
 /**
@@ -169,12 +181,25 @@ export async function replaceEstimateGraph(
   estimateId: string,
   proposed: EdgeInput[],
   source: 'INFERRED' | 'MANUAL',
+  opts: { preserve?: Array<'INFERRED' | 'MANUAL'> } = {},
 ): Promise<EdgeWriteResult> {
   const cards = await db.menuItem.findMany({ where: { estimateId }, select: { id: true } });
   const known = new Set(cards.map((c) => c.id));
 
   const written: EdgeInput[] = [];
   const rejected: EdgeWriteResult['rejected'] = [];
+
+  // Edges of a preserved source are kept as they are. Re-deriving is meant to
+  // supersede the machine's PREVIOUS guess, not somebody's typed-in knowledge,
+  // so the caller says which sources survive.
+  const preserve = opts.preserve ?? [];
+  const kept =
+    preserve.length > 0
+      ? await db.menuItemDependency.findMany({
+          where: { estimateId, source: { in: preserve } },
+          select: { dependentId: true, prerequisiteId: true },
+        })
+      : [];
 
   // Build up the graph as we accept edges, so each cycle check sees exactly what
   // has been accepted so far rather than the whole proposal.
@@ -187,6 +212,16 @@ export async function replaceEstimateGraph(
   const accumulating: Walkable = { edges, nodes };
 
   const seen = new Set<string>();
+
+  // Seeded FIRST, so a preserved edge always wins a cycle contest against a
+  // proposed one. That ordering is the whole policy: a human's edge is
+  // authoritative and a derived edge fills in around it.
+  for (const k of kept) {
+    if (!known.has(k.dependentId) || !known.has(k.prerequisiteId)) continue;
+    seen.add(edgeKey(k.dependentId, k.prerequisiteId));
+    edges.get(k.dependentId)!.push(k.prerequisiteId);
+  }
+
   const ordered = [...proposed].sort(
     (a, b) =>
       a.dependentId.localeCompare(b.dependentId) || a.prerequisiteId.localeCompare(b.prerequisiteId),
@@ -203,6 +238,8 @@ export async function replaceEstimateGraph(
     }
     const key = edgeKey(edge.dependentId, edge.prerequisiteId);
     if (seen.has(key)) {
+      // Either the proposal repeated itself, or it re-proposed an edge that is
+      // being preserved. Both are the same outcome: one row for that pair.
       rejected.push({ ...edge, reason: 'DUPLICATE' });
       continue;
     }
@@ -229,7 +266,12 @@ export async function replaceEstimateGraph(
   }
 
   await db.$transaction([
-    db.menuItemDependency.deleteMany({ where: { estimateId } }),
+    // Only the sources being replaced. With nothing preserved this is the whole
+    // graph, which is what the manual editor wants — it submits the complete
+    // set it has on screen.
+    db.menuItemDependency.deleteMany({
+      where: preserve.length > 0 ? { estimateId, source: { notIn: preserve } } : { estimateId },
+    }),
     db.menuItemDependency.createMany({
       data: written.map((e) => ({
         estimateId,
@@ -241,5 +283,5 @@ export async function replaceEstimateGraph(
     }),
   ]);
 
-  return { written, rejected };
+  return { written, rejected, preserved: kept.length };
 }

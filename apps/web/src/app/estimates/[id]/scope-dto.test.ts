@@ -41,11 +41,13 @@ function graphOf(
   nodes: EstimateGraphNode[],
   adjacency: Record<string, string[]>,
   notes: Record<string, string> = {},
+  manualEdgeCount = 0,
 ): EstimateGraph & { notes: EdgeNotes } {
   return {
     nodes: new Map(nodes.map((n) => [n.menuItemId, n])),
     edges: new Map(nodes.map((n) => [n.menuItemId, adjacency[n.menuItemId] ?? []])),
     notes: new Map(Object.entries(notes)),
+    manualEdgeCount,
   };
 }
 
@@ -156,5 +158,12 @@ describe('asRunPicks', () => {
     // Foundation is on regardless, so listing it as a pick would be redundant
     // state that could then disagree with the flag.
     expect(asRunPicks(DTO.cards)).toEqual(['API']);
+  });
+});
+
+describe('manualEdgeCount', () => {
+  it('travels to the client, so the UI can say what a re-derive keeps', () => {
+    const withTyped = graphOf([AUTH, API], { API: ['AUTH'] }, {}, 1);
+    expect(toScopeGraphDTO(withTyped, [AUTH, API]).manualEdgeCount).toBe(1);
   });
 });

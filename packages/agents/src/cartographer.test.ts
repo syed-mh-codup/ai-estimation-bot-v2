@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadEstimateGraph, PrismaClient } from '@repo/db';
+import { loadEstimateGraph, PrismaClient, replaceEstimateGraph } from '@repo/db';
 import type { ChatResult, IModelProvider } from '@repo/providers';
 import { prerequisitesOf } from '@repo/shared';
 
@@ -31,15 +31,25 @@ const card: Record<string, string> = {};
 
 const PROMPT = { body: 'You are the Cartographer.', modelString: 'stub/model' };
 
-/** A provider that returns exactly the JSON a test wants to test the handling of. */
+/**
+ * A provider that returns exactly the JSON a test wants to test the handling of.
+ *
+ * Streams it in three chunks rather than one. The agent streams so it can
+ * report progress, and a single-chunk fake would leave the accumulation path —
+ * the part that counts edges as they arrive — untested.
+ */
 function providerReturning(payload: unknown): IModelProvider {
+  const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
   return {
-    chat: vi.fn().mockResolvedValue({
-      text: typeof payload === 'string' ? payload : JSON.stringify(payload),
-      model: 'stub/model',
-      usage: null,
-    } satisfies ChatResult),
-    chatStream: vi.fn(),
+    chat: vi.fn().mockResolvedValue({ text, model: 'stub/model', usage: null } satisfies ChatResult),
+    // eslint-disable-next-line @typescript-eslint/require-await
+    chatStream: async function* () {
+      const size = Math.max(1, Math.ceil(text.length / 3));
+      for (let at = 0; at < text.length; at += size) {
+        yield { type: 'delta' as const, text: text.slice(at, at + size) };
+      }
+      yield { type: 'done' as const, usage: null, model: 'stub/model' };
+    },
     embed: vi.fn(),
   } as unknown as IModelProvider;
 }
@@ -335,5 +345,116 @@ describe('runCartographer', () => {
     expect(await db.modelUsage.count({ where: { estimateId, kind: 'CARTOGRAPHER' } })).toBe(
       before + 1,
     );
+  });
+});
+
+describe('runCartographer — what a re-derive keeps', () => {
+  it('preserves hand-authored edges and says how many', async () => {
+    // Re-deriving supersedes the machine's previous reading, not somebody's
+    // typed-in knowledge.
+    await replaceEstimateGraph(
+      db,
+      estimateId,
+      [{ dependentId: card['SYNC']!, prerequisiteId: card['AUTH']!, note: 'typed by a human' }],
+      'MANUAL',
+    );
+
+    const result = await runCartographer({
+      db,
+      estimateId,
+      prompt: PROMPT,
+      modelProvider: providerReturning({ edges: [{ dependent: 2, prerequisite: 1 }] }),
+    });
+
+    expect(result.preserved).toBe(1);
+    expect(result.written).toBe(1);
+
+    const rows = await db.menuItemDependency.findMany({
+      where: { estimateId },
+      select: { source: true, note: true },
+      orderBy: { source: 'asc' },
+    });
+    expect(rows.map((r) => r.source).sort()).toEqual(['INFERRED', 'MANUAL']);
+    expect(rows.find((r) => r.source === 'MANUAL')?.note).toBe('typed by a human');
+  });
+
+  it('refuses a derived edge that would contradict a typed one', async () => {
+    // Preserved edges are seeded first, so the human's direction wins.
+    await replaceEstimateGraph(
+      db,
+      estimateId,
+      [{ dependentId: card['AUTH']!, prerequisiteId: card['API']! }],
+      'MANUAL',
+    );
+
+    const result = await runCartographer({
+      db,
+      estimateId,
+      prompt: PROMPT,
+      // The opposite direction: API needs AUTH.
+      modelProvider: providerReturning({ edges: [{ dependent: 2, prerequisite: 1 }] }),
+    });
+
+    expect(result.written).toBe(0);
+    expect(result.rejected.map((r) => r.reason)).toEqual(['CYCLE']);
+    expect(result.preserved).toBe(1);
+  });
+
+  it('leaves saved configurations alone', async () => {
+    const scenario = await db.scopeScenario.create({
+      data: {
+        estimateId,
+        name: 'Leanest viable',
+        createdById: userId,
+        picks: { create: [{ menuItemId: card['API']! }] },
+      },
+      select: { id: true },
+    });
+
+    await runCartographer({
+      db,
+      estimateId,
+      prompt: PROMPT,
+      modelProvider: providerReturning({ edges: [{ dependent: 3, prerequisite: 2 }] }),
+    });
+
+    const after = await db.scopeScenario.findUnique({
+      where: { id: scenario.id },
+      include: { picks: { select: { menuItemId: true } } },
+    });
+    // Picks reference cards, not edges, so they survive. What a pick DRAGS IN
+    // changes with the graph, which is a different thing and is what the
+    // confirmation warns about.
+    expect(after?.name).toBe('Leanest viable');
+    expect(after?.picks.map((p) => p.menuItemId)).toEqual([card['API']]);
+  });
+
+  it('reports the progress stages in order, with a counted edge total', async () => {
+    const seen: Array<{ stage: string; edgesFound?: number }> = [];
+    await runCartographer({
+      db,
+      estimateId,
+      prompt: PROMPT,
+      modelProvider: providerReturning({
+        edges: [
+          { dependent: 2, prerequisite: 1 },
+          { dependent: 3, prerequisite: 2 },
+        ],
+      }),
+      onProgress: (p) => seen.push({ stage: p.stage, edgesFound: p.edgesFound }),
+    });
+
+    // Every stage, in order, with no going backwards.
+    const stages = seen.map((s) => s.stage);
+    expect(stages[0]).toBe('reading');
+    expect(stages).toContain('asking');
+    expect(stages).toContain('checking');
+    expect(stages[stages.length - 1]).toBe('saving');
+
+    // And the count is real: it ends at the number of edges actually emitted.
+    const counts = seen.map((s) => s.edgesFound ?? 0);
+    expect(Math.max(...counts)).toBe(2);
+    // Monotonic — a count that went down would mean it was being guessed.
+    expect([...counts].sort((a, b) => a - b)).toEqual(counts);
   });
 });
