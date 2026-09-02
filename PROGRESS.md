@@ -20,6 +20,20 @@ passing), `audit:fields`, `audit:exports`, `pnpm --filter web build`, and
 `oracle.spec.ts` fails non-deterministically with different specs each run. Both
 verified by stashing this branch and re-running. Belongs on AEH-282.
 
+⚠️ **Do not reach for e2e to test UI logic here.** The full suite is ~13 min and
+even one spec file is ~5. There are no component tests in this repo at all —
+`vitest.config.ts` is `environment: 'node'`, the include pattern is
+`*.test.ts`, and there is no jsdom or testing-library — so anything left inside
+a component can ONLY be covered by Playwright. The answer is not to add a
+browser test, it is to keep the logic out of the component:
+`scope-interaction.ts` and `scope-dto.ts` are pure, and their 27 tests run in
+~150ms versus minutes. e2e now holds only the claims a browser has to make (a
+real round trip, a reload, the estimate staying untouched).
+
+Adding jsdom + @testing-library/react would let the components themselves be
+tested and is probably worth doing — a dependency + config decision nobody has
+taken yet.
+
 ### The framing, which is the thing not to undo
 
 **The estimate owns its dependency graph.** Dependencies are a property of the

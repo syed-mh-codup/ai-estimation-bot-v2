@@ -35,13 +35,19 @@ async function login(page: Page) {
  * Wait for the in-flight save to land.
  *
  * The count assertions pass the moment React re-renders, while the write behind
- * them is still in flight — and a `page.reload()` at that point aborts it. The
- * toggles are disabled for exactly the duration of the write (the configurator
- * serialises them on purpose), so their coming back is the signal, and it is a
- * real user-visible one rather than a sleep.
+ * them is still in flight — and a `page.reload()` at that point aborts it.
+ *
+ * Waits on the save indicator rather than on the toggle being re-enabled. Both
+ * work, but this one says what it means: the indicator exists precisely to tell
+ * a human whether the numbers on screen are the saved ones, so a spec that
+ * waits on it is waiting on the same fact the user is reading. Asserted as
+ * "no longer saving" rather than "saved", because the confirmation clears
+ * itself after a couple of seconds and a slow machine would miss the window.
  */
-async function saveSettled(page: Page, cardId: string) {
-  await expect(page.getByTestId(`scope-toggle-${cardId}`)).toBeEnabled({ timeout: COLD_COMPILE });
+async function saveSettled(page: Page, _cardId?: string) {
+  await expect(page.getByTestId('scope-save-state')).not.toHaveAttribute('data-state', 'saving', {
+    timeout: COLD_COMPILE,
+  });
 }
 
 /** How many modules the summary currently reports. */
@@ -104,6 +110,13 @@ test.describe('scope configurator', () => {
 
     // Excluded work is still priced — it just does not count.
     await expect(page.getByTestId('scope-excluded')).toBeVisible();
+
+    // The numbers changed; the indicator is what says they were kept. Without
+    // it a cascade in front of a client shows a total that moved and nothing
+    // saying whether it stuck.
+    await expect(page.getByTestId('scope-save-state')).toHaveAttribute('data-state', 'saved', {
+      timeout: COLD_COMPILE,
+    });
 
     // Undo is the same snapshot mechanism as revert-on-failure, so this also
     // exercises the path a failed save takes.

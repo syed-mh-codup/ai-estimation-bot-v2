@@ -1,13 +1,20 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
-import { consequencesOf, turnOff, turnOn } from '@repo/shared';
+import { consequencesOf } from '@repo/shared';
 
 import { Button } from '@/components/ui/button';
 import { Eyebrow } from '@/components/ui/card';
 
 import { resetScenarioToAsRun, saveScenarioPicks } from './scope-actions';
+import {
+  pushUndo,
+  resolveToggle,
+  saveStateOf,
+  type Notice,
+  type UndoStep,
+} from './scope-interaction';
 import {
   asRunPicks,
   graphFromDTO,
@@ -35,8 +42,6 @@ import {
  * front of a client is worse than a toggle that is briefly unresponsive.
  */
 
-type UndoStep = { picks: string[]; label: string };
-
 export function ScopeConfigurator({
   graph,
   scenario,
@@ -46,16 +51,19 @@ export function ScopeConfigurator({
 }) {
   const [picks, setPicks] = useState<string[]>(scenario.picks);
   const [undoStack, setUndoStack] = useState<UndoStep[]>([]);
-  const [notice, setNotice] = useState<{ text: string; kind: 'added' | 'removed' | 'refused' } | null>(
-    null,
-  );
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState(0);
   const [pending, startTransition] = useTransition();
 
   // Captured inside the updater rather than read from render-time state: a
   // thirty-row cascade widens the window in which a stale closure would revert
   // to the wrong snapshot.
   const inFlight = useRef(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+  }, []);
 
   const walkable = useMemo(() => graphFromDTO(graph), [graph]);
   const foundation = useMemo(
@@ -73,111 +81,97 @@ export function ScopeConfigurator({
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
   const titleOf = useCallback((id: string) => byId.get(id)?.title ?? id, [byId]);
 
-  const commit = useCallback(
-    (next: string[], previous: string[], label: string) => {
+  /**
+   * The one path every change takes: apply optimistically, persist, and either
+   * confirm or put it all back.
+   *
+   * Toggling, undo and reset were three near-identical copies of this. They
+   * had to agree on the revert granularity and on the saved signal, and three
+   * copies of "agree" is how they stop agreeing.
+   */
+  const persist = useCallback(
+    (args: {
+      next: string[];
+      previous: string[];
+      /** Pushed onto the undo stack, or null for a change that is itself an undo. */
+      undoLabel: string | null;
+      server: () => Promise<unknown>;
+      failure: string;
+    }) => {
       if (inFlight.current) return;
       inFlight.current = true;
-      setPicks(next);
-      setUndoStack((s) => [{ picks: previous, label }, ...s].slice(0, 10));
+      setPicks(args.next);
+      if (args.undoLabel !== null) {
+        const label = args.undoLabel;
+        setUndoStack((s) => pushUndo(s, { picks: args.previous, label }));
+      }
       startTransition(async () => {
         try {
-          await saveScenarioPicks(scenario.id, next);
+          await args.server();
           setError(null);
+          // Stamped rather than a boolean, so a second save during the flash
+          // restarts it instead of being swallowed by an already-true flag.
+          setSavedAt(Date.now());
+          if (savedTimer.current) clearTimeout(savedTimer.current);
+          savedTimer.current = setTimeout(() => setSavedAt(0), 2500);
         } catch (e) {
           // Whole-snapshot revert, which is the only correct granularity when a
           // single action changed an unknown number of rows.
-          setPicks(previous);
-          setUndoStack((s) => s.slice(1));
-          setError(e instanceof Error ? e.message : 'Could not save that change');
+          setPicks(args.previous);
+          if (args.undoLabel !== null) setUndoStack((s) => s.slice(1));
+          setError(e instanceof Error ? e.message : args.failure);
         } finally {
           inFlight.current = false;
         }
       });
     },
-    [scenario.id],
+    [],
   );
 
   const state = { graph: walkable, picks, foundation };
 
   const onToggle = (card: ResolvedCard) => {
-    if (card.foundation) {
-      setNotice({ text: `${card.title} is always included — nothing runs without it.`, kind: 'refused' });
-      return;
-    }
-    const change = card.selected ? turnOff(state, card.id) : turnOn(state, card.id);
-    if (change.refused) return;
-
-    const next = [...change.picks];
-    if (card.selected) {
-      setNotice(
-        change.removed.length > 0
-          ? {
-              text: `${card.title} switched off. ${change.removed.length} other ${
-                change.removed.length === 1 ? 'module' : 'modules'
-              } went with it: ${change.removed.map(titleOf).join(', ')}.`,
-              kind: 'removed',
-            }
-          : { text: `${card.title} switched off.`, kind: 'removed' },
-      );
-      commit(next, picks, `switched off ${card.title}`);
-    } else {
-      setNotice(
-        change.added.length > 0
-          ? {
-              text: `${card.title} switched on, and it needs ${change.added.length} more: ${change.added
-                .map(titleOf)
-                .join(', ')}.`,
-              kind: 'added',
-            }
-          : { text: `${card.title} switched on.`, kind: 'added' },
-      );
-      commit(next, picks, `switched on ${card.title}`);
-    }
+    const outcome = resolveToggle(state, card, titleOf);
+    setNotice(outcome.notice);
+    if (outcome.kind === 'refused') return;
+    persist({
+      next: outcome.picks,
+      previous: picks,
+      undoLabel: outcome.undoLabel,
+      server: () => saveScenarioPicks(scenario.id, outcome.picks),
+      failure: 'Could not save that change',
+    });
   };
 
   const onUndo = () => {
     const [step, ...rest] = undoStack;
     if (!step || inFlight.current) return;
-    inFlight.current = true;
-    const previous = picks;
-    setPicks(step.picks);
     setUndoStack(rest);
     setNotice({ text: `Undid: ${step.label}.`, kind: 'added' });
-    startTransition(async () => {
-      try {
-        await saveScenarioPicks(scenario.id, step.picks);
-        setError(null);
-      } catch (e) {
-        setPicks(previous);
-        setUndoStack(undoStack);
-        setError(e instanceof Error ? e.message : 'Could not undo that');
-      } finally {
-        inFlight.current = false;
-      }
+    persist({
+      next: step.picks,
+      previous: picks,
+      // An undo does not push onto the stack — it pops off it, above.
+      undoLabel: null,
+      server: () => saveScenarioPicks(scenario.id, step.picks),
+      failure: 'Could not undo that',
     });
   };
 
   const onReset = () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    const previous = picks;
-    const next = asRunPicks(graph.cards);
-    setPicks(next);
-    setUndoStack((s) => [{ picks: previous, label: 'reset to as proposed' }, ...s].slice(0, 10));
     setNotice({ text: 'Reset to the estimate as proposed.', kind: 'added' });
-    startTransition(async () => {
-      try {
-        await resetScenarioToAsRun(scenario.id);
-        setError(null);
-      } catch (e) {
-        setPicks(previous);
-        setError(e instanceof Error ? e.message : 'Could not reset');
-      } finally {
-        inFlight.current = false;
-      }
+    persist({
+      next: asRunPicks(graph.cards),
+      previous: picks,
+      undoLabel: 'reset to as proposed',
+      // The server recomputes as-run rather than trusting what the client
+      // worked out, so this is not `saveScenarioPicks` with the same list.
+      server: () => resetScenarioToAsRun(scenario.id),
+      failure: 'Could not reset',
     });
   };
 
+  const saveState = saveStateOf({ pending, savedAt });
   const groups = useMemo(() => groupCards(cards), [cards]);
 
   return (
@@ -251,6 +245,35 @@ export function ScopeConfigurator({
               {totals.cardsOff} switched off · {totals.excludedHours}h excluded
             </p>
           )}
+
+          {/* Whether the numbers above are the saved ones.
+              
+              The toggles already disable during a write, but "nothing responds
+              for a moment" is not the same as "this is being saved" — and in
+              front of a client, a number that has visibly changed with no
+              confirmation invites the question of whether it stuck. The height
+              is reserved so appearing and clearing does not shift the totals. */}
+          <p
+            data-testid="scope-save-state"
+            data-state={saveState}
+            aria-live="polite"
+            className="mt-2 flex h-4 items-center gap-1.5 text-[11px] text-ink-4"
+          >
+            {saveState === 'saving' ? (
+              <>
+                <span
+                  aria-hidden
+                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-ink-4"
+                />
+                Saving…
+              </>
+            ) : saveState === 'saved' ? (
+              <>
+                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-green" />
+                Saved
+              </>
+            ) : null}
+          </p>
         </div>
 
         <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
