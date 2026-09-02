@@ -12,16 +12,18 @@
  * implementations of that walk would eventually disagree, and the UI would offer
  * an edge the server then rejects.
  *
- * There are TWO dependency graphs in this system and they are peers, not a
- * primary and a copy:
+ * There are TWO dependency graphs in this system, and one of them is the real
+ * one:
  *
- *   - An ESTIMATE's graph, between its own menu cards. This is the real one for
- *     delivery and for the scope configurator. It is computed for that project,
- *     because dependencies are a property of the thing being built.
- *   - The PRESET library's graph, between presets. Secondary metadata: it is
- *     what promotion preserved from some past estimate, and it survives into a
- *     new estimate only as a hint, because presets are matched in on
- *     eligibility and the new project's graph is computed for the new project.
+ *   - An ESTIMATE's graph, between its own menu cards. This is the one that
+ *     matters — for delivery and for the scope configurator. It is computed for
+ *     that project, because dependencies are a property of the thing being
+ *     built, and every project is different enough that its graph may look
+ *     nothing like any other's.
+ *   - The PRESET library's graph, between presets. A record of what past work
+ *     needed, preserved by promotion so the knowledge is not lost, and used for
+ *     library-side views (delivery waves, the critical path). It is NOT read
+ *     back into an estimate — see MenuItemDependency in the schema for why.
  *
  * Every walk below is a graph algorithm over string ids, so both graphs use the
  * same tested implementations via `Walkable`. Only `candidatePrerequisitesFor`

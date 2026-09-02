@@ -314,15 +314,20 @@ export async function promoteMenuItemsToPresets(
 /**
  * Translate an estimate's dependency graph onto the presets it just produced.
  *
- * This is the direction dependency knowledge actually travels. An estimate's
- * graph is the real one — computed for that project, because that is where
- * dependencies are a fact — and promotion is what preserves it for future use.
- * On the preset side it becomes secondary metadata: a hint that reaches a later
- * estimate only if the matching happens to pull in both presets again, which
- * nothing guarantees. Presets are matched in on eligibility, one card at a
- * time, and the new project's graph is computed for the new project.
+ * This is the ONLY direction dependency knowledge travels, and it is one-way.
+ * An estimate's graph is the real one — computed for that project, because that
+ * is where dependencies are a fact — and promotion preserves it so the
+ * knowledge is not lost when the estimate stops being the thing anyone looks at.
  *
- * So this is lossy by nature, and deliberately not treated as a failure:
+ * What it becomes on the preset side is a record, not a source. The library
+ * reads it for its own views — delivery waves, the critical path, what a preset
+ * historically needed — and nothing reads it back into a new estimate. Every
+ * project is different, so one project's ordering is at most something a human
+ * consults; treating it as an input would be asserting that two pieces of work
+ * are ordered because they were ordered somewhere else once.
+ *
+ * That is why the losses below cost nothing. A record with holes in it is still
+ * a record; a source with holes in it would be a bug:
  *
  *   - An edge whose other end was skipped (already promoted from this estimate)
  *     or disabled has nowhere to land.

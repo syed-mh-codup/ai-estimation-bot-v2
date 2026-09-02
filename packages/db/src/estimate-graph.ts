@@ -168,7 +168,7 @@ export async function replaceEstimateGraph(
   db: PrismaClient,
   estimateId: string,
   proposed: EdgeInput[],
-  source: 'INFERRED' | 'PRESET' | 'MANUAL',
+  source: 'INFERRED' | 'MANUAL',
 ): Promise<EdgeWriteResult> {
   const cards = await db.menuItem.findMany({ where: { estimateId }, select: { id: true } });
   const known = new Set(cards.map((c) => c.id));

@@ -32,8 +32,10 @@ describe('AEH-228: prisma schema parser', () => {
     // estimate's own dependency graph) with DependencySource, plus
     // ScopeScenario + ScopeScenarioPick for the configured scopes cut from it.
     // The enum exists where PresetDependency's does not because an estimate's
-    // edge genuinely has a provenance worth querying: derived for this project,
-    // suggested by a matched preset, or authored by a human.
+    // edge has a provenance worth querying: worked out for this project, or
+    // typed by a person. It deliberately has no third value for "suggested by
+    // the preset library" — library edges are a record of past work and are
+    // never propagated into an estimate.
     expect(schema.models.size).toBe(26);
     expect(schema.enums.size).toBe(16);
   });

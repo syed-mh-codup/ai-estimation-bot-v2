@@ -774,13 +774,15 @@ model ScopeScenarioPick {
 }
 
 /// How an edge in an estimate's dependency graph came to exist.
+///
+/// Two values, and deliberately no third for "suggested by the preset library".
+/// Library edges are never propagated into an estimate: every project is
+/// different, so what one project needed says nothing about what this one
+/// needs. An edge here was either worked out for THIS scope or typed by a
+/// person who knows it. See MenuItemDependency.
 enum DependencySource {
   /// Derived for this estimate from its own scope.
   INFERRED
-  /// Suggested by the preset library: both cards matched presets, and one of
-  /// those presets records a prerequisite on the other. A hint carried forward
-  /// from past delivery, never a requirement — most cards match no preset.
-  PRESET
   /// Authored by a human.
   MANUAL
 }
@@ -790,14 +792,19 @@ enum DependencySource {
 ///
 /// The estimate owns its dependency graph. That is the whole point of this
 /// model: dependencies are a property of the project being built, so they are
-/// computed for that project and live on it. The preset library's own graph
-/// (PresetDependency, AEH-242) is the secondary copy — what promotion preserved
-/// from some past estimate — and it reaches a new estimate only as a `PRESET`
-/// hint, because presets are matched in on eligibility one card at a time and
-/// nothing guarantees the cards they came from are all present again.
+/// computed for that project and live on it.
 ///
-/// Requiring presets here would make the configurator unavailable on real work:
-/// only 12 of 140 cards carry a `sourcePresetId` at all.
+/// The preset library's own graph (PresetDependency, AEH-242) is a RECORD, not
+/// a source. Promotion preserves an estimate's graph into it so the knowledge
+/// is not lost, and the library uses it for its own views — delivery waves, the
+/// critical path, what a preset historically needed. It is never read back into
+/// an estimate. Every project is different, so one project's ordering is a
+/// reference a human might consult, not an input to another project's graph;
+/// and presets arrive one card at a time on eligibility, so nothing guarantees
+/// both ends of a library edge are even present again.
+///
+/// Requiring presets here would also make the configurator unavailable on real
+/// work: only 12 of 140 cards carry a `sourcePresetId` at all.
 ///
 /// Cascade on both ends, and no attempt to survive a re-run. A run deletes and
 /// recreates every MenuItem, so an edge keyed on a card id cannot outlive one —

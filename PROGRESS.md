@@ -21,10 +21,14 @@ build`, and `e2e/scope.spec.ts` (2 specs). **Not committed yet.**
 project being built, so they are computed for that project and stored on it
 (`MenuItemDependency`, keyed to the estimate, edges between its own cards).
 
-The preset library's graph is the **secondary copy**: promotion preserves an
-estimate's graph into it (`carryEstimateGraphToPresets` in `writeback.ts`), and
-it reaches a later estimate only as a hint, because presets are matched in on
-eligibility one card at a time and nothing guarantees both ends come back.
+The preset library's graph is a **record, not a source**. Promotion preserves an
+estimate's graph into it (`carryEstimateGraphToPresets` in `writeback.ts`) so the
+knowledge is not lost, and the library reads it for its own views — delivery
+waves, the critical path. **Nothing reads it back into an estimate**, and there
+is deliberately no mechanism to: every project is different, so one project's
+ordering is not evidence about another's. Decided 2026-09-02, and it is why
+`DependencySource` has only INFERRED and MANUAL — a `PRESET` value existed
+briefly and was dropped in migration 29.
 
 Nothing in the configurator requires a preset. That is not a nicety — only 12 of
 140 cards carry a `sourcePresetId`, so a preset-gated configurator would be
@@ -60,10 +64,13 @@ the cycle test passes vacuously.
 
 ### Two migrations, all four databases
 
-`20260902105647_aeh_235_estimate_dependency_graph` and
-`20260902110953_aeh_235_scope_scenario`, both applied to local `ai_estimation`,
-local `ai_estimation_test`, Neon test and Neon dev/main (28 migrations each).
-Both purely additive. Neon dev/main verified intact afterwards: 140 cards, 33
+`20260902105647_aeh_235_estimate_dependency_graph`,
+`20260902110953_aeh_235_scope_scenario` and
+`20260902133000_aeh_235_drop_preset_dependency_source`, all applied to local
+`ai_estimation`, local `ai_estimation_test`, Neon test and Neon dev/main (29
+migrations each). The first two purely additive; the third rebuilds the
+`DependencySource` enum to drop `PRESET` (Postgres cannot remove a value in
+place), verified as zero-row on all four before applying. Neon dev/main verified intact afterwards: 140 cards, 33
 prompt versions, 79 searchable preset versions.
 
 Also still open from AEH-242:
@@ -81,10 +88,10 @@ ones. Raised, never settled — worth deciding before the next one starts.
 
 ## Databases
 
-    local docker  ai_estimation        28 migrations
-    local docker  ai_estimation_test   28 migrations
-    Neon test     (ep-wild-heart)      28 migrations
-    Neon dev/main (ep-polished-credit) 28 migrations
+    local docker  ai_estimation        29 migrations
+    local docker  ai_estimation_test   29 migrations
+    Neon test     (ep-wild-heart)      29 migrations
+    Neon dev/main (ep-polished-credit) 29 migrations
 
 ⚠️ `packages/db/.env` points at **Neon dev/main**, so a bare `prisma migrate dev`
 from that package runs against real data and can offer to reset it. Always pass
