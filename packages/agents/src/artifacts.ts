@@ -62,27 +62,34 @@ import type { StepRunner } from './run-estimate';
  * 7,073 then 14,935 output tokens — the second of those about 2.5x the intent —
  * before the third exceeded the function's 300s and returned a gateway 504.
  * Asking for half as much per section, and for more sections, is what keeps
- * each call inside the ceiling; the token cap below only catches what gets
- * through anyway.
+ * each call inside the ceiling. It is now the ONLY thing that does — capping
+ * output tokens was tried the same day and had to be reverted; see below.
  */
 const SECTION_WORD_BUDGET = 700;
 
 /**
- * Hard ceiling on one section's output.
+ * There is deliberately NO max_tokens on the section call. It was tried, on
+ * 3 September, and it made things worse.
  *
- * Measured, not guessed. The first real generation (AEH-239, 3 September) used
- * deepseek-v4-flash and produced a 14,935-token section, roughly 2.5x what the
- * word budget intends — and the section after it exceeded the function's 300s
- * and came back as a gateway 504. Working backwards from that run's throughput
- * of roughly 40 tokens/sec, 9,000 tokens is about 225s: inside the ceiling with
- * enough margin for a slower moment.
+ * The reasoning was that capping output would keep a section inside the
+ * function's time budget. What actually happened: the very next generation
+ * spent eight minutes on its first section and returned `content: null` with
+ * the cap consumed — on a reasoning model the token budget can be spent
+ * thinking, before a single character of answer is emitted, so the cap does not
+ * shorten the output, it deletes it.
  *
- * This is a backstop, not the mechanism. The real fix is the outline planning
- * smaller sections, because a section that hits this cap is TRUNCATED, and
- * truncated HTML in a client-facing document is its own kind of bad. The cap
- * exists so the failure is a short section rather than a lost generation.
+ * Two things replaced it, and both are better:
+ *
+ * - Sections are kept small by PLANNING, not truncation. Cutting the word
+ *   budget to 700 and asking for 5-12 sections took one real document from four
+ *   sections to eleven, which is the outcome the cap was reaching for.
+ * - An empty section now fails loudly, naming the provider's finish_reason,
+ *   rather than being silently assembled into a client-facing document.
+ *
+ * If a time ceiling ever needs enforcing again, do it by making sections
+ * smaller or by splitting them further — never by cutting the model off
+ * mid-thought.
  */
-const SECTION_MAX_TOKENS = 9000;
 
 const OUTLINE_ENVELOPE = `
 You are planning a self-contained HTML document that will be generated section
@@ -103,8 +110,7 @@ Rules that decide whether this document can be produced at all:
 - Each section must fit in about ${SECTION_WORD_BUDGET} words of rendered
   content. If a subject is bigger than that, SPLIT IT into several sections.
   This is a hard production constraint, not a style preference: a section that
-  runs long is cut off mid-markup, and a section longer still takes the whole
-  document down with a timeout. Both have happened.
+  runs long takes the whole document down with a timeout. That has happened.
 - So PREFER MORE, SMALLER SECTIONS. There is no cost to a document having many
   sections and a real cost to it having few: each is generated separately, so
   ten small ones succeed where four large ones fail. If a subject could be one
@@ -496,7 +502,6 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
 
       const result = await modelProvider.chat({
         model: prep.modelString,
-        maxTokens: SECTION_MAX_TOKENS,
         messages: [
           { role: 'system', content: `${SECTION_ENVELOPE}\n\n--- THE BRIEF ---\n${prep.promptBody}` },
           {
@@ -517,6 +522,22 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
       });
       await recorder.record({ kind: 'ARTIFACT', model: result.model, usage: result.usage });
 
+      // The call was billed and produced nothing. Assembling an empty section
+      // would put a blank tab into a document somebody is about to send a
+      // client, so this fails instead — and names the provider's own reason,
+      // because "the model returned nothing" is not actionable and "it stopped
+      // on length" is.
+      const html = stripFence(result.text);
+      if (html.length === 0) {
+        const why =
+          result.finishReason === 'length'
+            ? 'it hit its token limit before writing anything — the model spent the budget thinking. Try a model without extended reasoning, or split this section further.'
+            : result.finishReason
+              ? `the provider stopped it with finish_reason "${result.finishReason}".`
+              : 'the provider returned no content and gave no reason.';
+        throw new Error(`Section "${planned.title}" came back empty: ${why}`);
+      }
+
       // Upsert, not create. The step is retried on failure and replayed on
       // resume, and a second create would violate the unique key and fail the
       // whole run over work that actually succeeded.
@@ -528,9 +549,9 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
           order: i,
           title: planned.title,
           brief: planned.brief,
-          html: stripFence(result.text),
+          html,
         },
-        update: { order: i, title: planned.title, brief: planned.brief, html: stripFence(result.text) },
+        update: { order: i, title: planned.title, brief: planned.brief, html },
       });
 
       return { sectionId, chars: result.text.length };

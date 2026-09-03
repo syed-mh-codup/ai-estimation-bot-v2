@@ -65,6 +65,17 @@ export type ChatResult = {
   usage: TokenUsage | null;
   /** The model as SERVED — fallback may differ from the requested string. */
   model: string;
+  /**
+   * Why the model stopped, verbatim from the provider — "stop", "length",
+   * "content_filter". Optional so every stub in the repo stays valid.
+   *
+   * Carried because an empty `text` is otherwise unexplainable. A model that
+   * hits its token cap can return `content: null` with `finish_reason:
+   * "length"`, and without this the caller sees an empty string and no reason
+   * for it. That happened in production on 3 September and cost an eight-minute
+   * generation to diagnose from a stack trace.
+   */
+  finishReason?: string | null;
 };
 
 /** A completed `embed` call: the vectors plus what it cost and which model served it. */
@@ -107,7 +118,21 @@ const ChatResponseSchema = z.object({
   model: z.string().optional(),
   choices: z.array(
     z.object({
-      message: z.object({ content: z.string() }),
+      /**
+       * `content` is NULLABLE, and this is not defensive padding.
+       *
+       * A model that stops on its token cap can return `"content": null` with
+       * `finish_reason: "length"` — reasoning models in particular, where the
+       * cap is spent before any answer is emitted. Requiring a string turned
+       * that into a ZodError thrown from inside the provider, which surfaced as
+       * an unreadable stack trace and lost an eight-minute generation.
+       *
+       * Absent is not the same as empty, but both mean "no text came back", and
+       * the caller is far better placed to decide what that means than a
+       * parser is. `finish_reason` is what makes the decision possible.
+       */
+      message: z.object({ content: z.string().nullish() }),
+      finish_reason: z.string().nullish(),
     }),
   ),
   usage: z
@@ -172,6 +197,7 @@ export class OpenRouterModelProvider implements IModelProvider {
     const parsed = ChatResponseSchema.parse(response);
     return {
       text: parsed.choices[0]?.message.content ?? '',
+      finishReason: parsed.choices[0]?.finish_reason ?? null,
       model: qualifyModel(parsed.model, options.model),
       usage: parsed.usage
         ? {
