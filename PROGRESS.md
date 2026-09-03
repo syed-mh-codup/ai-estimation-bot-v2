@@ -9,7 +9,7 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-239 — artifact generation alongside the WBS (APPROVED, in build)
+## Current: AEH-239 — artifact generation alongside the WBS (built, awaiting merge)
 
 Branch `feat/aeh-239-artifacts`. Plan approved 2026-09-03. The shape below is
 the agreed one, written down before the code so a crashed session can resume
@@ -43,8 +43,18 @@ envelope — how well briefs plan, whether sections respect the ~1200-word
 budget, or what a document actually costs. That is the next thing, and it wants
 a human deciding the spend.
 
-**Also not done:** the branch is not pushed. `git push` was refused by the
-sandbox, so all six commits are local to this worktree.
+**Also not done: pushing, and merging to master.** `git push` was refused by the
+sandbox, so every commit is local to this worktree. Master has since been merged
+INTO this branch (it had moved five commits for AEH-232), so the branch is now a
+clean fast-forward with no conflicts left to resolve — the only conflict was
+this file, where both sides had rewritten the Current section, and both records
+are kept below because both tickets really are in flight.
+
+**Sequencing worth knowing before merging:** master's head is AEH-232, which is
+deployed and still awaiting a human confirmation on prod. Merging AEH-239 on top
+puts a second unconfirmed change into the same deploy. The schema is already
+migrated everywhere and is additive, so there is no rush and no breakage either
+way — but stacking the two is a decision, not a default.
 
 **No Playwright spec.** The suite is red on master (AEH-282), so a new spec
 could not be gated on anything; the live pass above covers the same ground by
@@ -336,7 +346,46 @@ allocating effort to it. Revisit when the token bill is real.
   data) instead of testing a fixture somebody seeded.
 - Component tests still do not exist here. Logic stays out of components.
 
-### Still carried forward (not AEH-239's, but still true)
+## Current: AEH-232 — merged and deployed, awaiting confirmation on prod
+
+Merged to master as `91dd5f0` and pushed to both remotes on 2026-09-03, which
+triggers the Vercel deploy. Branch `fix/aeh-232-sheets-export-live` is fully
+contained in master and can be deleted. Jira still In Progress on purpose.
+
+**The export is live-verified.** Against a real estimate: 5 tabs, correct
+headers, row counts 77/54/63/43/5 read back out of Drive, and a second export
+that updated in place with no duplicate. The sheet is at
+`https://docs.google.com/spreadsheets/d/1LvZnk5XGXG7YVfEu7ioyOXgej0UjvgwMVBtnHZkSRmk`
+and is deliberately left in Drive for a human to look at. Full detail is on the
+ticket; the durable environment facts are in
+[[sheets-export-service-account-quota]].
+
+Two things could still make prod fail, neither of them code:
+
+1. `GOOGLE_IMPERSONATE_SUBJECT` must exist in the Vercel **Production**
+   environment. It was set locally in `apps/web/.env.local` here; whether it is
+   set in Vercel was not verifiable from this machine. Without it the export
+   fails on quota — but now with an error that names the cause.
+2. Domain-wide delegation is granted and confirmed working (token issues while
+   acting as syed.hassan@codup.co, ownership resolves to that account's real
+   quota), so nothing further is needed in the Google Admin console.
+
+Still outstanding: the human eyeball on that spreadsheet, and one export clicked
+through the deployed app so `exportSheetsAction` and its strict read run through
+the real UI rather than the script. Only then is the ticket honestly done.
+
+### Unresolved, probably not this ticket
+
+Prod showed "Application error: a server-side exception has occurred while
+loading ai-estimation-bot-v2-web.vercel.app". That is a bare-domain page or
+layout throw, not the shape a failing export server action takes — a failed
+export surfaces on `/estimates/<id>`. No Vercel CLI is installed and the repo
+has no `.vercel` link, so the runtime logs were never reachable from here. The
+user was asked for the exact URL and whether Export had been clicked; no answer
+yet. If it predates any export attempt it is a separate bug and probably belongs
+with the AEH-235 commits of 2026-09-02.
+
+## Left behind by AEH-235 (Done, on master)
 
 **Component tests do not exist in this repo.** `vitest.config.ts` is
 `environment: 'node'`, the include pattern is `*.test.ts` not `*.test.tsx`, and

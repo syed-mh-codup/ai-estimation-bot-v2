@@ -55,6 +55,7 @@ does not restore — so generate must run on **every** build.
 | `OPENROUTER_API_KEY` | for runs | agent LLM calls + embeddings |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | for Sheets export | whole JSON blob, one line |
 | `GOOGLE_DRIVE_FOLDER_ID` | for Sheets export | |
+| `GOOGLE_IMPERSONATE_SUBJECT` | for Sheets export | Workspace user to act as; without it every create fails on quota |
 | `ENCRYPTION_KEY` | for MCP connectors | aes-256-gcm master key |
 
 `AUTH_URL` is deliberately unset — `auth.config.ts` uses `trustHost: true`.

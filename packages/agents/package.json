@@ -9,7 +9,8 @@
     "typecheck": "tsc -b",
     "lint": "eslint src",
     "test": "vitest run",
-    "embed:presets": "tsx src/scripts/embed-presets.ts"
+    "embed:presets": "tsx src/scripts/embed-presets.ts",
+    "verify:sheets": "tsx src/scripts/verify-sheets-export.ts"
   },
   "dependencies": {
     "@mastra/core": "^1.41.0",
