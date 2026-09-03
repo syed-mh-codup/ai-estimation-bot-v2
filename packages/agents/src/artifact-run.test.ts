@@ -453,6 +453,56 @@ describe('runArtifact', () => {
     expect(row.content).toContain('memoised');
   });
 
+  it('resumes without re-planning or re-paying for finished sections', async () => {
+    // The failure this guards is expensive and silent. A resume that re-planned
+    // would rename every section, orphan the ones already written, and charge
+    // for the lot again — and it would look like it worked.
+    const artifactId = await makeArtifact(['cards']);
+
+    // First attempt: dies after section 1 of 3.
+    const first = stubProvider({ sections: 3 });
+    let written = 0;
+    await expect(
+      runArtifact({
+        db,
+        artifactId,
+        modelProvider: first.provider,
+        step: async (id, fn) => {
+          if (id.startsWith('artifact-section-')) {
+            written += 1;
+            if (written > 1) throw new Error('boom: the step timed out');
+          }
+          return fn();
+        },
+      }),
+    ).rejects.toThrow(/boom/);
+
+    const afterCrash = await db.artifactSection.findMany({ where: { artifactId } });
+    expect(afterCrash).toHaveLength(1);
+    const plannedIds = (
+      await db.estimateArtifact.findUniqueOrThrow({ where: { id: artifactId } })
+    ).outline as { sections: { id: string }[] } | null;
+    expect(plannedIds?.sections).toHaveLength(3);
+
+    // Resume: same artifact, fresh provider so its call count is only this run.
+    const second = stubProvider({ sections: 3 });
+    const result = await runArtifact({ db, artifactId, modelProvider: second.provider });
+
+    expect(result.sections).toBe(3);
+    // Two calls, not four: no outline call (the plan was reused) and no call
+    // for the section that already existed.
+    expect(second.state.calls).toBe(2);
+
+    const rows = await db.artifactSection.findMany({ where: { artifactId } });
+    expect(rows).toHaveLength(3);
+    // The surviving section kept its identity, which is what let it be skipped.
+    expect(rows.map((r) => r.sectionId).sort()).toEqual(['sec-1', 'sec-2', 'sec-3']);
+
+    const row = await db.estimateArtifact.findUniqueOrThrow({ where: { id: artifactId } });
+    expect(row.status).toBe('DONE');
+    expect(row.content).toContain('id="panel-sec-1"');
+  });
+
   it('refuses rather than generating a document about nothing', async () => {
     // Every requested section empty means the model would be asked to write
     // about an estimate it cannot see, and it would fill the gap by inventing

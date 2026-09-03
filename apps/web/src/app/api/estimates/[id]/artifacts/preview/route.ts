@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { prisma } from '@repo/db';
+import { corpusSection, prisma } from '@repo/db';
 import { previewArtifactOutline } from '@repo/agents';
 
 import { auth } from '@/lib/auth';
@@ -61,7 +61,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       typeVersion: active.version,
       modelProvider: artifactModelProvider(),
     });
-    return NextResponse.json(preview);
+
+    // Section keys are resolved to their display labels HERE rather than in the
+    // panel, because the panel is a client component and the catalogue lives in
+    // @repo/db — importing it there would pull Prisma into the browser bundle.
+    // Retired keys keep their raw form on purpose: they have no profile left to
+    // look up, and the raw key is what an author needs to recognise and untick.
+    return NextResponse.json({
+      ...preview,
+      empty: preview.empty.map((key) => ({ key, label: corpusSection(key).label })),
+    });
   } catch (err) {
     // The messages this throws are written for the person reading them — "every
     // section this artifact reads is empty on this estimate" is the actual

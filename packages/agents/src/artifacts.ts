@@ -1,4 +1,4 @@
-import { type PrismaClient } from '@repo/db';
+import { type CorpusSectionKey, type PrismaClient } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
 import {
   ArtifactOutlineSchema,
@@ -27,8 +27,10 @@ import { createUsageRecorder, type UsageRecorder } from './usage-recorder';
  *   N+2      assemble  wrap them in the shared shell
  *
  * That is the same answer `runEstimate` reached for the same reason, and it
- * scales by content with no special cases: an ERD is a one-section outline and
- * three steps; a wireframe pack is nine sections and eleven.
+ * scales by content with no special cases: a small document is a few sections
+ * and a few steps, a large one is a dozen. More sections is the SAFE direction,
+ * because each is generated separately — see SECTION_WORD_BUDGET for what the
+ * first real run cost us by planning too few.
  *
  * ## What is code and what is data
  *
@@ -52,12 +54,35 @@ import type { StepRunner } from './run-estimate';
  * around.
  *
  * A number rather than "keep it short" because the ceiling is a real constraint
- * and vagueness spends it. ~1200 words of HTML is roughly 4-6k tokens, which
- * streams comfortably inside one 300s step with room for a slow model — and it
- * is the figure that makes the model SPLIT a large subject into several
- * sections rather than trying to fit it into one and timing out.
+ * and vagueness spends it: this is the figure that makes the model SPLIT a
+ * large subject rather than trying to fit it into one section and timing out.
+ *
+ * Started at 1200 and was cut to 700 on 3 September, by measurement rather than
+ * taste. The first real generation planned four sections for an ERD and wrote
+ * 7,073 then 14,935 output tokens — the second of those about 2.5x the intent —
+ * before the third exceeded the function's 300s and returned a gateway 504.
+ * Asking for half as much per section, and for more sections, is what keeps
+ * each call inside the ceiling; the token cap below only catches what gets
+ * through anyway.
  */
-const SECTION_WORD_BUDGET = 1200;
+const SECTION_WORD_BUDGET = 700;
+
+/**
+ * Hard ceiling on one section's output.
+ *
+ * Measured, not guessed. The first real generation (AEH-239, 3 September) used
+ * deepseek-v4-flash and produced a 14,935-token section, roughly 2.5x what the
+ * word budget intends — and the section after it exceeded the function's 300s
+ * and came back as a gateway 504. Working backwards from that run's throughput
+ * of roughly 40 tokens/sec, 9,000 tokens is about 225s: inside the ceiling with
+ * enough margin for a slower moment.
+ *
+ * This is a backstop, not the mechanism. The real fix is the outline planning
+ * smaller sections, because a section that hits this cap is TRUNCATED, and
+ * truncated HTML in a client-facing document is its own kind of bad. The cap
+ * exists so the failure is a short section rather than a lost generation.
+ */
+const SECTION_MAX_TOKENS = 9000;
 
 const OUTLINE_ENVELOPE = `
 You are planning a self-contained HTML document that will be generated section
@@ -77,13 +102,21 @@ Rules that decide whether this document can be produced at all:
   its own brief. So each brief must stand alone.
 - Each section must fit in about ${SECTION_WORD_BUDGET} words of rendered
   content. If a subject is bigger than that, SPLIT IT into several sections.
-  This is a hard production constraint, not a style preference: an oversized
-  section fails to generate at all.
+  This is a hard production constraint, not a style preference: a section that
+  runs long is cut off mid-markup, and a section longer still takes the whole
+  document down with a timeout. Both have happened.
+- So PREFER MORE, SMALLER SECTIONS. There is no cost to a document having many
+  sections and a real cost to it having few: each is generated separately, so
+  ten small ones succeed where four large ones fail. If a subject could be one
+  section or three, make it three.
+- A section covering "everything about X" is almost always too big. Split by
+  the natural seams in the material — by domain, by actor, by phase, by
+  lifecycle stage — and give each seam its own section.
 - "vocabulary" is how the document stays coherent. Put every proper noun the
   sections must agree on in it — entity names, journey ids, tranche labels. If
   two sections would otherwise name the same thing differently, that name
   belongs here.
-- Prefer 3-9 sections. One section is correct for a genuinely small document.
+- Prefer 5-12 sections. One section is correct only for a genuinely tiny document.
 - "id" must be lowercase, hyphenated, and unique.
 
 Base the plan on the source material you are given. Do not invent scope that is
@@ -134,7 +167,7 @@ async function prepare(
   promptBody: string;
   modelString: string;
   retired: string[];
-  empty: string[];
+  empty: CorpusSectionKey[];
 }> {
   const version = await db.artifactTypeVersion.findUniqueOrThrow({
     where: { artifactTypeId_version: { artifactTypeId, version: typeVersion } },
@@ -192,7 +225,7 @@ export type ArtifactPreview = {
   /** Section keys the type asks for that this build no longer has. */
   retired: string[];
   /** Section keys that are empty on this estimate. */
-  empty: string[];
+  empty: CorpusSectionKey[];
 };
 
 /**
@@ -377,6 +410,8 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
       typeVersion: true,
       artifactType: { select: { name: true } },
       estimate: { select: { title: true } },
+      // Present when this is a RESUME of a generation that failed part-way.
+      outline: true,
     },
   });
 
@@ -399,10 +434,22 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
   const corpus = prep.corpus;
 
   // ── 1. Outline ──────────────────────────────────────────────────────────────
-  await report({ stage: 'Planning the document', pct: 10 });
-  const outline: ArtifactOutline = await step('artifact-outline', () =>
-    planOutline(modelProvider, prep, recorder),
-  );
+  //
+  // A stored outline means this is a RESUME, and reusing it is not an
+  // optimisation — it is the thing that makes resuming work at all. Re-planning
+  // would produce different section ids, so every section already written and
+  // paid for would fail to match and be generated again. Reuse also keeps the
+  // document coherent: the sections that survived were written against THIS
+  // plan's vocabulary.
+  const stored = artifact.outline as ArtifactOutline | null;
+  let outline: ArtifactOutline;
+  if (stored) {
+    await report({ stage: 'Resuming from the existing plan', pct: 12 });
+    outline = stored;
+  } else {
+    await report({ stage: 'Planning the document', pct: 10 });
+    outline = await step('artifact-outline', () => planOutline(modelProvider, prep, recorder));
+  }
 
   const ids = uniqueSectionIds(outline.sections.map((s) => s.id));
 
@@ -433,8 +480,23 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
     const sectionId = ids[i]!;
 
     await step(`artifact-section-${sectionId}`, async () => {
+      // Already written, on a previous attempt at this same artifact. Skip the
+      // model call entirely.
+      //
+      // Inngest's own memoisation only covers steps within ONE run, so without
+      // this a resume would pay for every section again — which would make the
+      // partial progress the design goes to such lengths to keep completely
+      // worthless. This is what turns "2 of 9 were written" into "only 7 left
+      // to pay for".
+      const already = await db.artifactSection.findUnique({
+        where: { artifactId_sectionId: { artifactId, sectionId } },
+        select: { id: true },
+      });
+      if (already) return { sectionId, chars: 0, skipped: true };
+
       const result = await modelProvider.chat({
         model: prep.modelString,
+        maxTokens: SECTION_MAX_TOKENS,
         messages: [
           { role: 'system', content: `${SECTION_ENVELOPE}\n\n--- THE BRIEF ---\n${prep.promptBody}` },
           {
