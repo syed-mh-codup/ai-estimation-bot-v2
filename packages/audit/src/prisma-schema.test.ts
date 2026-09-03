@@ -36,7 +36,15 @@ describe('AEH-228: prisma schema parser', () => {
     // typed by a person. It deliberately has no third value for "suggested by
     // the preset library" — library edges are a record of past work and are
     // never propagated into an estimate.
-    expect(schema.models.size).toBe(26);
+    // AEH-239 added four models and NO enum, and the asymmetry is the point:
+    // ArtifactType, ArtifactTypeVersion, EstimateArtifact and ArtifactSection
+    // exist precisely so that adding a new kind of artifact is an INSERT rather
+    // than a migration. An `ArtifactKind` enum next to `AgentKind` is the thing
+    // the ticket rules out, so if this count ever rises alongside the enum
+    // count for an artifact reason, that requirement has been broken. The one
+    // enum change was a value on UsageKind — ARTIFACT, singular, covering every
+    // type, because per-artifact attribution is ModelUsage.artifactId.
+    expect(schema.models.size).toBe(30);
     expect(schema.enums.size).toBe(16);
   });
 
@@ -67,6 +75,13 @@ describe('AEH-228: prisma schema parser', () => {
       'Estimate.agentState',
       'MenuItem.meta',
       'RoleLineItem.meta',
+      // AEH-239. Both are Json for the same reason: their shape is decided by
+      // a hand-authored artifact type, not by this schema. `outline` is the
+      // section plan a type's brief produced; `inputs` is whatever that brief
+      // asks the user for. Columns would put them back under migration
+      // control, which is what the ticket exists to avoid.
+      'EstimateArtifact.outline',
+      'EstimateArtifact.inputs',
     ]);
     for (const f of jsonFields(schema)) expect(isAuditableField(f)).toBe(false);
   });

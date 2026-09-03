@@ -22,8 +22,19 @@ export function createUsageRecorder(opts: {
   db: PrismaClient;
   estimateId: string | null;
   runId?: string | null;
+  /**
+   * The generated document this spend belongs to, when it is artifact
+   * generation. AEH-239.
+   *
+   * A column rather than a usage kind per artifact type, because artifact types
+   * are rows: a per-type kind would be a migration per type. Every artifact call
+   * records `kind: 'ARTIFACT'`, and this is what makes "what did THIS document
+   * cost" answerable — which matters more here than for a run, since one
+   * artifact is N+2 calls rather than one.
+   */
+  artifactId?: string | null;
 }): UsageRecorder {
-  const { db, estimateId, runId = null } = opts;
+  const { db, estimateId, runId = null, artifactId = null } = opts;
 
   return {
     async record(input) {
@@ -38,6 +49,7 @@ export function createUsageRecorder(opts: {
           data: {
             estimateId,
             runId,
+            artifactId,
             kind: input.kind,
             model: input.model,
             promptTokens: input.usage?.promptTokens ?? null,

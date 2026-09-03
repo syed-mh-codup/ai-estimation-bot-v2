@@ -17,3 +17,5 @@ export * from './estimate-graph';
 export * from './menu-item-mapping';
 export * from './agent-catalogue';
 export * from './usage-catalogue';
+export * from './artifact-corpus-catalogue';
+export * from './artifact-types';

@@ -1,19 +1,22 @@
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, type IngestFile } from '@repo/agents';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, runArtifact, type IngestFile } from '@repo/agents';
 import {
   inngest,
   EVENT_RUN,
   EVENT_INGEST,
   EVENT_EMBED_PRESETS,
   EVENT_PROMOTE,
+  EVENT_ARTIFACT,
   type EstimateEventData,
   type EmbedPresetsEventData,
   type PromoteEventData,
+  type ArtifactEventData,
 } from '@/lib/inngest';
 import { sendDueReminderEmail, sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 import { sweepDueReminders } from '@/lib/reminders';
+import { artifactModelProvider } from '@/lib/artifact-provider';
 
 
 /**
@@ -289,10 +292,82 @@ const dueRemindersFn = inngest.createFunction(
     ),
 );
 
+/**
+ * Generate one supporting document. AEH-239.
+ *
+ * Durable for a harder reason than the run's. The reference artifact is ~100KB,
+ * roughly 25k output tokens, and Vercel Pro is ruled out — so the per-step
+ * ceiling is a hard 300s with nothing behind it and one model call cannot
+ * produce the document. Inngest invokes one `step.run()` per HTTP request, so
+ * splitting into outline → one step per section → assemble gives each section
+ * its own 300s. This is not an optimisation; it is the only reason the feature
+ * is shippable on this deploy target.
+ *
+ * `concurrency: 2` is the other half of the budget. The plan allows 5 concurrent
+ * runs account-wide, and an Inngest run holds its slot for its whole lifetime —
+ * so a nine-section artifact occupies one for the ~10 minutes it takes. Three
+ * people generating wireframe packs at once would leave two slots for estimate
+ * runs, which are the core of the product. Capping here keeps three slots free
+ * for runs, ingest, promote and embed no matter how many artifacts are queued:
+ * artifacts wait, estimates never do.
+ *
+ * `retries: 1`, matching the run. Sections are upserted on
+ * (artifactId, sectionId), so a retry re-does one section rather than the
+ * document — but every attempt is a paid model call, so the appetite for them
+ * is small.
+ */
+const artifactFn = inngest.createFunction(
+  {
+    id: 'estimate-artifact',
+    name: 'Generate artifact',
+    retries: 1,
+    concurrency: 2,
+    triggers: [{ event: EVENT_ARTIFACT }],
+    onFailure: async ({ event, error }) => {
+      const artifactId = (
+        event as unknown as { data?: { event?: { data?: { artifactId?: string } } } }
+      )?.data?.event?.data?.artifactId;
+      if (!artifactId) return;
+      // The sections already written are deliberately left in place. They are
+      // what makes a retry cheap, and they are the difference between "failed
+      // at section 7 of 9" and "start again".
+      await prisma.estimateArtifact.update({
+        where: { id: artifactId },
+        data: {
+          status: 'FAILED',
+          stage: 'Failed',
+          error: String(error?.message ?? error).slice(0, 500),
+          finishedAt: new Date(),
+        },
+      });
+    },
+  },
+  async ({ event, step }) => {
+    const { artifactId } = event.data as ArtifactEventData;
+
+    return runArtifact({
+      db: prisma,
+      artifactId,
+      // Not `createModelProvider()` directly: the e2e run needs a deterministic
+      // generator, and this is the seam that supplies one under OPENROUTER_STUB
+      // without blanking the API key that ingest also uses.
+      modelProvider: artifactModelProvider(),
+      step: (id, fn) => step.run(id, fn) as ReturnType<typeof fn>,
+      onProgress: async ({ stage, pct }) => {
+        await prisma.estimateArtifact.update({
+          where: { id: artifactId },
+          data: { stage, pct },
+        });
+      },
+    });
+  },
+);
+
 export const inngestFunctions: InngestFunction.Any[] = [
   runEstimateFn,
   ingestFn,
   embedPresetsFn,
   promoteFn,
   dueRemindersFn,
+  artifactFn,
 ];
