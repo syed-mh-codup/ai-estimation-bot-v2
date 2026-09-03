@@ -11,9 +11,31 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ## Current: AEH-239 — artifact generation alongside the WBS (APPROVED, in build)
 
-Branch `feat/aeh-239-artifacts`. Plan approved 2026-09-03; slice 1 in build.
-The shape below is the agreed one, written down before the code so a crashed
-session can resume from it.
+Branch `feat/aeh-239-artifacts`. Plan approved 2026-09-03. The shape below is
+the agreed one, written down before the code so a crashed session can resume
+from it.
+
+**Slice 1 is done** — `15e8f2f` (schema + migration) and `e156394` (admin UI).
+641 tests pass, typecheck clean, `next build` green, all three audit gates
+clean. Slice 2 is next: the dossier and the generation pipeline.
+
+Two things a resuming session needs that are not obvious:
+
+- **This worktree has its own Postgres.** `docker compose up -d postgres` from
+  here creates the compose project `aeh-239-artifacts`, a *different* volume
+  from the main checkout's, so it came up empty and was brought to the current
+  migration with `prisma migrate deploy`. That is deliberate isolation, not a
+  mistake, and it is why every command below passes an explicit
+  `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_estimation`.
+  Tear it down with `docker compose down -v` from this worktree when the branch
+  is finished. Neon was never touched.
+- **The orphan-field gate is the schedule.** Five `@orphan-todo AEH-239`
+  annotations remain in schema.prisma, each naming the slice that wires it. The
+  audit's `stale-exemption-consumed` check fails the moment a field gains a
+  real consumer while still annotated, so the annotations come off on their own
+  schedule rather than on memory. Two already have. Run the gate with
+  `pnpm --filter @repo/audit run audit` — plain `pnpm audit` is shadowed by
+  npm's vulnerability audit and tells you nothing.
 
 ### The hard requirement, and the line it draws
 
