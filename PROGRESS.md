@@ -346,44 +346,56 @@ allocating effort to it. Revisit when the token bill is real.
   data) instead of testing a fixture somebody seeded.
 - Component tests still do not exist here. Logic stays out of components.
 
-## Current: AEH-232 — merged and deployed, awaiting confirmation on prod
+## Also in flight: AEH-316 — the export now says what it is doing
 
-Merged to master as `91dd5f0` and pushed to both remotes on 2026-09-03, which
-triggers the Vercel deploy. Branch `fix/aeh-232-sheets-export-live` is fully
-contained in master and can be deleted. Jira still In Progress on purpose.
+Branch `feat/aeh-316-export-feedback` off master, commit `9eec07d`. In Progress.
+Nothing pushed. AEH-232 is Done and merged (`91dd5f0`); the export works in
+production, this is the UX around it.
 
-**The export is live-verified.** Against a real estimate: 5 tabs, correct
-headers, row counts 77/54/63/43/5 read back out of Drive, and a second export
-that updated in place with no duplicate. The sheet is at
-`https://docs.google.com/spreadsheets/d/1LvZnk5XGXG7YVfEu7ioyOXgej0UjvgwMVBtnHZkSRmk`
-and is deliberately left in Drive for a human to look at. Full detail is on the
-ticket; the durable environment facts are in
-[[sheets-export-service-account-quota]].
+Raised because the export succeeded in prod and the user could not tell. It was
+a bare form with a submit button: no pending state, no result, and a throw that
+became Next's generic "Application error" page — which is very likely the
+bare-domain crash that was blamed on the export config during AEH-232, since
+there is no `error.tsx` boundary anywhere in the app.
 
-Two things could still make prod fail, neither of them code:
+Done: `exportSheetsAction` returns an outcome instead of throwing; a client
+`ExportSheets` component with a pending label, a transient Exported beat, and
+the spreadsheet link directly under the button; the button reads "Re-export to
+Sheets" once a sheet exists and states that re-exporting replaces that same
+file. State derivation is in `export-interaction.ts` with 11 tests, because
+component logic is unreachable by this repo's test setup.
 
-1. `GOOGLE_IMPERSONATE_SUBJECT` must exist in the Vercel **Production**
-   environment. It was set locally in `apps/web/.env.local` here; whether it is
-   set in Vercel was not verifiable from this machine. Without it the export
-   fails on quota — but now with an error that names the cause.
-2. Domain-wide delegation is granted and confirmed working (token issues while
-   acting as syed.hassan@codup.co, ownership resolves to that account's real
-   quota), so nothing further is needed in the Google Admin console.
+Two things the reporter believed were broken and are not — verified live, do
+not rebuild them: re-export overwrites the same sheet (found by its Drive
+`appProperties` tag), and a trashed or deleted sheet is recreated with the link
+updated. The genuine gap, recorded on the ticket rather than fixed: nothing
+reconciles `sheetUrl`, so a sheet deleted in Drive leaves a dead link on the
+page until the next export.
 
-Still outstanding: the human eyeball on that spreadsheet, and one export clicked
-through the deployed app so `exportSheetsAction` and its strict read run through
-the real UI rather than the script. Only then is the ticket honestly done.
+### Watch out for this one
 
-### Unresolved, probably not this ticket
+`packages/db/src/preset-code.test.ts` used to rewind the shared
+`preset_code_seq` in `afterAll`. That re-issues numbers a concurrently running
+test already has `Preset` rows for, and it surfaces as "Unique constraint
+failed on the fields: (code)" in `writeback-promote.test.ts` — a different file
+entirely. It is scheduling-dependent, so it stayed hidden until this ticket
+added one unrelated test file and shifted the worker layout; master passed and
+the same branch failed twice, which looks exactly like a regression and is not
+one. The rewind is gone and the sequence is left advanced, which
+`preset-code.ts` itself documents as correct ("a gap is harmless, a reissued
+code would collide"). If a preset code collision ever reappears, suspect
+sequence rewinding before suspecting the allocator.
 
-Prod showed "Application error: a server-side exception has occurred while
-loading ai-estimation-bot-v2-web.vercel.app". That is a bare-domain page or
-layout throw, not the shape a failing export server action takes — a failed
-export surfaces on `/estimates/<id>`. No Vercel CLI is installed and the repo
-has no `.vercel` link, so the runtime logs were never reachable from here. The
-user was asked for the exact URL and whether Export had been clicked; no answer
-yet. If it predates any export attempt it is a separate bug and probably belongs
-with the AEH-235 commits of 2026-09-02.
+### Still open
+
+- `pnpm verify:sheets --live` and the unit suite, typecheck and build are all
+  green; the e2e spec `estimate-refine.spec.ts:102` covers this exact button and
+  was running when this was written.
+- No `error.tsx` anywhere in `apps/web`, so any server action throw still takes
+  the whole page down with an opaque message. Raised with the user as a
+  candidate for its own ticket; deliberately not folded into AEH-316.
+- AEH-317 holds the spreadsheet layout rework, with the current shape documented
+  as the baseline and the target left as an explicit open question.
 
 ## Left behind by AEH-235 (Done, on master)
 

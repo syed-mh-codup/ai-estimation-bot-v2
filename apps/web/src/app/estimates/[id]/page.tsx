@@ -32,6 +32,8 @@ import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
+import { ExportSheets } from './ExportSheets';
+import type { ExportOutcome } from './export-interaction';
 import { cardFlags, lineEnvelope } from './dto';
 import type { ItemDTO, SectionDTO } from './dto';
 
@@ -57,22 +59,36 @@ async function taxPercents(): Promise<Record<Role, number>> {
   };
 }
 
-async function exportSheetsAction(formData: FormData) {
+/**
+ * AEH-316: returns its outcome instead of throwing. A throw from a server
+ * action surfaces as a bare "Application error: a server-side exception has
+ * occurred" page, which is how the AEH-232 quota failure managed to look like
+ * a site outage rather than a failed button.
+ */
+async function exportSheetsAction(id: string): Promise<ExportOutcome> {
   'use server';
   await requireSession();
-  const id = formData.get('id');
-  if (typeof id !== 'string') return;
   const estimate = await prisma.estimate.findUnique({
     where: { id },
     include: { menuItems: { include: { lineItems: true } } },
   });
-  if (!estimate) return;
+  if (!estimate) return { ok: false, error: 'That estimate no longer exists.' };
 
-  const items: MenuItemDTO[] = estimate.menuItems.map(toMenuItem);
+  try {
+    // toMenuItem parses strictly (AEH-227), so a bad row throws here rather
+    // than inside Google's API — and that is worth telling the user apart.
+    const items: MenuItemDTO[] = estimate.menuItems.map(toMenuItem);
 
-  const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
-  await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
-  revalidatePath(`/estimates/${id}`);
+    const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
+    await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
+    revalidatePath(`/estimates/${id}`);
+    return { ok: true, url: result.url };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'The export failed for an unknown reason.',
+    };
+  }
 }
 
 async function finaliseAction(formData: FormData) {
@@ -429,12 +445,11 @@ export default async function EstimateDetailPage({
                   </form>
                 )}
                 {hasMenu && (
-                  <form action={exportSheetsAction}>
-                    <input type="hidden" name="id" value={estimate.id} />
-                    <Button type="submit" variant="outline" full data-testid="export-sheets">
-                      Export to Sheets
-                    </Button>
-                  </form>
+                  <ExportSheets
+                    estimateId={estimate.id}
+                    initialSheetUrl={estimate.sheetUrl}
+                    action={exportSheetsAction}
+                  />
                 )}
                 <CollapseAllButton />
               </div>
