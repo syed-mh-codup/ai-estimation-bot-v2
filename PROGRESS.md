@@ -9,52 +9,44 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-232 — Sheets export, live verified, NOT yet deployed
+## Current: AEH-232 — merged and deployed, awaiting confirmation on prod
 
-Branch `fix/aeh-232-sheets-export-live`, master merged in. Jira In Progress.
+Merged to master as `91dd5f0` and pushed to both remotes on 2026-09-03, which
+triggers the Vercel deploy. Branch `fix/aeh-232-sheets-export-live` is fully
+contained in master and can be deleted. Jira still In Progress on purpose.
 
-**The live export works, verified end to end on 2026-09-03** — the first time
-this code path has ever run for real:
+**The export is live-verified.** Against a real estimate: 5 tabs, correct
+headers, row counts 77/54/63/43/5 read back out of Drive, and a second export
+that updated in place with no duplicate. The sheet is at
+`https://docs.google.com/spreadsheets/d/1LvZnk5XGXG7YVfEu7ioyOXgej0UjvgwMVBtnHZkSRmk`
+and is deliberately left in Drive for a human to look at. Full detail is on the
+ticket; the durable environment facts are in
+[[sheets-export-service-account-quota]].
 
-    DEV(77) QA(54) PM(63) BA(43) Roll-Up(5), headers correct, row counts exact
-    second export updated in place, same spreadsheetId, no duplicate
-    https://docs.google.com/spreadsheets/d/1LvZnk5XGXG7YVfEu7ioyOXgej0UjvgwMVBtnHZkSRmk
+Two things could still make prod fail, neither of them code:
 
-Domain-wide delegation was granted by the user and is confirmed working:
-`authorize` issues a token acting as syed.hassan@codup.co, and file ownership
-resolves to that account's real quota instead of the service account's zero.
-`GOOGLE_IMPERSONATE_SUBJECT` is set in `apps/web/.env.local` (local only).
+1. `GOOGLE_IMPERSONATE_SUBJECT` must exist in the Vercel **Production**
+   environment. It was set locally in `apps/web/.env.local` here; whether it is
+   set in Vercel was not verifiable from this machine. Without it the export
+   fails on quota — but now with an error that names the cause.
+2. Domain-wide delegation is granted and confirmed working (token issues while
+   acting as syed.hassan@codup.co, ownership resolves to that account's real
+   quota), so nothing further is needed in the Google Admin console.
 
-**The open scope question is settled: `drive.file` is sufficient.** The folder
-itself stays unreadable under it, but files this app created inside the folder
-are visible, so `getSpreadsheetId` finds them and re-exports update rather than
-duplicate. No need to widen to full `drive`. The diagnosis's caveat used to
-claim the opposite and was corrected in `21164d4`.
+Still outstanding: the human eyeball on that spreadsheet, and one export clicked
+through the deployed app so `exportSheetsAction` and its strict read run through
+the real UI rather than the script. Only then is the ticket honestly done.
 
-### Why prod still fails
+### Unresolved, probably not this ticket
 
-Nothing to do with Google. **The fix was never merged** — master carries zero
-occurrences of `impersonateSubject`, so the deployed build never asks to
-impersonate anyone and the grant is inert there. Remaining, and all of it needs
-the user:
-
-1. Merge this branch to master (awaiting their go-ahead).
-2. Add `GOOGLE_IMPERSONATE_SUBJECT=syed.hassan@codup.co` to the Vercel project
-   under the **Production** environment — an env change alone does not
-   redeploy, so trigger one after.
-3. Eyeball the spreadsheet above, and click Export once in the running app so
-   `exportSheetsAction` and `toMenuItem` are exercised through the real UI.
-
-### Unexplained, possibly unrelated
-
-Prod also showed "Application error: a server-side exception has occurred while
-loading ai-estimation-bot-v2-web.vercel.app". That is a bare-domain page/layout
-throw, not the shape a failing export server action takes — a failed export
-surfaces on `/estimates/<id>`. No Vercel CLI is installed and the repo has no
-`.vercel` link, so the runtime logs were not reachable from here. Needs the
-exact URL and whether Export had been clicked; if it predates any export
-attempt it is a separate bug from AEH-232 and probably belongs with the 21
-AEH-235 commits that landed on 2026-09-02.
+Prod showed "Application error: a server-side exception has occurred while
+loading ai-estimation-bot-v2-web.vercel.app". That is a bare-domain page or
+layout throw, not the shape a failing export server action takes — a failed
+export surfaces on `/estimates/<id>`. No Vercel CLI is installed and the repo
+has no `.vercel` link, so the runtime logs were never reachable from here. The
+user was asked for the exact URL and whether Export had been clicked; no answer
+yet. If it predates any export attempt it is a separate bug and probably belongs
+with the AEH-235 commits of 2026-09-02.
 
 ## Left behind by AEH-235 (Done, on master)
 
