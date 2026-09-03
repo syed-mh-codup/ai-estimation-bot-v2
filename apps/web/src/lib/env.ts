@@ -11,6 +11,7 @@ export const OPTIONAL_SERVER_ENV = [
   'TAVILY_API_KEY', // Detective search grounding — without it findings are model-only
   'GOOGLE_SERVICE_ACCOUNT_JSON', // Sheets export
   'GOOGLE_DRIVE_FOLDER_ID', // Sheets export
+  'GOOGLE_IMPERSONATE_SUBJECT', // Sheets export — Workspace user to own created files (service accounts have no quota)
   'ENCRYPTION_KEY', // MCP connector secret storage
   'SMTP_HOST', // completion emails (defaults to smtp.resend.com)
   'SMTP_PORT', // completion emails (defaults to 465)

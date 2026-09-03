@@ -19,6 +19,7 @@
     "db:seed": "pnpm --filter @repo/db db:seed && pnpm --filter @repo/db db:seed:taxonomy",
     "db:seed:admin": "pnpm --filter @repo/db db:seed:admin",
     "db:embed:presets": "pnpm --filter @repo/agents embed:presets",
+    "verify:sheets": "pnpm --filter @repo/agents verify:sheets",
     "db:setup": "pnpm --filter @repo/db exec prisma migrate deploy && pnpm run db:seed",
     "test:e2e:setup": "bash scripts/setup-test-db.sh",
     "test:e2e": "bash scripts/setup-test-db.sh && pnpm --filter web exec playwright test",

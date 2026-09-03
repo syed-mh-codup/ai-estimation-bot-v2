@@ -53,7 +53,7 @@
     // Barrels are absent from `entry` on purpose — see note 2 above.
     // Only genuine standalone production entry points are listed.
     "packages/agents": {
-      "entry": ["src/scripts/embed-presets.ts!"],
+      "entry": ["src/scripts/embed-presets.ts!", "src/scripts/verify-sheets-export.ts!"],
       "project": ["src/**/*.ts!"]
     },
     "packages/db": {

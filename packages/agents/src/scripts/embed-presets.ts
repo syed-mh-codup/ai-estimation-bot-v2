@@ -17,40 +17,10 @@
  *   pnpm db:embed:presets --dry-run # report what it would do, spend nothing
  *   pnpm db:embed:presets P01 P42   # limit to specific preset ids
  */
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { PrismaClient } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import { backfillPresetEmbeddings, presetEmbeddingText } from '../writeback';
-
-/**
- * The two secrets this needs live in different files (DATABASE_URL in
- * packages/db/.env, OPENROUTER_API_KEY in apps/web/.env.local), and tsx loads
- * neither. Read both, never overwriting anything already in the environment.
- */
-function loadEnvFiles(): void {
-  const repoRoot = path.resolve(__dirname, '../../../..');
-  const files = [
-    path.join(repoRoot, 'packages/db/.env'),
-    path.join(repoRoot, 'apps/web/.env.local'),
-  ];
-  for (const file of files) {
-    let contents: string;
-    try {
-      contents = readFileSync(file, 'utf8');
-    } catch {
-      continue; // Missing is fine — the checks below report what's actually absent.
-    }
-    for (const line of contents.split('\n')) {
-      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
-      if (!m?.[1]) continue;
-      const value = m[2]!.replace(/^["']|["']$/g, '');
-      // A blank assignment is a placeholder, not a value (the repo root .env
-      // deliberately blanks OPENROUTER_API_KEY).
-      if (value && !process.env[m[1]]) process.env[m[1]] = value;
-    }
-  }
-}
+import { loadEnvFiles } from './load-env';
 
 async function main(): Promise<void> {
   loadEnvFiles();
