@@ -117,6 +117,114 @@ Write the section, in full, to the brief. Do not summarise and do not leave
 placeholders for a human to fill in.
 `.trim();
 
+/**
+ * Everything the outline call needs, gathered once.
+ *
+ * Shared by generation and by the dry run so the two cannot diverge: a preview
+ * that assembled its corpus differently from the real thing would be worse than
+ * no preview at all, because it would be trusted.
+ */
+async function prepare(
+  db: PrismaClient,
+  estimateId: string,
+  artifactTypeId: string,
+  typeVersion: number,
+): Promise<{
+  corpus: string;
+  promptBody: string;
+  modelString: string;
+  retired: string[];
+  empty: string[];
+}> {
+  const version = await db.artifactTypeVersion.findUniqueOrThrow({
+    where: { artifactTypeId_version: { artifactTypeId, version: typeVersion } },
+    select: { promptBody: true, modelString: true, corpusSections: true },
+  });
+
+  const dossier = await buildArtifactDossier(db, estimateId, version.corpusSections);
+  if (!dossier) throw new Error('That estimate no longer exists.');
+  if (Object.keys(dossier.sections).length === 0) {
+    // Every requested section came back empty. Generating anyway would spend
+    // real money to produce a document about nothing, and the model would fill
+    // the gap by inventing scope — the same failure the empty-SOW guard in
+    // runEstimate exists to prevent.
+    throw new Error(
+      'Nothing to work from: every section this artifact reads is empty on this estimate. Run it first, or tick different sections on the artifact type.',
+    );
+  }
+
+  return {
+    corpus: renderArtifactDossier(dossier),
+    promptBody: version.promptBody,
+    modelString: version.modelString,
+    retired: dossier.retired,
+    empty: dossier.empty,
+  };
+}
+
+/** The outline call. One place, so generation and the dry run plan identically. */
+async function planOutline(
+  modelProvider: IModelProvider,
+  prep: { corpus: string; promptBody: string; modelString: string },
+  recorder: UsageRecorder,
+): Promise<ArtifactOutline> {
+  return chatJSON(
+    modelProvider,
+    {
+      model: prep.modelString,
+      messages: [
+        { role: 'system', content: `${OUTLINE_ENVELOPE}\n\n--- THE BRIEF ---\n${prep.promptBody}` },
+        { role: 'user', content: prep.corpus },
+      ],
+      // Zero, like every other structured agent here: the same estimate should
+      // plan the same document twice. It is also what makes the dry run
+      // predictive rather than merely indicative.
+      temperature: 0,
+    },
+    ArtifactOutlineSchema,
+    'ARTIFACT_OUTLINE',
+    { kind: 'ARTIFACT', recorder },
+  );
+}
+
+export type ArtifactPreview = {
+  outline: ArtifactOutline;
+  /** Section keys the type asks for that this build no longer has. */
+  retired: string[];
+  /** Section keys that are empty on this estimate. */
+  empty: string[];
+};
+
+/**
+ * Plan the document without writing it. AEH-239.
+ *
+ * This exists because of the no-seed decision: every artifact type is authored
+ * by hand with no example to copy, so a brief is written by iterating. The
+ * outline step is one call and a couple of thousand tokens, and it answers the
+ * only question that matters early — did my brief produce a sensible plan? —
+ * in seconds, for a rounding error, instead of committing to nine sections of
+ * generation to find out.
+ *
+ * Writes nothing. No artifact row, so no half-made document to clean up, and
+ * `artifactId` on the usage row is null: the spend is real and belongs to the
+ * estimate, but there is no document for it to belong to.
+ */
+export async function previewArtifactOutline(args: {
+  db: PrismaClient;
+  estimateId: string;
+  artifactTypeId: string;
+  typeVersion: number;
+  modelProvider: IModelProvider;
+}): Promise<ArtifactPreview> {
+  const { db, estimateId, artifactTypeId, typeVersion, modelProvider } = args;
+
+  const prep = await prepare(db, estimateId, artifactTypeId, typeVersion);
+  const recorder = createUsageRecorder({ db, estimateId });
+  const outline = await planOutline(modelProvider, prep, recorder);
+
+  return { outline, retired: prep.retired, empty: prep.empty };
+}
+
 export type ArtifactRunDeps = {
   db: PrismaClient;
   artifactId: string;
@@ -272,16 +380,6 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
     },
   });
 
-  const version = await db.artifactTypeVersion.findUniqueOrThrow({
-    where: {
-      artifactTypeId_version: {
-        artifactTypeId: artifact.artifactTypeId,
-        version: artifact.typeVersion,
-      },
-    },
-    select: { promptBody: true, modelString: true, corpusSections: true },
-  });
-
   const recorder: UsageRecorder = createUsageRecorder({
     db,
     estimateId: artifact.estimateId,
@@ -290,42 +388,20 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
 
   await report({ stage: 'Reading the estimate', pct: 4 });
 
-  const dossier = await buildArtifactDossier(
+  // The same preparation the dry run does, so a preview and the real thing are
+  // planning from identical input.
+  const prep = await prepare(
     db,
     artifact.estimateId,
-    version.corpusSections,
+    artifact.artifactTypeId,
+    artifact.typeVersion,
   );
-  if (!dossier) throw new Error('That estimate no longer exists.');
-  if (Object.keys(dossier.sections).length === 0) {
-    // Every requested section came back empty. Generating anyway would spend
-    // real money to produce a document about nothing, and the model would fill
-    // the gap by inventing scope — the exact failure the empty-SOW guard in
-    // runEstimate exists to prevent.
-    throw new Error(
-      'Nothing to work from: every section this artifact reads is empty on this estimate. Run it first, or tick different sections on the artifact type.',
-    );
-  }
-  const corpus = renderArtifactDossier(dossier);
+  const corpus = prep.corpus;
 
   // ── 1. Outline ──────────────────────────────────────────────────────────────
   await report({ stage: 'Planning the document', pct: 10 });
   const outline: ArtifactOutline = await step('artifact-outline', () =>
-    chatJSON(
-      modelProvider,
-      {
-        model: version.modelString,
-        messages: [
-          { role: 'system', content: `${OUTLINE_ENVELOPE}\n\n--- THE BRIEF ---\n${version.promptBody}` },
-          { role: 'user', content: corpus },
-        ],
-        // Zero, like every other structured agent here: the same estimate
-        // should plan the same document twice.
-        temperature: 0,
-      },
-      ArtifactOutlineSchema,
-      'ARTIFACT_OUTLINE',
-      { kind: 'ARTIFACT', recorder },
-    ),
+    planOutline(modelProvider, prep, recorder),
   );
 
   const ids = uniqueSectionIds(outline.sections.map((s) => s.id));
@@ -358,9 +434,9 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
 
     await step(`artifact-section-${sectionId}`, async () => {
       const result = await modelProvider.chat({
-        model: version.modelString,
+        model: prep.modelString,
         messages: [
-          { role: 'system', content: `${SECTION_ENVELOPE}\n\n--- THE BRIEF ---\n${version.promptBody}` },
+          { role: 'system', content: `${SECTION_ENVELOPE}\n\n--- THE BRIEF ---\n${prep.promptBody}` },
           {
             role: 'user',
             content: sectionPrompt({

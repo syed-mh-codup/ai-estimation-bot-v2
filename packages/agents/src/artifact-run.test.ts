@@ -4,7 +4,7 @@ import { PrismaClient, createArtifactType } from '@repo/db';
 import type { IModelProvider, ChatOptions } from '@repo/providers';
 
 import { buildArtifactDossier, renderArtifactDossier } from './artifact-dossier';
-import { runArtifact } from './artifacts';
+import { previewArtifactOutline, runArtifact } from './artifacts';
 
 /**
  * AEH-239, end to end against a real database and a stub model.
@@ -242,6 +242,86 @@ describe('buildArtifactDossier', () => {
     const rendered = renderArtifactDossier(d!);
     expect(rendered).toContain('## Menu cards');
     expect(rendered).toContain('## Totals');
+  });
+});
+
+describe('previewArtifactOutline', () => {
+  async function makeType(corpusSections: string[]) {
+    return createArtifactType(db, {
+      name: `${NS} ${Math.random().toString(36).slice(2, 8)}`,
+      description: null,
+      promptBody: 'Produce the entity model.',
+      modelString: 'stub/artifact',
+      corpusSections,
+      createdBy: null,
+    });
+  }
+
+  it('plans the document in one call and writes nothing', async () => {
+    // The whole value of the dry run: it answers "did my brief produce a
+    // sensible plan" for the price of one call instead of nine, which is what
+    // makes authoring a brief from scratch affordable.
+    const type = await makeType(['cards']);
+    const { provider, state } = stubProvider({ sections: 3 });
+
+    const preview = await previewArtifactOutline({
+      db,
+      estimateId,
+      artifactTypeId: type.id,
+      typeVersion: 1,
+      modelProvider: provider,
+    });
+
+    expect(preview.outline.sections).toHaveLength(3);
+    expect(state.calls).toBe(1);
+    // No artifact row, so nothing to clean up and nothing that looks half-made
+    // in the rail.
+    expect(await db.estimateArtifact.count({ where: { estimateId } })).toBe(0);
+    expect(await db.artifactSection.count()).toBe(0);
+  });
+
+  it('records the spend against the estimate but no document', async () => {
+    const type = await makeType(['cards']);
+    await previewArtifactOutline({
+      db,
+      estimateId,
+      artifactTypeId: type.id,
+      typeVersion: 1,
+      modelProvider: stubProvider().provider,
+    });
+
+    const usage = await db.modelUsage.findMany({ where: { estimateId, kind: 'ARTIFACT' } });
+    expect(usage).toHaveLength(1);
+    // The call was real and cost real money; there is simply no document for it
+    // to belong to.
+    expect(usage[0]!.artifactId).toBeNull();
+  });
+
+  it('reports which requested sections are empty rather than hiding them', async () => {
+    // The most useful thing a preview can tell an author before they spend
+    // anything: half of what you ticked is not on this estimate yet.
+    const type = await makeType(['cards', 'hiddenWork']);
+    const preview = await previewArtifactOutline({
+      db,
+      estimateId,
+      artifactTypeId: type.id,
+      typeVersion: 1,
+      modelProvider: stubProvider().provider,
+    });
+    expect(preview.empty).toContain('hiddenWork');
+  });
+
+  it('refuses, with the same message generation would give', async () => {
+    const type = await makeType(['hiddenWork']);
+    await expect(
+      previewArtifactOutline({
+        db,
+        estimateId,
+        artifactTypeId: type.id,
+        typeVersion: 1,
+        modelProvider: stubProvider().provider,
+      }),
+    ).rejects.toThrow(/Nothing to work from/);
   });
 });
 

@@ -237,10 +237,42 @@ export default async function ArtifactTypeEditorPage({
         <Card className="mt-3.5">
           <CardBody className="p-4 sm:p-5">
             <FieldLabel htmlFor="promptBody">The brief</FieldLabel>
-            <p className="mt-1 mb-2.5 text-[12.5px] leading-relaxed text-ink-3">
+            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
               What this document is and what it must show. The page, its navigation and its styling
               are supplied around whatever you ask for — describe the content, not the container.
             </p>
+            {/* The contract an author is writing against, stated where they are
+                writing. Nothing is seeded here, so this is not a nicety: a
+                brief is written cold, and the constraints below are the ones
+                that decide whether it can be produced at all. */}
+            <details className="group mt-2 mb-2.5">
+              <summary className="cursor-pointer list-none text-[12px] text-ink-3 hover:text-green">
+                <span className="group-open:hidden">What the brief is joined to →</span>
+                <span className="hidden group-open:inline">Hide ↑</span>
+              </summary>
+              <div className="mt-2 space-y-2 border-l-2 border-line-soft pl-3 text-[12px] leading-relaxed text-ink-3">
+                <p>
+                  Your brief is wrapped in a supplied envelope carrying the output contract, the
+                  CSS vocabulary and the size budget. You cannot break it, and you do not need to
+                  restate any of it.
+                </p>
+                <p>
+                  Generation plans an outline first, then writes one section per call. Each section
+                  must fit about <span className="num">1200</span> words — a brief that names
+                  distinct areas of concern plans well; one that demands a single enormous section
+                  fights the constraint.
+                </p>
+                <p>
+                  Sections never see each other&rsquo;s output, only the plan and the shared
+                  vocabulary it fixes. Images cannot be fetched: diagrams are HTML, CSS and inline
+                  SVG.
+                </p>
+                <p>
+                  Use <strong>Preview the plan first</strong> on any estimate to see the section
+                  plan for one call before generating the whole document.
+                </p>
+              </div>
+            </details>
             <Textarea
               id="promptBody"
               name="promptBody"

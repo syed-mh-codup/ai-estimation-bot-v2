@@ -47,6 +47,7 @@ export function ArtifactsPanel({
   const [choice, setChoice] = useState(types[0]?.key ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<{ title: string; sections: string[] } | null>(null);
 
   const anyRunning = rows.some((r) => r.status === 'RUNNING' || r.status === 'IDLE');
 
@@ -68,10 +69,49 @@ export function ArtifactsPanel({
     return () => clearInterval(t);
   }, [anyRunning, refresh]);
 
+  /**
+   * Plan the document without generating it.
+   *
+   * One model call against nine, and the difference between tuning a brief in a
+   * minute and tuning it in ten. It earns its place specifically because nothing
+   * is seeded: every artifact type here was written from scratch, so somebody is
+   * always iterating on one.
+   */
+  const preview = async (): Promise<void> => {
+    if (!choice) return;
+    setBusy(true);
+    setError(null);
+    setPlan(null);
+    try {
+      const res = await fetch(`/api/estimates/${estimateId}/artifacts/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artifactTypeKey: choice }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        outline?: { title: string; sections: { title: string }[] };
+      };
+      if (!res.ok || !data.outline) {
+        setError(data.error ?? 'Could not plan the document.');
+        return;
+      }
+      setPlan({
+        title: data.outline.title,
+        sections: data.outline.sections.map((s) => s.title),
+      });
+    } catch {
+      setError('Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const generate = async (): Promise<void> => {
     if (!choice) return;
     setBusy(true);
     setError(null);
+    setPlan(null);
     try {
       const res = await fetch(`/api/estimates/${estimateId}/artifacts`, {
         method: 'POST',
@@ -127,10 +167,40 @@ export function ArtifactsPanel({
           </div>
         )}
 
+        {types.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void preview()}
+            disabled={busy}
+            className="mt-1.5 text-[11.5px] text-ink-3 underline-offset-2 hover:text-green hover:underline disabled:opacity-50"
+            data-testid="preview-artifact-plan"
+          >
+            Preview the plan first
+          </button>
+        )}
+
         {error && (
           <p className="mt-2 text-[12px] text-brick" role="alert" data-testid="artifact-panel-error">
             {error}
           </p>
+        )}
+
+        {plan && (
+          <div
+            className="mt-2.5 rounded-md border border-line-soft bg-surface-2 p-2.5"
+            data-testid="artifact-plan"
+          >
+            <p className="text-[12px] font-semibold text-ink">{plan.title}</p>
+            <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11.5px] text-ink-3">
+              {plan.sections.map((s, i) => (
+                <li key={`${s}-${i}`}>{s}</li>
+              ))}
+            </ol>
+            <p className="mt-1.5 text-[11px] text-ink-4">
+              Nothing generated yet — {plan.sections.length}{' '}
+              {plan.sections.length === 1 ? 'section' : 'sections'} would be written.
+            </p>
+          </div>
         )}
 
         {rows.length > 0 && (

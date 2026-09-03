@@ -15,9 +15,14 @@ Branch `feat/aeh-239-artifacts`. Plan approved 2026-09-03. The shape below is
 the agreed one, written down before the code so a crashed session can resume
 from it.
 
-**Slice 1 is done** — `15e8f2f` (schema + migration) and `e156394` (admin UI).
-641 tests pass, typecheck clean, `next build` green, all three audit gates
-clean. Slice 2 is next: the dossier and the generation pipeline.
+**All four slices are built.** `15e8f2f` schema + migration, `e156394` admin
+UI, `dbb74b5` the generation pipeline and the estimate-side UI, plus the dry run
+and the contract docs. 690 tests pass (three consecutive green runs), typecheck
+and lint clean, `next build` green, all three audit gates clean.
+
+**Not yet done:** a live end-to-end pass against a real model, and pushing the
+branch (the push was blocked by the sandbox — the commits are local only).
+Nothing has ever run against real OpenRouter here; every test uses the stub.
 
 Two things a resuming session needs that are not obvious:
 
