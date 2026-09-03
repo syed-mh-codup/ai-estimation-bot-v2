@@ -1049,14 +1049,12 @@ model ArtifactTypeVersion {
   artifactType     ArtifactType     @relation(fields: [artifactTypeId], references: [id], onDelete: Cascade)
   version          Int
   /// The author's brief. See the note above: this is not the whole prompt.
-  /// @orphan-todo AEH-239 the type editor that writes it lands in slice 1's UI half; nothing reads it until the generator exists in slice 2.
   promptBody       String
   modelString      String
   /// Which named slices of the estimate this type is shown, by key — "cards",
   /// "requirements", "graph". Validated against the dossier's catalogue at
   /// generation time rather than by the database, so that retiring a section
   /// degrades one type instead of failing a migration.
-  /// @orphan-todo AEH-239 the section picker and the dossier that resolves these keys both arrive with the generator.
   corpusSections   String[]
   active           Boolean          @default(false)
   changeReason     String?
