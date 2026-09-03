@@ -14,79 +14,117 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 Branch `feat/aeh-239-artifacts`. Nothing implemented yet — this is the agreed
 shape, written down before any code so a crashed session can resume from it.
 
-### The hard requirement, and what actually satisfies it
+### The hard requirement
 
 "I shouldn't have to come back to the code to add support for a new artifact."
-So an artifact TYPE is a database row, never a Prisma enum and never a switch
-statement. Three things have to be data for that to hold, and all three are
-versioned text an admin edits:
+An artifact TYPE is a database row, never a Prisma enum and never a switch
+statement. Two things are versioned text an admin edits: the PROMPT, and which
+CORPUS SECTIONS of the estimate the model is shown. That is the whole of what
+defines a type.
 
-  the prompt          what the model is asked to produce
-  the corpus sections which slices of the estimate it is shown
-  the render template the self-contained HTML shell its output drops into
+### REVERSAL — the per-type HTML template is gone, and so is `renderTemplate`
 
-What stays code, deliberately: the FORMAT. A format is a renderer, and a new
-renderer is a code change by definition. The ticket says as much — "a renderer
-chosen by format rather than by type". Two formats ship (HTML, MARKDOWN); the
-six artifact types named on the ticket all fit inside them, which is the point.
+An earlier draft of this plan had the model emit JSON and a per-type HTML
+template render it, to keep output small enough for the 300s ceiling. Rejected,
+for a good reason: a low-fidelity wireframe's LAYOUT IS ITS CONTENT. A fixed
+template can hold an ERD or a journey diagram, and cannot hold a wireframe
+without turning the interesting part back into a code change. The same
+objection would have come back for every visually novel artifact after it.
 
-### The 300s ceiling decides the generation shape
+`ArtifactFormat` goes with it. Once there is one shared shell, every artifact
+is HTML — a prose-only tranche-impact narrative is just a section that happens
+to be mostly text. The ticket's "a renderer chosen by format rather than by
+type" resolves to: one renderer, chosen by nothing. One less dead axis.
 
-The requester's own reference artifact, scope-atlas-agent-intelligence-v1.html
-on AEH-235, is 100,605 bytes. That is roughly 25,000 output tokens. On Vercel
-Hobby's hard 300s per-step ceiling a heavy model cannot reliably stream that in
-one call — it is 300-500s at realistic rates. Asking the model to write the
-whole page is therefore not a safe default.
+### The ceiling, and why it needs no new infrastructure
 
-So the model produces DATA, and a template renders it:
+The requester's reference artifact (`scope-atlas-agent-intelligence-v1.html` on
+AEH-235) is 100,605 bytes — roughly 25,000 output tokens. `docs/DEPLOY.md`
+records the ceiling: Hobby 300s default AND maximum; Pro 300s default, 800s max
+with Fluid Compute. One model call cannot reliably emit 25k tokens inside 300s.
 
-  1. The active type version's prompt + selected corpus sections go to the
-     model. It returns JSON — 35 entities, 12 journeys, whatever the type is
-     about. Call it 6-10k output tokens, comfortably inside the ceiling.
-  2. That JSON is substituted into the type's render template at the literal
-     placeholder `__ARTIFACT_DATA__`, inside a
-     `<script type="application/json">` tag. The template's own script renders
-     it. One string replace, no templating engine, no new dependency.
-  3. The result is one self-contained HTML document, stored whole.
+But `api/inngest/route.ts` already states the thing that solves this: **Inngest
+invokes one `step.run()` per HTTP request, so each step gets its own 300s.**
+That is precisely why `runEstimate` checkpoints per agent instead of running
+the pipeline as one step. Artifact generation is the same problem and takes the
+same answer. No new host, no new queue, no new deploy target.
 
-The ~90KB of tabs, styling and click-to-trace behaviour lives in the template,
-written once and reviewed once, instead of being re-hallucinated per estimate.
-A typo in the layout is fixed by editing the template — no model call, no spend.
+### Outline, then sections, then assemble
 
-A type may leave `renderTemplate` null, in which case the model's output IS the
-document. That is the escape hatch for small artifacts (a one-page tranche
-impact narrative) where 25k tokens is not in question. Which path a type takes
-is data, not code.
+    step 1        OUTLINE. The type's prompt + its corpus sections produce a
+                  small JSON outline: the sections to write, each with an id, a
+                  title and a brief, plus a shared vocabulary (anchor ids,
+                  entity names, journey ids) every later call is written
+                  against. It also carries a per-section output budget, so the
+                  300s is a number the model PLANS AROUND rather than one we
+                  hope it clears. ~1-2k tokens, seconds.
+
+    steps 2..N+1  SECTIONS, one step each. Each call sees the type's prompt, the
+                  corpus, the full outline, and the briefs (never the HTML) of
+                  the sections already written. It returns an HTML fragment —
+                  markup, style and script all model-authored, so a wireframe is
+                  as bespoke as it needs to be. ~3-6k tokens each, 30-90s,
+                  comfortably inside one step's budget. Each fragment is
+                  upserted on (artifactId, sectionId) the moment it lands, so a
+                  retry never duplicates and a failure at section 5 of 9 does
+                  not lose sections 1-4.
+
+    step N+2      ASSEMBLE. Fragments concatenated into ONE generic shell shared
+                  by every type — design tokens, a small utility CSS contract,
+                  the tab/nav chrome derived from the outline, and the CSP meta.
+                  Each fragment is wrapped in a section element carrying its id,
+                  and section prompts are told to scope selectors under it, so
+                  section 3's `.entity` cannot fight section 5's. The token
+                  contract is a floor, not a ceiling — a section may always
+                  write its own CSS.
+
+**This scales by content, with no special cases.** An ERD or a user journey is
+a one-section outline: three steps total. A wireframe pack is a nine-section
+outline: eleven steps. Same machinery, no per-type anything.
+
+**Cross-section referencing** is the reason sections run sequentially rather
+than in parallel, and it is the thing the wireframe artifact actually needs:
+the outline fixes the shared nouns up front, and each call is told what the
+completed sections cover, so section 5 can cite an entity section 2 introduced.
+Parallelising is an easy later win that costs exactly this.
 
 ### Data model
 
-  ArtifactType         id, key (slug, unique), name, description, format,
-                       enabled, order, createdAt
-  ArtifactTypeVersion  id, artifactTypeId, version, promptBody, modelString,
-                       corpusSections String[], renderTemplate String?, active,
-                       changeReason, changeMotivation, createdAt, createdBy
-  EstimateArtifact     id, estimateId, artifactTypeId, typeVersion Int,
-                       format, title, content String, inputs Json?,
-                       createdAt, createdById
+    ArtifactType         id, key (slug, unique), name, description, enabled,
+                         order, createdAt
+    ArtifactTypeVersion  id, artifactTypeId, version, promptBody, modelString,
+                         corpusSections String[], active, changeReason,
+                         changeMotivation, createdAt, createdBy
+    EstimateArtifact     id, estimateId, artifactTypeId, typeVersion Int,
+                         title, outline Json?, content String?, inputs Json?,
+                         status RunStatus, stage, pct, error,
+                         startedAt, finishedAt, createdById
+    ArtifactSection      id, artifactId, sectionId, order, title, brief, html,
+                         createdAt, @@unique([artifactId, sectionId])
 
-`ArtifactTypeVersion` is `PromptVersion` with three more fields and a FK
-instead of an enum id — the same single-active-per-parent invariant, held by
-the same `$transaction` pattern as `activateVersion`.
+`ArtifactTypeVersion` is `PromptVersion` with two more fields and an FK instead
+of an enum id — same single-active-per-parent invariant, held by the same
+`$transaction` pattern as `activateVersion`.
 
-`typeVersion` is snapshotted on the artifact: a delivered document must still
-say which prompt produced it after the type is edited. `inputs Json?` exists
-from day one because re-allocation provenance and tranche impact both need to
-name a saved ScopeScenario, and adding that column later is exactly the
-migration this ticket is trying to abolish.
+**A second reversal, and the reason for it.** The earlier draft said "no status
+column and no Inngest", borrowing the Cartographer's reasoning that there is
+nothing durable to resume. With Inngest there now IS: an artifact is a
+multi-step job whose partial output survives a failed step. So it gets progress
++ terminal status, and — following the scope-map route's own warning that a
+third set of progress columns on `Estimate` would be a worse trade — they live
+on `EstimateArtifact`, its own row, where they belong. The UX follows: poll,
+like run and ingest, not SSE like the Cartographer.
 
-No status column and no Inngest. Same reasoning as the Cartographer: there is
-nothing durable to resume, so the row is written on success and the failure
-goes down the stream. Types are archived via `enabled`, never hard-deleted —
-generated artifacts are client deliverables and must keep their lineage.
+`typeVersion` is snapshotted: a delivered document must still say which prompt
+produced it after the type is edited. `inputs Json?` exists from day one
+because re-allocation provenance and tranche impact both need to name a saved
+`ScopeScenario`, and adding that column later is the migration this ticket
+abolishes. Types are archived via `enabled`, never hard-deleted — generated
+artifacts are client deliverables and must keep their lineage.
 
-One-time enum changes, not per-type: `ArtifactFormat { HTML, MARKDOWN }`,
-`UsageKind += ARTIFACT`, and `ModelUsage.artifactId` so spend attributes to the
-document that caused it.
+One-time enum work, not per-type: `UsageKind += ARTIFACT` and
+`ModelUsage.artifactId`, so spend attributes to the document that caused it.
+Status reuses the existing `RunStatus`. New Inngest event `EVENT_ARTIFACT`.
 
 ### The dossier
 
@@ -96,67 +134,87 @@ scenarios, narrative. A type ticks the ones it needs. Adding a TYPE touches no
 code; adding a SECTION does, and that is a change to what data exists at all,
 not to artifact support.
 
-A third corpus builder, after `buildOracleCorpus` and `buildScopeCorpus`, needs
-the reason Cartographer wrote down for diverging: Oracle's corpus omits
-`MenuItem.id`, is explicitly marked as the seam Oracle's retrieval work will
-change, and is a chat corpus rather than a selectable one. The dossier is
-section-addressable by construction, which neither of the others is.
+A third corpus builder after `buildOracleCorpus` and `buildScopeCorpus` needs
+the reason Cartographer wrote down for diverging: Oracle's omits `MenuItem.id`,
+is explicitly marked as the seam Oracle's retrieval work will change, and is a
+chat corpus rather than a selectable one. The dossier is section-addressable by
+construction, which neither of the others is.
 
 ### Slices
 
   1  Schema + admin. Migration, then `/admin/artifact-types` — list, create,
-     edit-creates-a-version, version history, activate. Create flow mirrors
+     edit-creates-a-version, version history, activate. Create mirrors
      `/admin/presets` (prompts has no create); history mirrors
      `/admin/prompts/[kind]/[version]`. Model picker reuses
      `fetchModelOptions()`. Nothing generates yet.
      Tests: single-active invariant, slug derivation and collision.
 
-  2  Dossier + generator. `packages/agents/src/artifacts.ts` —
-     `buildArtifactDossier`, `renderDossier`, `runArtifact`. Loads the active
-     type version, builds only the ticked sections, calls the model, records
-     usage against ARTIFACT + artifactId, substitutes the template, writes the
-     row. No UI.
-     Tests: section selection, unknown-section tolerance, template
-     substitution, placeholder-absent handling, fence stripping, the
-     null-template direct path.
+  2  Dossier + the generation pipeline. `packages/agents/src/artifacts.ts` —
+     `buildArtifactDossier`, `runArtifact({ step })`. Takes an injected
+     `StepRunner` exactly as `runEstimate` does
+     (`deps.step ?? ((_id, fn) => fn())`), so outline then sections then
+     assemble is unit-testable inline and the Inngest function stays a thin
+     wrapper like `runEstimateFn`. No UI.
+     Tests: section selection, unknown-section tolerance, outline validation,
+     budget enforcement, fragment scoping, assembly, section upsert idempotence
+     under a replayed step, usage attributed to ARTIFACT + artifactId.
 
-  3  Generate and view. SSE `POST /api/estimates/[id]/artifacts`, shaped like
-     scope-map down to the 401/404/409/503 ladder and errors-in-the-stream.
+  3  Generate and view. `POST /api/estimates/[id]/artifacts` enqueues
+     `EVENT_ARTIFACT` and returns immediately; the Inngest function drives it;
+     the client polls `EstimateArtifact.status/stage/pct` the way the run does.
      Compact "Artifacts" card in the estimate rail — count, link, generate
-     picker, and nothing more, because AEH-302 is already about that rail
-     being overloaded. Full view at `/estimates/[id]/artifacts/[artifactId]`.
-     Stub provider under `OPENROUTER_STUB`, mirroring
-     `cartographer-provider.ts`, deriving from the corpus it was handed rather
-     than returning a canned payload.
+     picker, nothing more, because AEH-302 is already about that rail being
+     overloaded. Full view at `/estimates/[id]/artifacts/[artifactId]`.
+     Stub provider under `OPENROUTER_STUB` mirroring `cartographer-provider.ts`
+     and answering BOTH call shapes deterministically: an outline derived from
+     the corpus it was handed, and one fragment per brief.
 
-  4  Seed the six types as data, and prove one end to end. Targeted script
+  4  Seed the six types as data, prove one end to end. Targeted script
      `db:seed:artifact-types` — never the bootstrap seed, which would revert
      ten live prompts to their v1 bodies. `graft build`, PROGRESS.md, and the
      implementation record onto the ticket.
 
 ### Rendering safely
 
-`<iframe sandbox="allow-scripts" srcdoc={content}>`. `allow-scripts` WITHOUT
-`allow-same-origin` — the pair together defeats the sandbox entirely, and the
-frame must not be able to reach our origin, cookies or DOM. The app sets no CSP
-of its own, so the generated document carries its own in a `<meta>` tag
-(`default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';
-img-src data:`), which makes "self-contained" enforced rather than hoped for.
+An iframe with `sandbox="allow-scripts"` and the document in `srcdoc`.
+`allow-scripts` WITHOUT `allow-same-origin` — the pair together defeats the
+sandbox, and the frame must not reach our origin, cookies or DOM. The app sets
+no CSP of its own, so the assembled document carries one in a meta tag
+(`default-src 'none'`; `style-src 'unsafe-inline'`; `script-src
+'unsafe-inline'`; `img-src data:`), making "self-contained" enforced rather
+than hoped for. A Download button, because handing the file to a client is the
+entire point. A staleness chip when `artifact.createdAt <
+estimate.runFinishedAt`.
 
-A Download button, because handing the file to a client is the entire point.
-A staleness chip when `artifact.createdAt < estimate.runFinishedAt`: the run
-that produced this artifact's numbers has since been superseded.
+### Infrastructure — real decisions, none of them a new host
+
+- **Inngest step quota.** An artifact is N+2 steps where a run is a handful.
+  Check the account's monthly step limit before this reaches real users. This
+  is the one genuine capacity question the design introduces.
+- **Vercel Pro.** `docs/DEPLOY.md` already notes Hobby's fair-use terms
+  restrict it to non-commercial, which this product is not, so Pro is arguably
+  due regardless; 800s would turn the per-section budget from comfortable to
+  generous. But it is a plan decision, NOT the fix — 800s still does not make
+  one 25k-token call safe, and buying headroom instead of checkpointing is
+  exactly the trade the deploy-target memory warns against.
+- **Prompt caching is the cost mitigation, and is not wired yet.** N+2 calls
+  re-send the corpus N+2 times. `ChatOptions` in `packages/providers` carries
+  no `cache_control` and message content is not block-structured, so
+  corpus-as-cached-prefix is a providers-layer change. Out of scope here;
+  worth its own ticket once the token bill is measurable.
 
 ### Traps this plan already knows about
 
-- `content` can be 100KB. Every list query selects everything BUT `content`.
+- `content` can be 100KB and `ArtifactSection.html` several KB each. Every list
+  query selects everything BUT those columns.
+- Inngest step return values are stored. Steps persist to `ArtifactSection` and
+  return `{ sectionId, chars }` — never the HTML itself.
 - AEH-306: every existing agent prompt still asserts the preset library is the
-  P01-P45 ecommerce range, which is false. The new artifact prompts must not
-  repeat that mistake — they describe no library at all.
+  P01-P45 ecommerce range, which is false. The artifact prompts describe no
+  library at all, so they do not inherit it.
 - The e2e suite is not green on master (AEH-282), so slice 3's spec may not be
   gateable. Unit coverage carries the weight, as it did on AEH-240.
-- Component tests still do not exist here. Logic stays out of components —
-  `artifact-dto.ts` and a pure template-substitution module, testable in ms.
+- Component tests still do not exist here. Logic stays out of components.
 
 ### Still carried forward (not AEH-239's, but still true)
 
