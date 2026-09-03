@@ -210,10 +210,10 @@ export async function diagnoseSheetsConfig(env: NodeJS.ProcessEnv = process.env)
     push('target folder', 'warn', `invisible under drive.file (${message}) but visible under drive.metadata.readonly — the folder exists and is shared; drive.file cannot see a folder this app did not create.`);
     push('write capability', 'skip', 'not checkable under drive.file; a live create is the real test.');
     notes.push([
-      'The drive.file scope cannot read the target folder. Creating into it may still work, but',
-      'getSpreadsheetId() cannot see previous exports, so re-exports would duplicate instead of',
-      'updating. Confirm with a live run; if it does duplicate, widen the scope in',
-      'packages/providers/src/sheets-provider.ts to https://www.googleapis.com/auth/drive.',
+      'Informational, not a fault. The drive.file scope cannot read the target folder itself,',
+      'but it does see files this app created inside it — so creating into the folder and the',
+      'getSpreadsheetId() idempotency lookup both work. Verified live on 2026-09-03: create,',
+      'read-back and a second export that updated in place rather than duplicating.',
     ].join('\n'));
   }
 

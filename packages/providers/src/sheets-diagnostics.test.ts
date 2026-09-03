@@ -110,7 +110,7 @@ describe('AEH-232 diagnostics: the two faults that were actually live', () => {
     // blocker in the first draft of this diagnosis.
     expect(statusOf(d, 'file ownership')).toBe('pass');
     expect(d.ok).toBe(true);
-    expect(d.notes.join('\n')).toMatch(/re-exports would duplicate instead of/);
+    expect(d.notes.join('\n')).toMatch(/Informational, not a fault/);
   });
 
   it('the metadata fallback probe never impersonates — a DWD grant is per-scope', async () => {
