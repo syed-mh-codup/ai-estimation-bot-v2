@@ -20,20 +20,49 @@ UI, `dbb74b5` the generation pipeline and the estimate-side UI, plus the dry run
 and the contract docs. 690 tests pass (three consecutive green runs), typecheck
 and lint clean, `next build` green, all three audit gates clean.
 
-**Not yet done:** a live end-to-end pass against a real model, and pushing the
-branch (the push was blocked by the sandbox — the commits are local only).
-Nothing has ever run against real OpenRouter here; every test uses the stub.
+**Verified live** on 2026-09-03, against the running app with Inngest and the
+stub provider: logged in, created a type, dry-ran the outline, generated
+through the real route, and read the finished document. The route enqueued,
+Inngest ran outline + three section steps + assemble, and the row reached DONE
+with three sections. The assembled document is a whole HTML file carrying its
+own `default-src 'none'` CSP, a tab bar, one panel per section with only the
+first visible, print CSS that keeps all of them, scoped section CSS and no
+leaked markdown fence. Four ModelUsage rows, all ARTIFACT, all attributed to
+the artifact. The viewer rendered `sandbox="allow-scripts"` with no
+`allow-same-origin` — checked in the real HTML, since that is the one mistake
+that would quietly undo the isolation.
+
+The dry run is the strongest evidence the corpus plumbing works: the type
+ticked cards + requirements + rollup, and the plan came back with exactly those
+three sections, because the stub derives its outline from the headings actually
+present in the dossier.
+
+**Not done:** a pass against a REAL model. Everything above used
+`OPENROUTER_STUB=1`, so nothing here proves what a real model does with the
+envelope — how well briefs plan, whether sections respect the ~1200-word
+budget, or what a document actually costs. That is the next thing, and it wants
+a human deciding the spend.
+
+**Also not done:** the branch is not pushed. `git push` was refused by the
+sandbox, so all six commits are local to this worktree.
+
+**No Playwright spec.** The suite is red on master (AEH-282), so a new spec
+could not be gated on anything; the live pass above covers the same ground by
+hand. Worth writing when the suite is healthy — and with no seed, the spec has
+to create a type through the admin UI first, which makes it a test of the
+ticket's actual claim rather than of a fixture.
 
 Two things a resuming session needs that are not obvious:
 
-- **This worktree has its own Postgres.** `docker compose up -d postgres` from
-  here creates the compose project `aeh-239-artifacts`, a *different* volume
-  from the main checkout's, so it came up empty and was brought to the current
-  migration with `prisma migrate deploy`. That is deliberate isolation, not a
-  mistake, and it is why every command below passes an explicit
+- **This worktree gets its own Postgres, and it is gone.** `docker compose up -d
+  postgres` from here creates the compose project `aeh-239-artifacts`, a
+  *different* volume from the main checkout's, so it comes up EMPTY — bring it
+  to the current migration with `prisma migrate deploy` before running any
+  DB-backed test. That isolation is deliberate, and it is why every command
+  here passes an explicit
   `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_estimation`.
-  Tear it down with `docker compose down -v` from this worktree when the branch
-  is finished. Neon was never touched.
+  It was torn down with `docker compose down -v` after the live pass, so a
+  resuming session starts from nothing. Neon was never touched at any point.
 - **The orphan-field gate is the schedule.** Five `@orphan-todo AEH-239`
   annotations remain in schema.prisma, each naming the slice that wires it. The
   audit's `stale-exemption-consumed` check fails the moment a field gains a
