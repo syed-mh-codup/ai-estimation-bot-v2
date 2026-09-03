@@ -12,6 +12,7 @@ export const EVENT_RUN = 'estimate/run.requested' as const;
 export const EVENT_INGEST = 'estimate/ingest.requested' as const;
 export const EVENT_EMBED_PRESETS = 'preset/embed.requested' as const;
 export const EVENT_PROMOTE = 'estimate/finalised' as const;
+export const EVENT_ARTIFACT = 'estimate/artifact.requested' as const;
 
 export type EstimateEventData = { estimateId: string; runId?: string };
 
@@ -28,3 +29,13 @@ export type EmbedPresetsEventData = { presetIds?: string[] };
  * must stay fast, and the write-back must be able to retry on its own.
  */
 export type PromoteEventData = { estimateId: string };
+
+/**
+ * Generate one supporting document. AEH-239.
+ *
+ * The row is created by the route BEFORE this fires, so `artifactId` always
+ * names something that exists: generation needs an id to attribute spend to and
+ * a row to report progress on from its very first step, and there is nowhere
+ * else to put either.
+ */
+export type ArtifactEventData = { artifactId: string };

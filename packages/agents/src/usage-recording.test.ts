@@ -53,6 +53,11 @@ describe('AEH-286: every model call is recorded', () => {
     expect(create.mock.calls[0]![0].data).toEqual({
       estimateId: 'est-1',
       runId: 'run-9',
+      // Null on every run call. Only artifact generation sets it (AEH-239),
+      // and it is asserted here rather than omitted because this test's job is
+      // the exact shape of a usage row — a field that silently appeared would
+      // be exactly what it exists to catch.
+      artifactId: null,
       kind: 'LIBRARIAN',
       // The model as SERVED, not as configured — the request asked for opus.
       model: 'anthropic/claude-3-haiku',

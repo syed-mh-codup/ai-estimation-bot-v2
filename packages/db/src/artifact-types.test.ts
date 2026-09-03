@@ -31,8 +31,27 @@ const DB_URL =
   'postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public';
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
+/**
+ * Every name this file uses is prefixed with a per-run namespace, and cleanup
+ * only ever deletes keys under it.
+ *
+ * A bare `artifactType.deleteMany({})` is the obvious thing to write here and
+ * it is wrong: vitest runs files in parallel against one database, so a global
+ * delete reaches into whatever another file is midway through. That is how a
+ * suite becomes intermittently red for reasons nobody can reproduce, and this
+ * repo already has one of those (AEH-282).
+ *
+ * The prefix goes at the FRONT of the name deliberately. `allocateArtifactTypeKey`
+ * collides on a key PREFIX, so a trailing namespace would make "X" and
+ * "X extended" stop sharing one — and the test that pins that behaviour would
+ * pass without exercising it.
+ */
+const NS = `t${Math.random().toString(36).slice(2, 8)}`;
+const name = (s: string): string => `${NS} ${s}`;
+const base = (s: string): string => slugifyArtifactTypeName(name(s));
+
 const draft = (over: Partial<Parameters<typeof createArtifactType>[1]> = {}) => ({
-  name: 'Entity model',
+  name: name('Entity model'),
   description: 'An ERD',
   promptBody: 'Show every logical entity and how they relate.',
   modelString: 'anthropic/claude-opus-5',
@@ -49,14 +68,15 @@ async function activesOf(artifactTypeId: string) {
   });
 }
 
-beforeEach(async () => {
-  // Cascades to versions. Artifacts reference types with onDelete: Restrict, so
-  // this would fail loudly if a test ever left one behind — which is the point.
-  await db.artifactType.deleteMany({});
-});
+// Cascades to versions. Scoped to this file's namespace so parallel files
+// cannot delete each other's fixtures.
+const clean = () => db.artifactType.deleteMany({ where: { key: { startsWith: NS } } });
+
+beforeEach(clean);
 
 afterAll(async () => {
-  await db.artifactType.deleteMany({});
+  await clean();
+  await db.artifactType.deleteMany({ where: { key: { startsWith: 'artifact-type' } } });
   await db.$disconnect();
 });
 
@@ -98,26 +118,30 @@ describe('slugifyArtifactTypeName', () => {
 
 describe('allocateArtifactTypeKey', () => {
   it('gives the plain slug when nothing has claimed it', async () => {
-    expect(await allocateArtifactTypeKey(db, 'Entity model')).toBe('entity-model');
+    expect(await allocateArtifactTypeKey(db, name('Entity model'))).toBe(base('Entity model'));
   });
 
   it('suffixes on collision rather than randomising', async () => {
-    await createArtifactType(db, draft({ name: 'Entity model' }));
-    expect(await allocateArtifactTypeKey(db, 'Entity model')).toBe('entity-model-2');
+    await createArtifactType(db, draft({ name: name('Entity model') }));
+    expect(await allocateArtifactTypeKey(db, name('Entity model'))).toBe(
+      `${base('Entity model')}-2`,
+    );
   });
 
   it('keeps counting past the first suffix', async () => {
-    await createArtifactType(db, draft({ name: 'Entity model' }));
-    await createArtifactType(db, draft({ name: 'Entity model' }));
-    expect(await allocateArtifactTypeKey(db, 'Entity model')).toBe('entity-model-3');
+    await createArtifactType(db, draft({ name: name('Entity model') }));
+    await createArtifactType(db, draft({ name: name('Entity model') }));
+    expect(await allocateArtifactTypeKey(db, name('Entity model'))).toBe(
+      `${base('Entity model')}-3`,
+    );
   });
 
   it('is not confused by a longer key that merely starts with the same text', async () => {
     // The collision query is a prefix match, which is a superset of what can
-    // actually collide. "entity-model-extended" starts with "entity-model" and
-    // must not push the next plain allocation off "entity-model".
-    await createArtifactType(db, draft({ name: 'Entity model extended' }));
-    expect(await allocateArtifactTypeKey(db, 'Entity model')).toBe('entity-model');
+    // actually collide. "…entity-model-extended" starts with "…entity-model"
+    // and must not push the next plain allocation off it.
+    await createArtifactType(db, draft({ name: name('Entity model extended') }));
+    expect(await allocateArtifactTypeKey(db, name('Entity model'))).toBe(base('Entity model'));
   });
 
   it('falls back to a readable key when the name slugs to nothing', async () => {
@@ -128,7 +152,7 @@ describe('allocateArtifactTypeKey', () => {
 describe('createArtifactType', () => {
   it('creates the type and exactly one active v1 together', async () => {
     const { id, key } = await createArtifactType(db, draft());
-    expect(key).toBe('entity-model');
+    expect(key).toBe(base('Entity model'));
 
     const versions = await db.artifactTypeVersion.findMany({ where: { artifactTypeId: id } });
     expect(versions).toHaveLength(1);
@@ -142,14 +166,14 @@ describe('createArtifactType', () => {
   });
 
   it('appends rather than reordering what people already know', async () => {
-    const first = await createArtifactType(db, draft({ name: 'One' }));
-    const second = await createArtifactType(db, draft({ name: 'Two' }));
+    const first = await createArtifactType(db, draft({ name: name('One') }));
+    const second = await createArtifactType(db, draft({ name: name('Two') }));
     const rows = await db.artifactType.findMany({
       where: { id: { in: [first.id, second.id] } },
       orderBy: { order: 'asc' },
       select: { key: true },
     });
-    expect(rows.map((r) => r.key)).toEqual(['one', 'two']);
+    expect(rows.map((r) => r.key)).toEqual([base('One'), base('Two')]);
   });
 });
 
@@ -217,8 +241,8 @@ describe('saveArtifactTypeVersion', () => {
   });
 
   it('leaves another type’s active version alone', async () => {
-    const a = await createArtifactType(db, draft({ name: 'A' }));
-    const b = await createArtifactType(db, draft({ name: 'B' }));
+    const a = await createArtifactType(db, draft({ name: name('A') }));
+    const b = await createArtifactType(db, draft({ name: name('B') }));
 
     await saveArtifactTypeVersion(db, a.id, {
       promptBody: 'x',

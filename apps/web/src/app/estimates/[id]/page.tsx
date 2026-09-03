@@ -30,6 +30,7 @@ import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
+import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { cardFlags, lineEnvelope } from './dto';
 import type { ItemDTO, SectionDTO } from './dto';
@@ -232,6 +233,44 @@ export default async function EstimateDetailPage({
   // it (e.g. a run just produced a whole new menu card).
   const editorKey = `${sectionDTOs.map((s) => s.id).join(',')}|${itemDTOs.map((i) => i.id).join(',')}`;
 
+  // Artifacts. Archived types are excluded — `enabled` is what takes a type out
+  // of circulation without breaking the documents already generated from it.
+  const artifactTypes = (
+    await prisma.artifactType.findMany({
+      where: { enabled: true },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      select: { key: true, name: true },
+    })
+  ).map((t) => ({ key: t.key, name: t.name }));
+
+  // Never `content`: an assembled document is ~100KB and this is the estimate
+  // screen, which already loads a great deal.
+  const artifactRows = (
+    await prisma.estimateArtifact.findMany({
+      where: { estimateId: estimate.id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        stage: true,
+        pct: true,
+        error: true,
+        artifactType: { select: { name: true } },
+        _count: { select: { sections: true } },
+      },
+    })
+  ).map((a) => ({
+    id: a.id,
+    title: a.title,
+    typeName: a.artifactType.name,
+    status: a.status,
+    stage: a.stage,
+    pct: a.pct,
+    error: a.error,
+    sectionsWritten: a._count.sections,
+  }));
+
   return (
     <div data-testid="estimate-detail">
       <Link href="/dashboard" className="text-[12.5px] text-ink-3 hover:text-ink hover:underline">
@@ -349,6 +388,11 @@ export default async function EstimateDetailPage({
               </div>
             )}
             <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
+            <ArtifactsPanel
+              estimateId={estimate.id}
+              types={artifactTypes}
+              initial={artifactRows}
+            />
             <RunDiagnosticsPanel estimateId={estimate.id} />
             {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
             {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
