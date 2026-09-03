@@ -9,10 +9,11 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: AEH-239 — artifact generation alongside the WBS (PLANNED, awaiting approval)
+## Current: AEH-239 — artifact generation alongside the WBS (APPROVED, in build)
 
-Branch `feat/aeh-239-artifacts`. Nothing implemented yet — this is the agreed
-shape, written down before any code so a crashed session can resume from it.
+Branch `feat/aeh-239-artifacts`. Plan approved 2026-09-03; slice 1 in build.
+The shape below is the agreed one, written down before the code so a crashed
+session can resume from it.
 
 ### The hard requirement, and the line it draws
 
