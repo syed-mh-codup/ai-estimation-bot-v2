@@ -166,3 +166,77 @@ describe('chatStream', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * The buffered `chat` path, and specifically the response shape that broke it.
+ *
+ * A model that stops on its token cap can return `"content": null`. The schema
+ * required a string, so this threw a ZodError from inside the provider — which
+ * reached the user as an unreadable stack trace and cost an eight-minute
+ * generation. Absent and null both mean "no text came back"; deciding what that
+ * means belongs to the caller, and `finishReason` is what makes it decidable.
+ */
+describe('chat: a response with no content', () => {
+  function jsonResponse(body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('returns empty text and the reason instead of throwing on null content', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          model: 'deepseek/deepseek-v4-flash',
+          choices: [{ message: { content: null }, finish_reason: 'length' }],
+        }),
+      ),
+    );
+
+    const res = await provider().chat({
+      model: 'deepseek/deepseek-v4-flash',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    expect(res.text).toBe('');
+    // Without this the emptiness is unexplainable, which was the whole problem.
+    expect(res.finishReason).toBe('length');
+  });
+
+  it('still reads a normal response, and reports why it stopped', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          model: 'anthropic/claude-sonnet-5',
+          choices: [{ message: { content: '<p>hi</p>' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.001 },
+        }),
+      ),
+    );
+
+    const res = await provider().chat({
+      model: 'anthropic/claude-sonnet-5',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    expect(res.text).toBe('<p>hi</p>');
+    expect(res.finishReason).toBe('stop');
+    expect(res.usage?.completionTokens).toBe(5);
+  });
+
+  it('tolerates a provider that omits finish_reason entirely', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ model: 'm', choices: [{ message: { content: 'ok' } }] }),
+      ),
+    );
+
+    const res = await provider().chat({ model: 'm', messages: [{ role: 'user', content: 'hi' }] });
+    expect(res.text).toBe('ok');
+    expect(res.finishReason).toBeNull();
+  });
+});

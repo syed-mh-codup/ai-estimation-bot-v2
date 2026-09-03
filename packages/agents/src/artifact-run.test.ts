@@ -529,6 +529,49 @@ describe('runArtifact', () => {
     expect(survivors.reduce((s, u) => s + (u.costUsd ?? 0), 0)).toBeGreaterThan(0);
   });
 
+  it('fails a section that comes back empty, naming the provider’s reason', async () => {
+    // Happened in production on 3 September: a capped reasoning model spent its
+    // whole token budget thinking and returned content: null after eight
+    // minutes. Assembling that would have put a blank tab into a document about
+    // to be sent to a client, so it has to fail — and the message has to say
+    // WHY, because "the model returned nothing" is not something anyone can act
+    // on.
+    const artifactId = await makeArtifact(['cards']);
+    const empty = {
+      async chat(options: { messages: { content: unknown }[] }) {
+        const text = options.messages.map((m) => String(m.content)).join('\n');
+        if (text.includes('Plan the sections')) {
+          return {
+            text: JSON.stringify({
+              title: 'T',
+              vocabulary: [],
+              sections: [{ id: 'a', title: 'Only section', brief: 'b' }],
+            }),
+            model: 'stub/artifact',
+            usage: null,
+          };
+        }
+        return { text: '', model: 'stub/artifact', usage: null, finishReason: 'length' };
+      },
+      chatStream() {
+        throw new Error('unused');
+      },
+      async embed() {
+        throw new Error('unused');
+      },
+    } as unknown as Parameters<typeof runArtifact>[0]['modelProvider'];
+
+    await expect(runArtifact({ db, artifactId, modelProvider: empty })).rejects.toThrow(
+      /came back empty.*token limit/s,
+    );
+    // Named the section, so a nine-section document says which one died.
+    await expect(runArtifact({ db, artifactId, modelProvider: empty })).rejects.toThrow(
+      /Only section/,
+    );
+    // And nothing empty was persisted.
+    expect(await db.artifactSection.count({ where: { artifactId } })).toBe(0);
+  });
+
   it('refuses rather than generating a document about nothing', async () => {
     // Every requested section empty means the model would be asked to write
     // about an estimate it cannot see, and it would fill the gap by inventing
