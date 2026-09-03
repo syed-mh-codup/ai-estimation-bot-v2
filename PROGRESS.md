@@ -346,11 +346,13 @@ allocating effort to it. Revisit when the token bill is real.
   data) instead of testing a fixture somebody seeded.
 - Component tests still do not exist here. Logic stays out of components.
 
-## Also in flight: AEH-316 — the export now says what it is doing
+## Recently landed: AEH-316 — the export now says what it is doing
 
-Branch `feat/aeh-316-export-feedback` off master, commit `9eec07d`. In Progress.
-Nothing pushed. AEH-232 is Done and merged (`91dd5f0`); the export works in
-production, this is the UX around it.
+Merged to master as `4fb3c98` and pushed to both remotes on 2026-09-03, so it
+is deploying. Branch `feat/aeh-316-export-feedback` is fully contained in master
+and can be deleted. Jira left In Progress on purpose — see "Still open" below.
+AEH-232 is Done and merged (`91dd5f0`); the export itself already worked in
+production, this was the UX around it.
 
 Raised because the export succeeded in prod and the user could not tell. It was
 a bare form with a submit button: no pending state, no result, and a throw that
@@ -388,9 +390,16 @@ sequence rewinding before suspecting the allocator.
 
 ### Still open
 
-- `pnpm verify:sheets --live` and the unit suite, typecheck and build are all
-  green; the e2e spec `estimate-refine.spec.ts:102` covers this exact button and
-  was running when this was written.
+- Everything gated green before the merge and the merged tree was byte-identical
+  to the gated one: 729 unit tests over 72 files, typecheck, lint on all five
+  touched files, a full production build, and the Playwright spec
+  `estimate-refine.spec.ts` (which clicks this exact button and asserts the
+  sheet link appears) at 2.8 minutes.
+- Not done, and the reason the ticket is not closed: the stale-link
+  reconciliation. Nothing reconciles `sheetUrl`, so a sheet deleted in Drive
+  leaves a dead link on the page until the next export. The options differ a lot
+  in cost and none is obviously right, so it is written up on AEH-316 rather than
+  guessed at. Also still wanted: one export clicked through the deployed app.
 - No `error.tsx` anywhere in `apps/web`, so any server action throw still takes
   the whole page down with an opaque message. Raised with the user as a
   candidate for its own ticket; deliberately not folded into AEH-316.
