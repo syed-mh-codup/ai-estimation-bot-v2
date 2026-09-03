@@ -84,6 +84,12 @@ enum UsageKind {
   ARCHITECT
   ORACLE
   CARTOGRAPHER
+  /// Supporting-document generation. ONE value for every artifact type, and
+  /// deliberately so: artifact types are rows in ArtifactType, so a per-type
+  /// usage kind would be a migration per type — the exact thing AEH-239 exists
+  /// to abolish. "Which artifact cost this" is answered by
+  /// `ModelUsage.artifactId`, which is a join, not an enum value.
+  ARTIFACT
   INGEST
   /// Preset-library embedding only. An Archivist query embed is recorded as
   /// ARCHIVIST, because "which agent is burning the money" is the question the
@@ -179,12 +185,12 @@ enum PresetOrigin {
 // ─── Identity & Access ────────────────────────────────────────────────────────
 
 model User {
-  id                String         @id @default(cuid())
-  email             String         @unique
+  id                String          @id @default(cuid())
+  email             String          @unique
   hash              String
   name              String?
-  role              Role           @default(ESTIMATOR)
-  createdAt         DateTime       @default(now())
+  role              Role            @default(ESTIMATOR)
+  createdAt         DateTime        @default(now())
   /// When set, this account can no longer sign in AND its live sessions stop
   /// working. Blocking `authorize()` alone would only stop NEW logins — with
   /// `session: { strategy: 'jwt' }` there is no session table to revoke, so an
@@ -199,10 +205,10 @@ model User {
   /// rejected by the same DB-backed jwt callback. Without it, changing a
   /// password does not sign other devices out.
   passwordChangedAt DateTime?
-  estimates         Estimate[]     @relation("EstimateOwner")
+  estimates         Estimate[]      @relation("EstimateOwner")
   /// Estimates this user is answerable for, which is not the same set as the
   /// ones they created. See Estimate.custodianId.
-  custodianOf       Estimate[]     @relation("EstimateCustodian")
+  custodianOf       Estimate[]      @relation("EstimateCustodian")
   oracleThreads     OracleThread[]
   /// Configured scopes this user cut. Attribution, not ownership: a scenario is
   /// a record of a conversation somebody had.
@@ -516,17 +522,17 @@ model McpConnector {
 // ─── Estimates ────────────────────────────────────────────────────────────────
 
 model Estimate {
-  id              String              @id @default(cuid())
+  id              String               @id @default(cuid())
   title           String
   sowText         String
-  status          EstimateStatus      @default(DRAFT)
+  status          EstimateStatus       @default(DRAFT)
   complexityScore Int?
   configVersion   Int
   narrative       String[]
   assumptions     String[]
   agentState      Json
   ownerId         String
-  owner           User                @relation("EstimateOwner", fields: [ownerId], references: [id])
+  owner           User                 @relation("EstimateOwner", fields: [ownerId], references: [id])
   /// Who is answerable for moving this estimate along — as opposed to whoever
   /// happened to create it, which is all `ownerId` has ever meant.
   ///
@@ -538,7 +544,7 @@ model Estimate {
   /// Null means nobody has taken it on, and reminders fall back to the owner —
   /// a deadline with no custodian must still reach a person.
   custodianId     String?
-  custodian       User?               @relation("EstimateCustodian", fields: [custodianId], references: [id], onDelete: SetNull)
+  custodian       User?                @relation("EstimateCustodian", fields: [custodianId], references: [id], onDelete: SetNull)
   /// When this estimate is due, stored as midnight UTC of the chosen date.
   ///
   /// A date, not an instant: nobody sets an estimate deadline to 4:30pm. The
@@ -563,9 +569,12 @@ model Estimate {
   uploadedFiles   UploadedFile[]
   hiddenWork      HiddenWorkFinding[]
   oracleThreads   OracleThread[]
+  /// Supporting documents generated from this estimate. Presales deliverables:
+  /// like scopeScenarios, they read the estimate and never write back to it.
+  artifacts       EstimateArtifact[]
   modelUsage      ModelUsage[]
   sheetUrl        String?
-  createdAt       DateTime            @default(now())
+  createdAt       DateTime             @default(now())
 
   // ── Run progress (background job + reload-safe polling) ──────────────────────
   runStatus     RunStatus @default(IDLE)
@@ -680,9 +689,9 @@ model HiddenWorkFinding {
 }
 
 model MenuItem {
-  id             String           @id @default(cuid())
+  id             String               @id @default(cuid())
   estimateId     String
-  estimate       Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  estimate       Estimate             @relation(fields: [estimateId], references: [id], onDelete: Cascade)
   taxonomyKey    String
   /// Controlled-vocabulary category (see @repo/shared CategorySchema); optional
   /// for legacy/injected items (baseline, hidden-work) predating the envelope.
@@ -692,7 +701,7 @@ model MenuItem {
   sourcePresetId String?
   matchScore     Float?
   title          String
-  enabled        Boolean          @default(true)
+  enabled        Boolean              @default(true)
   /// Injected placeholder (hidden-work audit), not delivered feature work.
   /// Promotion reads this to keep placeholders out of the preset library.
   ///
@@ -700,12 +709,12 @@ model MenuItem {
   /// on READING it: `meta` is write-only everywhere in this repo, and the guard
   /// this replaces keyed on an `id` string prefix that persistence discards
   /// (Prisma mints a cuid), so it was dead and nothing noticed. See AEH-227.
-  injected       Boolean          @default(false)
+  injected       Boolean              @default(false)
   /// User-assigned section grouping (null = Ungrouped). Presentational only.
   sectionId      String?
-  section        EstimateSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  section        EstimateSection?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   /// Manual ordering within a section (drag-and-drop). Ascending.
-  order          Int              @default(0)
+  order          Int                  @default(0)
   /// Always included in a configured scope: the toggle is shown but inert.
   ///
   /// A per-estimate decision, not a preset flag, and deliberately not derived
@@ -713,7 +722,7 @@ model MenuItem {
   /// from `sequencing.prerequisitePresetIds`, which the Archivist derives by
   /// walking PresetDependency, and that table is empty, so it is false for
   /// every card in existence. See AEH-235.
-  foundation     Boolean          @default(false)
+  foundation     Boolean              @default(false)
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
@@ -947,11 +956,11 @@ model OracleMessage {
 /// than a guess. Rows accumulate across re-runs; nothing here is replaced
 /// wholesale the way Estimate.agentState is.
 model ModelUsage {
-  id               String         @id @default(cuid())
+  id               String            @id @default(cuid())
   /// Null for preset embedding backfill (no estimate). SetNull, not Cascade: the
   /// spend record must outlive a deleted estimate.
   estimateId       String?
-  estimate         Estimate?      @relation(fields: [estimateId], references: [id], onDelete: SetNull)
+  estimate         Estimate?         @relation(fields: [estimateId], references: [id], onDelete: SetNull)
   /// The run this call happened in. Null for Oracle/ingest/embedding.
   runId            String?
   kind             UsageKind
@@ -964,14 +973,187 @@ model ModelUsage {
   /// Oracle assistant turns link back to their message so the transcript can
   /// still show per-message cost. SetNull so a usage row survives deleting the
   /// message/thread, matching the estimate rule above.
-  oracleMessageId  String?        @unique
-  oracleMessage    OracleMessage? @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
+  oracleMessageId  String?           @unique
+  oracleMessage    OracleMessage?    @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
   threadId         String?
-  thread           OracleThread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  createdAt        DateTime       @default(now())
+  thread           OracleThread?     @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  /// Which generated document this call was spent on. Null for everything that
+  /// is not artifact generation.
+  ///
+  /// Not `@unique`, unlike `oracleMessageId`: one artifact is N+2 model calls
+  /// (an outline, a section each, an assemble), and the whole point of the
+  /// column is being able to add them up. SetNull for the same reason as
+  /// `estimateId` — the spend record must outlive what it was spent on.
+  artifactId       String?
+  artifact         EstimateArtifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  createdAt        DateTime          @default(now())
 
   @@index([estimateId, createdAt])
   @@index([kind])
   @@index([runId])
   @@index([threadId])
+  @@index([artifactId])
+}
+
+// ─── Artifacts ────────────────────────────────────────────────────────────────
+
+/// One kind of supporting document an estimate can produce — an ERD, a user
+/// journey map, a low-fidelity wireframe pack, a phased delivery plan.
+///
+/// A ROW, emphatically not an enum. AEH-239's hard requirement is that a new
+/// artifact type is addable through the UI with no code change, and `AgentKind`
+/// is the counter-example that proves the point: adding an agent is a
+/// migration. Everything specific to one artifact lives here and in
+/// ArtifactTypeVersion; everything shared by all of them (the page shell, the
+/// prompt envelope, the corpus builders) is code.
+///
+/// There is no `format` column. Every artifact assembles into one shared HTML
+/// shell, so a format axis would have exactly one value on it.
+model ArtifactType {
+  id          String                @id @default(cuid())
+  /// Readable, stable handle used in URLs — "entity-model". Derived from the
+  /// name on create and then frozen, because it is what a bookmarked admin URL
+  /// points at.
+  key         String                @unique
+  name        String
+  /// What this artifact is, in the author's words. Shown when picking one to
+  /// generate — the only description a user ever sees, since nothing about a
+  /// type is described in code.
+  description String?
+  /// Archived rather than deleted. A generated artifact is a client
+  /// deliverable, so its type must remain resolvable forever; disabling only
+  /// removes it from the "generate" picker.
+  enabled     Boolean               @default(true)
+  order       Int                   @default(0)
+  createdAt   DateTime              @default(now())
+  versions    ArtifactTypeVersion[]
+  artifacts   EstimateArtifact[]
+}
+
+/// One version of what an artifact type asks for.
+///
+/// `PromptVersion` with two more fields and a foreign key instead of an enum
+/// id, and it holds the same single-active-per-parent invariant by the same
+/// `$transaction` pattern as `activateVersion`.
+///
+/// `promptBody` is the author's BRIEF, not the whole prompt. The contract the
+/// machine depends on — the outline JSON shape, "return a fragment and never a
+/// whole document", the selector-scoping rule, the CSS token vocabulary, the
+/// per-section output budget — lives in a code-owned envelope wrapped around
+/// this at call time. That split is what stops a prompt edit breaking
+/// generation, and it matters because every type here is hand-authored with no
+/// seeded example to copy from.
+model ArtifactTypeVersion {
+  id               String           @id @default(cuid())
+  artifactTypeId   String
+  artifactType     ArtifactType     @relation(fields: [artifactTypeId], references: [id], onDelete: Cascade)
+  version          Int
+  /// The author's brief. See the note above: this is not the whole prompt.
+  /// @orphan-todo AEH-239 the type editor that writes it lands in slice 1's UI half; nothing reads it until the generator exists in slice 2.
+  promptBody       String
+  modelString      String
+  /// Which named slices of the estimate this type is shown, by key — "cards",
+  /// "requirements", "graph". Validated against the dossier's catalogue at
+  /// generation time rather than by the database, so that retiring a section
+  /// degrades one type instead of failing a migration.
+  /// @orphan-todo AEH-239 the section picker and the dossier that resolves these keys both arrive with the generator.
+  corpusSections   String[]
+  active           Boolean          @default(false)
+  changeReason     String?
+  changeMotivation ChangeMotivation @default(OTHER)
+  createdAt        DateTime         @default(now())
+  createdBy        String?
+
+  @@unique([artifactTypeId, version])
+}
+
+/// One generated document, belonging to one estimate.
+///
+/// Generation is an Inngest job of N+2 steps — an outline, one per section,
+/// then assemble — because Inngest invokes one `step.run()` per HTTP request
+/// and so gives each step its own 300s. That is the only way a ~25k-token
+/// document is producible on a deploy target whose per-step ceiling is a hard
+/// 300s with no Pro headroom. It is the same reason `runEstimate` checkpoints
+/// per agent.
+///
+/// Progress columns live HERE rather than on Estimate. The scope-map route
+/// already recorded why: the run and ingest progress columns are per-job-type,
+/// and a third set on Estimate would be a worse trade. An artifact is its own
+/// job, so it carries its own.
+model EstimateArtifact {
+  id             String            @id @default(cuid())
+  estimateId     String
+  estimate       Estimate          @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  artifactTypeId String
+  artifactType   ArtifactType      @relation(fields: [artifactTypeId], references: [id])
+  /// The type version this was generated from, snapshotted. A delivered
+  /// document must still be able to say what produced it after the type has
+  /// been edited half a dozen times.
+  /// @orphan-todo AEH-239 written when generation starts (slice 2) and shown on the artifact's own page (slice 3).
+  typeVersion    Int
+  title          String
+  /// The section plan from step 1, kept so the UI can show what is coming
+  /// while the sections are still being written, and so a failed run can be
+  /// read after the fact.
+  /// @orphan-todo AEH-239 produced by the outline step in slice 2; the progress view that renders it is slice 3.
+  outline        Json?
+  /// The assembled document. Null until the final step succeeds — presence
+  /// here is what "finished" means. Can be ~100KB: never select it in a list
+  /// query.
+  content        String?
+  /// Per-generation inputs the type's brief may refer to — which saved
+  /// ScopeScenario to cut against, for instance. Present from the first
+  /// migration because re-allocation provenance and tranche impact both need
+  /// it, and adding the column later is precisely the migration this ticket
+  /// exists to abolish.
+  /// @orphan-todo AEH-239 deliberately ahead of its consumer — the generate dialog that collects it is slice 3.
+  inputs         Json?
+  status         RunStatus         @default(IDLE)
+  stage          String?
+  pct            Int               @default(0)
+  error          String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  /// @orphan-todo AEH-239 stamped by the generate route in slice 3; shown as the "generated by" line on the artifact page.
+  createdBy      String?
+  createdAt      DateTime          @default(now())
+  sections       ArtifactSection[]
+  modelUsage     ModelUsage[]
+
+  @@index([estimateId, createdAt])
+  @@index([artifactTypeId])
+}
+
+/// One section of one generated document, written by its own durable step.
+///
+/// A table rather than a JSON column on EstimateArtifact, and that is the
+/// checkpoint the whole design rests on: each step upserts its own row on
+/// `(artifactId, sectionId)` as it completes, so a retry cannot duplicate and a
+/// failure at section 5 of 9 does not throw away sections 1 to 4. A JSON column
+/// would make every step a read-modify-write of the same value.
+///
+/// `html` is a fragment — markup, `<style>` and `<script>` all authored by the
+/// model, scoped under this section's own element. There is no template
+/// constraining it, deliberately: a low-fidelity wireframe's layout IS its
+/// content, so templating it would put the interesting part back in code.
+model ArtifactSection {
+  id         String           @id @default(cuid())
+  artifactId String
+  artifact   EstimateArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  /// The outline's own id for this section — a slug, stable across a retry,
+  /// and what the assembled shell uses as the section element's handle and
+  /// nav anchor.
+  sectionId  String
+  order      Int
+  title      String
+  /// What this section was asked to contain. Kept because later sections are
+  /// shown the briefs of earlier ones — never their HTML — which is how the
+  /// document stays coherent across independent calls.
+  /// @orphan-todo AEH-239 read by the section step in slice 2 to keep later sections coherent with earlier ones.
+  brief      String
+  html       String
+  createdAt  DateTime         @default(now())
+
+  @@unique([artifactId, sectionId])
+  @@index([artifactId, order])
 }

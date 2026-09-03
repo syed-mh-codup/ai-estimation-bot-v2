@@ -43,6 +43,11 @@ export const AGENT_USAGE_KIND: Record<AgentKind, UsageKind> = {
 const EXTRA_USAGE_PROFILES: UsageProfile[] = [
   { kind: 'INGEST', label: 'Ingestion' },
   { kind: 'PRESET_EMBEDDING', label: 'Preset embedding' },
+  // One label for every artifact type, not one per type. Artifact types are
+  // rows (ArtifactType), so a per-type usage kind would need a migration per
+  // type — the thing AEH-239 exists to abolish. Attribution to a specific
+  // document is `ModelUsage.artifactId`, a join rather than a vocabulary entry.
+  { kind: 'ARTIFACT', label: 'Artifact generation' },
 ];
 
 export const USAGE_PROFILES: UsageProfile[] = [
