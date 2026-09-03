@@ -371,10 +371,27 @@ can be deleted.
 
 ## Databases
 
-    local docker  ai_estimation        30 migrations
-    local docker  ai_estimation_test   30 migrations
-    Neon test     (ep-wild-heart)      30 migrations
-    Neon dev/main (ep-polished-credit) 30 migrations
+    local docker  ai_estimation        31 migrations
+    local docker  ai_estimation_test   31 migrations
+    Neon test     (ep-wild-heart)      31 migrations
+    Neon dev/main (ep-polished-credit) 31 migrations
+
+All four went to 31 on 2026-09-03 with `20260903103535_aeh_239_artifact_types`,
+applied by `prisma migrate deploy` (never `migrate dev`, which can offer to
+reset). The migration is purely additive — four new tables, one nullable column
+on ModelUsage, one new UsageKind value — so **every schema is now AHEAD of the
+deployed code, which is fine**: nothing reads the new tables until the AEH-239
+code ships, and old code cannot see a column it does not select.
+
+Neon dev/main was row-counted before and after and came back byte-identical:
+7 estimates, 188 menu items, 4242 line items, 79 presets, 34 prompt versions,
+599 usage rows, and the eleven hand-tuned active prompts still totalling 54,391
+characters. That last figure is the sharpest check available that nothing
+reverted them — see the seeding warning further down.
+
+One thing that is genuinely one-way: `ALTER TYPE "UsageKind" ADD VALUE
+'ARTIFACT'`. Postgres cannot drop an enum value without recreating the type, so
+rolling the code back leaves the value in place. Everything else is droppable.
 
 Remotes are `github` and `origin` (origin is Bitbucket). An earlier entry here
 called the second one `bitbucket`, which is not a configured remote name.
