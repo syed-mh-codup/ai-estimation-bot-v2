@@ -14,13 +14,35 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 Branch `feat/aeh-239-artifacts`. Nothing implemented yet — this is the agreed
 shape, written down before any code so a crashed session can resume from it.
 
-### The hard requirement
+### The hard requirement, and the line it draws
 
 "I shouldn't have to come back to the code to add support for a new artifact."
 An artifact TYPE is a database row, never a Prisma enum and never a switch
-statement. Two things are versioned text an admin edits: the PROMPT, and which
-CORPUS SECTIONS of the estimate the model is shown. That is the whole of what
-defines a type.
+statement. Two things are versioned text an admin edits: the PROMPT BRIEF, and
+which CORPUS SECTIONS of the estimate the model is shown. That is the whole of
+what defines a type.
+
+One rule decides every boundary question in this design:
+
+> **Anything specific to one artifact is data. Anything shared by every
+> artifact is code.**
+
+That is what puts the shell, the prompt envelope, the corpus builders and the
+(now deleted) format axis on the code side, and the brief plus the section
+selection on the data side. It is also the answer to "is X a code change?" for
+whatever gets asked for next.
+
+**The prompt is a code-owned envelope wrapped around an author-owned brief.**
+The envelope carries the outline JSON contract, the fragment rules (return a
+fragment, never a whole document), the selector-scoping rule, the CSS token
+contract and the per-section budget. The brief says what THIS artifact is and
+what it must show. The author never sees or touches the envelope, so a prompt
+edit cannot break the machine's contract — which matters far more now that
+every type is hand-authored with no seeded example to copy.
+
+If the envelope itself ever wants tuning, lifting it into an admin-editable
+versioned singleton (the `EstimationConfig` pattern) is a small follow-up. Not
+built now.
 
 ### REVERSAL — the per-type HTML template is gone, and so is `renderTemplate`
 
@@ -169,10 +191,30 @@ construction, which neither of the others is.
      and answering BOTH call shapes deterministically: an outline derived from
      the corpus it was handed, and one fragment per brief.
 
-  4  Seed the six types as data, prove one end to end. Targeted script
-     `db:seed:artifact-types` — never the bootstrap seed, which would revert
-     ten live prompts to their v1 bodies. `graft build`, PROGRESS.md, and the
-     implementation record onto the ticket.
+     Also an OUTLINE-ONLY DRY RUN, and it earns its place because of the
+     no-seed decision. Authoring a prompt cold is iterative, and the outline
+     step is one call and a couple of thousand tokens: it answers "did my brief
+     produce a sensible section plan" in seconds, for a rounding error, before
+     committing to nine sections of generation. It is the difference between
+     tuning a prompt in a minute and tuning it in ten. Same pipeline, stopped
+     after step 1, nothing written but the outline.
+
+  4  The authoring surface, and proof. NO SEED SCRIPT — decided 2026-09-03,
+     every artifact type is hand-authored through the UI by its owner. That
+     turns prompt authoring from a convenience into the product surface, so
+     this slice is what makes authoring cold possible:
+       - `docs/artifact-types.md` documents THE MACHINE — every corpus section
+         and what it contains, what the envelope guarantees, the outline
+         contract, the CSS token contract. It deliberately carries no draft
+         prompt bodies: the machine is documented, the content is the owner's.
+       - The type editor shows the same contract in place, so a prompt is
+         written next to the list of sections it can tick rather than against
+         a README in another tab.
+       - Honest empty states on the admin list and the rail card. A fresh
+         install has zero artifact types and must say so, and say what to do.
+       - Verify end to end against a type authored through the UI in dev.
+     Then `graft build`, PROGRESS.md, and the implementation record onto the
+     ticket.
 
 ### Rendering safely
 
@@ -186,22 +228,39 @@ than hoped for. A Download button, because handing the file to a client is the
 entire point. A staleness chip when `artifact.createdAt <
 estimate.runFinishedAt`.
 
-### Infrastructure — real decisions, none of them a new host
+### Infrastructure — settled 2026-09-03, no new host
 
-- **Inngest step quota.** An artifact is N+2 steps where a run is a handful.
-  Check the account's monthly step limit before this reaches real users. This
-  is the one genuine capacity question the design introduces.
-- **Vercel Pro.** `docs/DEPLOY.md` already notes Hobby's fair-use terms
-  restrict it to non-commercial, which this product is not, so Pro is arguably
-  due regardless; 800s would turn the per-section budget from comfortable to
-  generous. But it is a plan decision, NOT the fix — 800s still does not make
-  one 25k-token call safe, and buying headroom instead of checkpointing is
-  exactly the trade the deploy-target memory warns against.
-- **Prompt caching is the cost mitigation, and is not wired yet.** N+2 calls
-  re-send the corpus N+2 times. `ChatOptions` in `packages/providers` carries
-  no `cache_control` and message content is not block-structured, so
-  corpus-as-cached-prefix is a providers-layer change. Out of scope here;
-  worth its own ticket once the token bill is measurable.
+**Vercel Pro is ruled out until further notice.** So 300s per step is a hard
+floor with no headroom behind it, and the checkpointing above is not an
+optimisation — it is the only thing that makes this shippable. Nothing in this
+design may assume a single call can run long.
+
+**Inngest budget is 50,000 invocations/month, 5 concurrent.** The invocation
+half is a non-issue and the concurrency half is the real constraint:
+
+    a run        ~5 fixed steps + one per requirement (run-estimate.ts:288)
+                 + one per hidden-work finding → ~35-40 on a 30-requirement SOW
+    an artifact  N+2 → 3 for an ERD, ~11 for a wireframe pack
+
+So an artifact is CHEAPER per unit than a run. 100 runs + 500 artifacts a month
+is roughly 8k invocations against 50k. There is no quota problem here.
+
+Concurrency is where it bites. An Inngest run holds a slot for its whole
+lifetime, including between steps, so a nine-section artifact occupies one of
+five slots for the ~10 minutes it takes. Three people generating wireframe
+packs at once would leave two slots for estimate runs, which are the core of
+the product.
+
+**Therefore the artifact function is capped at `concurrency: 2`** (a plain
+config field on `createFunction`, confirmed present in inngest 4.5.1). Three
+slots stay free for runs, ingest, promote and embed no matter how many
+artifacts are queued. Artifacts wait; estimates never do.
+
+**Prompt caching is deferred by decision, not oversight.** N+2 calls re-send
+the corpus N+2 times. `ChatOptions` in `packages/providers` carries no
+`cache_control` and message content is not block-structured, so this is a
+providers-layer change. Agreed 2026-09-03 to wait for measured spend before
+allocating effort to it. Revisit when the token bill is real.
 
 ### Traps this plan already knows about
 
@@ -214,6 +273,10 @@ estimate.runFinishedAt`.
   library at all, so they do not inherit it.
 - The e2e suite is not green on master (AEH-282), so slice 3's spec may not be
   gateable. Unit coverage carries the weight, as it did on AEH-240.
+- With no seed, a spec cannot assume any artifact type exists — it has to
+  create one through the admin UI first. That is an improvement, not a cost:
+  the spec then tests the actual claim of this ticket (a type is addable as
+  data) instead of testing a fixture somebody seeded.
 - Component tests still do not exist here. Logic stays out of components.
 
 ### Still carried forward (not AEH-239's, but still true)
