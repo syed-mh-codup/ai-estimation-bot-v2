@@ -30,11 +30,18 @@ export default async function PresetsAdminPage() {
             one creates a new active version — the old one stays in its history.
           </p>
         </div>
-        <Button asChild size="lg">
-          <Link href="/admin/presets/new" data-testid="new-preset">
-            New preset
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild size="lg" variant="ghost">
+            <Link href="/admin/presets/graph" data-testid="preset-graph-link">
+              Dependency graph
+            </Link>
+          </Button>
+          <Button asChild size="lg">
+            <Link href="/admin/presets/new" data-testid="new-preset">
+              New preset
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {presets.length === 0 ? (

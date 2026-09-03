@@ -62,6 +62,10 @@ enum AgentKind {
   /// it is an agent rather than an artifact type, which is why it belongs in
   /// this enum. See packages/db/src/agent-catalogue.ts for what each kind is.
   ORACLE
+  /// Not part of a run either. Works out which of one estimate's cards depend
+  /// on which, so the scope configurator has a graph to cascade over. On demand
+  /// because it uses a heavy model and most estimates never need one. AEH-235.
+  CARTOGRAPHER
 }
 
 /// The attribution vocabulary for ModelUsage rows. Owned in code by
@@ -79,6 +83,7 @@ enum UsageKind {
   SPECIALIST_BA
   ARCHITECT
   ORACLE
+  CARTOGRAPHER
   INGEST
   /// Preset-library embedding only. An Archivist query embed is recorded as
   /// ARCHIVIST, because "which agent is burning the money" is the question the
@@ -199,6 +204,9 @@ model User {
   /// ones they created. See Estimate.custodianId.
   custodianOf       Estimate[]     @relation("EstimateCustodian")
   oracleThreads     OracleThread[]
+  /// Configured scopes this user cut. Attribution, not ownership: a scenario is
+  /// a record of a conversation somebody had.
+  scopeScenarios    ScopeScenario[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -252,11 +260,13 @@ model TaxonomyNodeVersion {
 
 model Preset {
   /// cuid. Opaque and never allocated by a human — see `code` for the readable
-  /// handle. The seeded 45 keep the ids they were imported under (P01–P45),
-  /// which are load-bearing: requires/blocks form a real dependency graph
-  /// between presets, MenuItem.sourcePresetId rows point at them, and live
-  /// agent prompts name the range.
-  id       String          @id @default(cuid())
+  /// handle. Load-bearing as an identity: MenuItem.sourcePresetId points at it,
+  /// and PresetDependency uses it as the stable end of every edge.
+  ///
+  /// The xlsx-seeded ids (P01–P45) were retired with the spreadsheet in AEH-242;
+  /// nothing should assume that range still exists. AEH-306 removes the last
+  /// references to it from the agent prompts.
+  id         String             @id @default(cuid())
   /// Readable handle — "P46". Unique, shown everywhere, never typed by a user:
   /// allocated from a Postgres sequence (see allocatePresetCode) so concurrent
   /// finalises can't collide the way max()+1 would.
@@ -264,10 +274,14 @@ model Preset {
   /// Numbers are free-flowing — no zero padding, no fixed width. Codes imported
   /// from the xlsx keep that file's own formatting (P01–P45) because people
   /// cross-reference the spreadsheet; allocated codes are plain (P46, P100).
-  code     String?         @unique
+  code       String?            @unique
   /// Where this preset came from. See PresetOrigin.
-  origin   PresetOrigin    @default(MANUAL)
-  versions PresetVersion[]
+  origin     PresetOrigin       @default(MANUAL)
+  versions   PresetVersion[]
+  /// Edges pointing AT this preset — the versions that declare they need it.
+  /// Read `dependentsOf` rather than walking this by hand; one hop is rarely
+  /// the answer you want.
+  dependents PresetDependency[]
 }
 
 model PresetVersion {
@@ -280,14 +294,16 @@ model PresetVersion {
   /// The estimate anchor — one per version, carrying the hours, side flags and
   /// comparison signals a preset contributes to an estimate. AEH-244 split this
   /// out so the anchor can become a first-class costed-work record (AEH-243).
-  anchor      PresetAnchor?
+  anchor       PresetAnchor?
   /// The retrieval surface — one per version, self-contained: it holds every
   /// field the embedding is built from, so computing a row's own vector never
   /// requires a join to a sibling table.
-  retrieval   PresetRetrieval?
-  /// The composition rules — one per version, so requires/blocks/canParallel
-  /// keep their own history exactly like the anchor and retrieval do.
-  composition PresetComposition?
+  retrieval    PresetRetrieval?
+  /// The composition rules — one per version, so `canParallel` keeps its own
+  /// history exactly like the anchor and retrieval do.
+  composition  PresetComposition?
+  /// What this version says it needs before it can be delivered. AEH-242.
+  dependencies PresetDependency[]
 
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -374,21 +390,66 @@ model PresetAnchor {
   taxonomyKey      String?
 }
 
-/// How a preset relates to other modules — composition rules. One row per
-/// version, so requires/blocks/canParallel keep their own history. AEH-244;
-/// AEH-242 will likely turn requires/blocks into proper FK references.
+/// Composition rules that are properties of the preset ITSELF rather than of a
+/// relationship. One row per version, keeping its own history. AEH-244.
+///
+/// This held `requires` and `blocks` as untyped string arrays until AEH-242 moved
+/// them to PresetDependency. What is left is a node property: a statement about
+/// this work on its own, not about a pair.
 model PresetComposition {
   id              String        @id @default(cuid())
   presetVersionId String        @unique
   presetVersion   PresetVersion @relation(fields: [presetVersionId], references: [id])
-  /// Preset codes this one must precede (e.g. ["P17"]). No FK — AEH-242 will
-  /// add referential integrity.
-  requires        String[]
-  /// Preset codes this one blocks (e.g. ["P18"]). No FK — same as requires.
-  blocks          String[]
+  /// Whether this work has historically been delivered alongside other work.
+  /// A scheduling hint for resource planning, NOT a dependency: two presets can
+  /// both be un-parallelisable without either needing the other.
   canParallel     Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+}
+
+/// One dependency edge: `dependentVersion` needs `prerequisitePreset` before it
+/// can be delivered. AEH-242.
+///
+/// ONE directed kind, deliberately. This replaces two hand-maintained string
+/// arrays — `requires` ("I need those") and `blocks` ("I must precede those") —
+/// which express the same relation from opposite ends. Kept apart, they drifted:
+/// in the retired library 35 of 88 edges existed only in `blocks` and 19 only in
+/// `requires`, and their union held a cycle (P27 -> P34 -> P38 -> P27) that no
+/// code could catch, because nothing enforced direction or integrity. A second
+/// kind is a second chance for the data to contradict itself. Adding a `kind`
+/// column later is cheap; removing one after rows exist is not.
+///
+/// The two ends are deliberately asymmetric:
+///   - the dependent is a VERSION, so composition keeps the per-version history
+///     AEH-244 gave it — "what did v3 of this preset say it needed" stays
+///     answerable.
+///   - the prerequisite is a PRESET, because a version is a moving target. An
+///     edge pinned to a version would break the moment that target is
+///     re-versioned, which happens on every actuals writeback.
+///
+/// The field names state the direction. A column called `requires` read as a
+/// noun is exactly the ambiguity this model exists to remove.
+///
+/// Two invariants SQL cannot express here, enforced in `preset-graph.ts` and
+/// covered by its tests: no self-edge (the two ends live in different tables, so
+/// a CHECK cannot see both), and no cycle.
+model PresetDependency {
+  id                   String        @id @default(cuid())
+  /// The version that declares the need.
+  dependentVersionId   String
+  dependentVersion     PresetVersion @relation(fields: [dependentVersionId], references: [id], onDelete: Cascade)
+  /// What it needs. Stable across the target's own versioning.
+  prerequisitePresetId String
+  prerequisitePreset   Preset        @relation(fields: [prerequisitePresetId], references: [id], onDelete: Cascade)
+  /// Why this edge exists, in a sentence — "certificates cannot be delivered
+  /// without transactional email". Optional, but it is the difference between a
+  /// graph a human can audit and one they have to take on faith.
+  note                 String?
+  createdAt            DateTime      @default(now())
+
+  @@unique([dependentVersionId, prerequisitePresetId])
+  @@index([prerequisitePresetId])
 }
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────
@@ -493,6 +554,12 @@ model Estimate {
   reminders       EstimateReminder[]
   sections        EstimateSection[]
   menuItems       MenuItem[]
+  /// This estimate's dependency graph, between its own cards. First-class data
+  /// about the project, not a projection of the preset library. See AEH-235.
+  dependencies    MenuItemDependency[]
+  /// Configured scopes cut from this estimate for presales. Planning artifacts:
+  /// they never write back to the estimate's own card state.
+  scopeScenarios  ScopeScenario[]
   uploadedFiles   UploadedFile[]
   hiddenWork      HiddenWorkFinding[]
   oracleThreads   OracleThread[]
@@ -639,12 +706,139 @@ model MenuItem {
   section        EstimateSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   /// Manual ordering within a section (drag-and-drop). Ascending.
   order          Int              @default(0)
+  /// Always included in a configured scope: the toggle is shown but inert.
+  ///
+  /// A per-estimate decision, not a preset flag, and deliberately not derived
+  /// from `meta.notSafelyRemovable` — that value is a constant. It is computed
+  /// from `sequencing.prerequisitePresetIds`, which the Archivist derives by
+  /// walking PresetDependency, and that table is empty, so it is false for
+  /// every card in existence. See AEH-235.
+  foundation     Boolean          @default(false)
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
   lineItems      RoleLineItem[]
+  /// This card's place in its estimate's dependency graph. Two sides, because
+  /// an edge is directed and both ends are cards in the same estimate.
+  dependsOn      MenuItemDependency[] @relation("DependentCard")
+  requiredBy     MenuItemDependency[] @relation("PrerequisiteCard")
+  /// Scenarios in which somebody explicitly switched this card on.
+  scopePicks     ScopeScenarioPick[]
 
+  @@index([estimateId])
   @@index([sectionId])
+}
+
+/// One configured scope over an estimate — a planning artifact.
+///
+/// Separate from the estimate's own `MenuItem.enabled` on purpose. The estimate
+/// screen is where a team validates what the work actually is before finalising;
+/// this is a presales planning tool, and a client-facing what-if must not
+/// rewrite the estimate underneath the people who own it. So a scenario holds
+/// its own state, carries its own author and name, and is auditable on its own.
+///
+/// Several scenarios per estimate are allowed by the schema (different cuts for
+/// different conversations), even though the first screen only drives one.
+model ScopeScenario {
+  id          String              @id @default(cuid())
+  estimateId  String
+  estimate    Estimate            @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  name        String
+  /// Who cut this scope. Not the estimate's owner — the person in the room.
+  createdById String
+  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  picks       ScopeScenarioPick[]
+
+  @@index([estimateId])
+}
+
+/// One card a human explicitly switched on in a scenario.
+///
+/// Picks are the ONLY durable selection state. What is actually switched on is
+/// derived from them on every read by `resolveSelection`, which pulls in each
+/// pick's prerequisites transitively and adds the estimate's foundation cards.
+///
+/// Storing the resolved selection instead would mean two representations of one
+/// fact, drifting apart the moment an edge changes underneath them — and it
+/// would lose provenance, which is the thing the UI most needs to show. A card
+/// that is on without a pick is on because something else needs it, and that is
+/// exactly what a client has to be told when a cascade adds work they did not
+/// ask for. The reference artifact this feature was specified against could not
+/// distinguish the two.
+model ScopeScenarioPick {
+  id         String        @id @default(cuid())
+  scenarioId String
+  scenario   ScopeScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([scenarioId, menuItemId])
+  @@index([menuItemId])
+}
+
+/// How an edge in an estimate's dependency graph came to exist.
+///
+/// Two values, and deliberately no third for "suggested by the preset library".
+/// Library edges are never propagated into an estimate: every project is
+/// different, so what one project needed says nothing about what this one
+/// needs. An edge here was either worked out for THIS scope or typed by a
+/// person who knows it. See MenuItemDependency.
+enum DependencySource {
+  /// Derived for this estimate from its own scope.
+  INFERRED
+  /// Authored by a human.
+  MANUAL
+}
+
+/// One dependency between two cards of the SAME estimate: `dependent` cannot be
+/// delivered before `prerequisite`.
+///
+/// The estimate owns its dependency graph. That is the whole point of this
+/// model: dependencies are a property of the project being built, so they are
+/// computed for that project and live on it.
+///
+/// The preset library's own graph (PresetDependency, AEH-242) is a RECORD, not
+/// a source. Promotion preserves an estimate's graph into it so the knowledge
+/// is not lost, and the library uses it for its own views — delivery waves, the
+/// critical path, what a preset historically needed. It is never read back into
+/// an estimate. Every project is different, so one project's ordering is a
+/// reference a human might consult, not an input to another project's graph;
+/// and presets arrive one card at a time on eligibility, so nothing guarantees
+/// both ends of a library edge are even present again.
+///
+/// Requiring presets here would also make the configurator unavailable on real
+/// work: only 12 of 140 cards carry a `sourcePresetId` at all.
+///
+/// Cascade on both ends, and no attempt to survive a re-run. A run deletes and
+/// recreates every MenuItem, so an edge keyed on a card id cannot outlive one —
+/// and should not, because the cards it joined are gone and a graph over
+/// replaced work would be a lie. The graph is recomputed with the estimate.
+model MenuItemDependency {
+  id             String           @id @default(cuid())
+  /// Denormalised from both ends so a whole estimate's graph loads in one query
+  /// without joining through MenuItem twice. Both cards are always in this
+  /// estimate; nothing may write an edge that leaves it.
+  estimateId     String
+  estimate       Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  dependentId    String
+  dependent      MenuItem         @relation("DependentCard", fields: [dependentId], references: [id], onDelete: Cascade)
+  prerequisiteId String
+  prerequisite   MenuItem         @relation("PrerequisiteCard", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+  /// Why this edge exists, in a sentence — "certificates cannot be issued
+  /// before transactional email works". Optional, but it is the difference
+  /// between a graph a human can audit and one they have to take on faith, and
+  /// it is what the cascade notice shows when work disappears.
+  note           String?
+  source         DependencySource @default(INFERRED)
+  createdAt      DateTime         @default(now())
+
+  /// One edge per ordered pair. A second reading of the same dependency is the
+  /// same dependency.
+  @@unique([dependentId, prerequisiteId])
+  @@index([estimateId])
+  @@index([prerequisiteId])
 }
 
 model RoleLineItem {
@@ -738,7 +932,7 @@ model OracleMessage {
   /// the one home for all AI spend — rather than on this row, so a single report
   /// can answer "what did this cost" across Oracle and the run crew. A message
   /// has at most one usage row.
-  usage     ModelUsage?
+  usage ModelUsage?
 
   createdAt DateTime @default(now())
 
@@ -753,11 +947,11 @@ model OracleMessage {
 /// than a guess. Rows accumulate across re-runs; nothing here is replaced
 /// wholesale the way Estimate.agentState is.
 model ModelUsage {
-  id       String   @id @default(cuid())
+  id               String         @id @default(cuid())
   /// Null for preset embedding backfill (no estimate). SetNull, not Cascade: the
   /// spend record must outlive a deleted estimate.
   estimateId       String?
-  estimate         Estimate?       @relation(fields: [estimateId], references: [id], onDelete: SetNull)
+  estimate         Estimate?      @relation(fields: [estimateId], references: [id], onDelete: SetNull)
   /// The run this call happened in. Null for Oracle/ingest/embedding.
   runId            String?
   kind             UsageKind
@@ -770,11 +964,11 @@ model ModelUsage {
   /// Oracle assistant turns link back to their message so the transcript can
   /// still show per-message cost. SetNull so a usage row survives deleting the
   /// message/thread, matching the estimate rule above.
-  oracleMessageId  String?         @unique
-  oracleMessage    OracleMessage?  @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
+  oracleMessageId  String?        @unique
+  oracleMessage    OracleMessage? @relation(fields: [oracleMessageId], references: [id], onDelete: SetNull)
   threadId         String?
-  thread           OracleThread?   @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  createdAt        DateTime        @default(now())
+  thread           OracleThread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
 
   @@index([estimateId, createdAt])
   @@index([kind])

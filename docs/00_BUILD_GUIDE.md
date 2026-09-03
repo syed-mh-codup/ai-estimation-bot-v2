@@ -7,7 +7,7 @@ front-loaded so you can stay hands-off during the build. Four documents:
 |------|---------|
 | `00_BUILD_GUIDE.md` | This file. Conventions, stack decisions, how to drive Claude Code, the 2-day plan. |
 | `01_ARCHITECTURE.md` | System design, RBAC, MCP connector subsystem, versioning model, model routing, output. |
-| `02_PRISMA_DATA_MODEL.md` | Target schema + seeding strategy from `preset_library_v2.xlsx`. |
+| `02_PRISMA_DATA_MODEL.md` | Target schema + seeding strategy. The xlsx import it describes was retired in AEH-242. |
 | `03_AGENT_SPECS.md` | Per-agent input/output contracts and editable prompt scaffolds. |
 | `04_WBS.md` | The work breakdown structure. ~4h-per-step, dependency-ordered, full-stack + QA. |
 

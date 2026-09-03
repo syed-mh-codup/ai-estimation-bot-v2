@@ -328,6 +328,26 @@ export default async function EstimateDetailPage({
                  controls that act on them, never scroll away ──────────────── */}
           <aside className="flex flex-col gap-3.5 lg:sticky lg:top-4 max-lg:order-first">
             {hasMenu && <RollupCard />}
+            {/* A planning view, not an edit of this estimate — see
+                scope/page.tsx. Offered whenever there is a menu card, because
+                "there is no graph yet" is a better answer on that screen than a
+                missing link here. */}
+            {hasMenu && (
+              <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
+                <Eyebrow>Configure scope</Eyebrow>
+                <p className="mt-1.5 text-[11.5px] leading-snug text-ink-4">
+                  Shape what is in scope with dependencies resolved automatically. Does not change
+                  this estimate.
+                </p>
+                <Link
+                  href={`/estimates/${estimate.id}/scope`}
+                  data-testid="open-scope-configurator"
+                  className="mt-2 inline-block text-[12.5px] text-green hover:underline"
+                >
+                  Open configurator →
+                </Link>
+              </div>
+            )}
             <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
             <RunDiagnosticsPanel estimateId={estimate.id} />
             {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}

@@ -171,24 +171,80 @@ describe('runArchitect — narrative + card assembly', () => {
     expect(result.consistencyFlags).toHaveLength(0);
   });
 
-  it('marks a card notSafelyRemovable when another requirement requires one of its requirements', async () => {
-    mockArchitectResponse(['Sentence.'], [{ menuCardId: 'MC-B2B-CHECKOUT', phase: 'Foundation' }]);
+  // AEH-242. The version of this test that shipped before that ticket asserted
+  // the same behaviour and proved nothing: it fed `sequencing.requires:
+  // ['REQ-001']`, a requirement id, when the field has only ever carried preset
+  // identifiers. The production code compared those against requirement ids too,
+  // so both sides were consistently wrong and the test passed while
+  // `notSafelyRemovable` was false for every card in production.
+  //
+  // The fixture below is built the way the Archivist actually emits: two cards,
+  // each anchored to a preset, one declaring the other's preset as a
+  // prerequisite. Verified to fail against the pre-AEH-242 implementation.
+  it('marks a card notSafelyRemovable when another card depends on its anchor preset', async () => {
+    mockArchitectResponse(
+      ['Sentence.'],
+      [
+        { menuCardId: 'MC-B2B-CHECKOUT', phase: 'Foundation' },
+        { menuCardId: 'MC-B2B-AUTH', phase: 'Core' },
+      ],
+    );
+
+    const twoCards = [
+      makeRequirement(),
+      makeRequirement({ id: 'REQ-002', text: 'SSO login', candidateMenuCardId: 'MC-B2B-AUTH', category: 'B2B' }),
+    ];
+    const twoCardOutputs = [
+      makeSpecialistOutput('DEV', [
+        makeLineItem({ hours: 3 }),
+        makeLineItem({ id: 'DEV-REQ-002-01', requirementId: 'REQ-002', menuCardId: 'MC-B2B-AUTH', hours: 4 }),
+      ]),
+    ];
 
     const archivistMatches = [
       {
-        requirementId: 'REQ-002',
-        taxonomyKey: null,
-        coverage: 'none' as const,
+        requirementId: 'REQ-001',
+        taxonomyKey: 'b2b.checkout',
+        coverage: 'full' as const,
+        presetId: 'preset-checkout',
+        presetVersion: 1,
+        score: 0.9,
         adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
         rationale: 'n/a',
-        sequencing: { requires: ['REQ-001'], blocks: [], canParallel: true },
+        sequencing: { prerequisitePresetIds: [], canParallel: true },
+        presetCaveats: [],
+      },
+      {
+        requirementId: 'REQ-002',
+        taxonomyKey: 'b2b.auth',
+        coverage: 'full' as const,
+        presetId: 'preset-auth',
+        presetVersion: 1,
+        score: 0.8,
+        adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
+        rationale: 'n/a',
+        // Auth cannot be delivered before checkout exists.
+        sequencing: { prerequisitePresetIds: ['preset-checkout'], canParallel: true },
         presetCaveats: [],
       },
     ];
 
-    const result = await runArchitect({ ctx, requirements, archivistMatches, specialistOutputs });
-    expect(result.menuItems[0]?.notSafelyRemovable).toBe(true);
-    expect(result.menuItems[0]?.toggleable).toBe(false);
+    const result = await runArchitect({
+      ctx,
+      requirements: twoCards,
+      archivistMatches,
+      specialistOutputs: twoCardOutputs,
+    });
+
+    const checkout = result.menuItems.find((m) => m.sourcePresetId === 'preset-checkout');
+    const auth = result.menuItems.find((m) => m.sourcePresetId === 'preset-auth');
+
+    // Something in this estimate needs it, so it cannot be toggled off.
+    expect(checkout?.notSafelyRemovable).toBe(true);
+    expect(checkout?.toggleable).toBe(false);
+    // Nothing depends on auth — it stays removable.
+    expect(auth?.notSafelyRemovable).toBe(false);
+    expect(auth?.toggleable).toBe(true);
   });
 
   it('flags (does not silently clamp) a line item found over the four-hour cap', async () => {
@@ -219,7 +275,7 @@ describe('runArchitect — narrative + card assembly', () => {
         touchesFrontend: true,
         adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
         rationale: 'Closely matches preset "B2B cart logic" (P32).',
-        sequencing: { requires: [], blocks: [], canParallel: true },
+        sequencing: { prerequisitePresetIds: [], canParallel: true },
         presetCaveats: [],
       },
     ];
@@ -239,7 +295,7 @@ describe('runArchitect — narrative + card assembly', () => {
         coverage: 'none' as const,
         adjustments: { projectSizeDelta: '', dataVolume: 'Low' as const, integrationCount: 0, aiAssist: 'Low' as const, risk: 'Low' as const },
         rationale: 'No historical analogue found.',
-        sequencing: { requires: [], blocks: [], canParallel: true },
+        sequencing: { prerequisitePresetIds: [], canParallel: true },
         presetCaveats: [],
       },
     ];

@@ -248,6 +248,25 @@ describe('durable step runner (Inngest) does not change the result', () => {
       return JSON.parse(JSON.stringify(await fn()));
     };
 
+    // A configured scope cut from the PREVIOUS set of cards. The run below
+    // replaces every card, so this scenario is about work that no longer
+    // exists and must not survive. Its picks would cascade away on their own
+    // (they point at MenuItem rows) but the scenario shell hangs off the
+    // estimate — leaving it would render as "nothing is in scope", which is a
+    // lie rather than an empty state. AEH-235.
+    const staleCard = await db.menuItem.create({
+      data: { estimateId, taxonomyKey: 'stale.card', title: 'From a previous run' },
+      select: { id: true },
+    });
+    await db.scopeScenario.create({
+      data: {
+        estimateId,
+        name: 'Cut before the re-run',
+        createdById: userId,
+        picks: { create: [{ menuItemId: staleCard.id }] },
+      },
+    });
+
     const result = await runEstimate(estimateId, {
       db,
       modelProvider: stubModelProvider,
@@ -256,6 +275,8 @@ describe('durable step runner (Inngest) does not change the result', () => {
 
     expect(result.status).toBe('REVIEW');
     expect(result.menuItemCount).toBe(2);
+
+    expect(await db.scopeScenario.count({ where: { estimateId } })).toBe(0);
 
     // The expensive stages are each their own checkpoint — in particular one
     // per requirement, which is what keeps a step inside Vercel's ceiling.

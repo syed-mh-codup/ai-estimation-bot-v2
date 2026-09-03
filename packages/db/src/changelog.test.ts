@@ -39,7 +39,7 @@ beforeAll(async () => {
     },
   });
   await db.presetComposition.create({
-    data: { presetVersionId: clVersion.id, requires: [], blocks: [], canParallel: false },
+    data: { presetVersionId: clVersion.id, canParallel: false },
   });
 
   // Taxonomy version

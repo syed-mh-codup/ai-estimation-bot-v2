@@ -43,8 +43,9 @@ export async function allocatePresetCode(db: RawCapable): Promise<string> {
 
 /**
  * Move the sequence past the highest number already present, so an allocated
- * code can never collide with one that arrived some other way (an xlsx import
- * adding P46, a restored backup). Idempotent, and only ever moves forward —
+ * code can never collide with one that arrived some other way — a restored
+ * backup, or a bulk import of a new preset library. Idempotent, and only ever
+ * moves forward —
  * `GREATEST` with the sequence's own value means calling this can't hand back
  * a code that was already issued.
  */

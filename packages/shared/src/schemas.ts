@@ -203,8 +203,18 @@ export type DetectiveOutput = z.infer<typeof DetectiveOutputSchema>;
 // ─── Archivist IO ────────────────────────────────────────────────────────────
 
 export const SequencingSchema = z.object({
-  requires: z.array(z.string()).default([]),
-  blocks: z.array(z.string()).default([]),
+  /**
+   * Preset ids this preset needs delivered before it — resolved transitively
+   * from the dependency graph (AEH-242), not the loose code strings the old
+   * `requires`/`blocks` arrays held.
+   *
+   * PRESET ids, never requirement ids. Conflating the two is exactly what left
+   * `notSafelyRemovable` dead in production: the Architect tested these values
+   * against `REQ-001`-shaped ids they could never match, and the only test
+   * covering it hand-fed a shape the Archivist never produced. The name says
+   * which it is so that cannot recur.
+   */
+  prerequisitePresetIds: z.array(z.string()).default([]),
   canParallel: z.boolean().default(true),
 });
 
@@ -234,7 +244,7 @@ export const ArchivistMatchSchema = z.object({
   adjustments: ArchivistAdjustmentsSchema,
   /** Specific rationale, e.g. "matches B2B contextual pricing via @inContext, but adds volume tiers not in P28". */
   rationale: z.string(),
-  sequencing: SequencingSchema.default({ requires: [], blocks: [], canParallel: true }),
+  sequencing: SequencingSchema.default({ prerequisitePresetIds: [], canParallel: true }),
   /**
    * What the matched preset records about DELIVERING this kind of work, as
    * opposed to sizing it: its notes (assumptions and exclusions an admin typed),
@@ -402,3 +412,36 @@ export const SearchResultSchema = z.object({
   snippet: z.string(),
 });
 export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+// ─── Cartographer ────────────────────────────────────────────────────────────
+
+/**
+ * One dependency the Cartographer read out of an estimate's menu card. AEH-235.
+ *
+ * Cards are referenced by their 1-based position in the list the model was
+ * shown, not by id. Cuids are noise that invites transcription errors, and
+ * `taxonomyKey` is not unique within an estimate (it is literally `'custom'`
+ * for every hand-added card). The mapping back to ids happens in code, so a
+ * number the model invents fails to resolve and is dropped rather than
+ * silently landing on the wrong card.
+ */
+export const CartographerEdgeSchema = z.object({
+  /** The card that cannot be delivered first. */
+  dependent: z.number().int().positive(),
+  /** The card that has to exist before it. */
+  prerequisite: z.number().int().positive(),
+  /**
+   * Why, in one sentence. Defaulted rather than required: an edge with a sound
+   * direction and no explanation is still worth keeping, and refusing the whole
+   * response over a missing string would throw away the rest of the graph.
+   */
+  why: z.string().default(''),
+});
+export const CartographerOutputSchema = z.object({
+  edges: z.array(CartographerEdgeSchema).default([]),
+  /** Cards nothing in the estimate runs without. Often empty, and that is fine. */
+  foundation: z.array(z.number().int().positive()).default([]),
+  /** Anything a human should know about how this scope was read. */
+  notes: z.string().default(''),
+});
+export type CartographerOutput = z.infer<typeof CartographerOutputSchema>;

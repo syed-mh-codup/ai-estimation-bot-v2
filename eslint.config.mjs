@@ -47,7 +47,24 @@ export default [
     },
   },
   {
-    // src/generated is Prisma's emitted client — machine-written, not ours to lint.
-    ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', '**/src/generated/**'],
+    ignores: [
+      '**/dist/**',
+      '**/.next/**',
+      '**/node_modules/**',
+      // Prisma's emitted client — machine-written, not ours to lint.
+      '**/src/generated/**',
+      // Local agent-harness config, all of it gitignored and none of it ours:
+      // graft drops a hooks/statusline .cjs into several of these. They are
+      // CommonJS with Node globals, so they fell through to bare
+      // js.configs.recommended and reported `process` as undefined — 14 errors
+      // that made `pnpm lint` useless as a signal locally. CI never saw them
+      // (clean checkout), which is the worst version of the problem: red for
+      // you, green for everyone else.
+      '**/.claude/**',
+      '**/.commandcode/**',
+      '**/.cursor/**',
+      '**/.gemini/**',
+      '**/.kiro/**',
+    ],
   },
 ];

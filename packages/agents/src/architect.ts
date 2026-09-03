@@ -87,11 +87,26 @@ export function assembleCardsFromSpecialists(
   return Array.from(cards.values());
 }
 
-/** Requirements some other requirement's sequencing.requires depends on — their card can't be safely removed. */
-function computeRequiredRequirementIds(archivistMatches: ArchivistMatch[]): Set<string> {
+/**
+ * Preset ids that something else in this estimate depends on. A card anchored to
+ * one of them cannot be switched off without breaking the card that needs it.
+ *
+ * This was broken from the day it was written and shipped that way (AEH-242).
+ * It collected `sequencing.requires` — which held PRESET codes — into a set that
+ * was then tested against `card.requirementIds`, which are `REQ-001`-shaped. The
+ * two never matched, so `notSafelyRemovable` was false for every card in
+ * production, and the editor happily offered to remove foundation work. The one
+ * test covering it passed because it hand-fed `requires: ['REQ-001']`, a shape
+ * the Archivist has never produced. Renaming the field to
+ * `prerequisitePresetIds` is what finally made the compiler say so.
+ *
+ * The set is of preset ids on purpose: cards reach the dependency graph through
+ * `sourcePresetId`, and that is the only identifier both sides share.
+ */
+function computeDependedOnPresetIds(archivistMatches: ArchivistMatch[]): Set<string> {
   const required = new Set<string>();
   for (const m of archivistMatches) {
-    for (const r of m.sequencing.requires) required.add(r);
+    for (const presetId of m.sequencing.prerequisitePresetIds) required.add(presetId);
   }
   return required;
 }
@@ -228,7 +243,7 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
 
   const cards = assembleCardsFromSpecialists(requirements, specialistOutputs);
   const consistencyFlags = computeConsistencyFlags(cards);
-  const requiredRequirementIds = computeRequiredRequirementIds(archivistMatches);
+  const dependedOnPresetIds = computeDependedOnPresetIds(archivistMatches);
 
   const llmResult =
     cards.length === 0
@@ -252,8 +267,12 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
 
   const menuItems: MenuItem[] = cards.map((card) => {
     const meta = metaByCardId.get(card.id);
-    const notSafelyRemovable = card.requirementIds.some((id) => requiredRequirementIds.has(id));
     const bestMatch = bestMatchForCard(card, archivistMatches);
+    // Safe to remove unless something else in this estimate needs the preset
+    // this card is anchored to. A card that matched nothing has no anchor and so
+    // nothing can depend on it — `undefined` is genuinely removable, not
+    // unknown.
+    const notSafelyRemovable = bestMatch?.presetId !== undefined && dependedOnPresetIds.has(bestMatch.presetId);
     // Parsed, not asserted: the literal is input-shaped, and `MenuItem` is the
     // OUTPUT type, where every `.default()` field is required. Annotating an
     // input literal with the output type is the drift that left 47 errors

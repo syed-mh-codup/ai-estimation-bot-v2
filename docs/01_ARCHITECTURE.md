@@ -21,7 +21,7 @@ is **written back into the same versioned database** to grow the historical corp
 /apps
   /web            Next.js (App Router) — UI, auth, API route handlers
 /packages
-  /db             Prisma schema, client, migrations, seed (xlsx importer)
+  /db             Prisma schema, client, migrations, bootstrap seed
   /agents         Mastra: supervisor, agents, tools, prompts loader, eval harness
   /core           Domain logic: complexity, taxation, baseline, menu-card assembly, versioning
   /providers      Swappable adapters: model router (OpenRouter), embeddings, web search, MCP, Sheets
