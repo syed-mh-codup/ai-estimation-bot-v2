@@ -503,6 +503,32 @@ describe('runArtifact', () => {
     expect(row.content).toContain('id="panel-sec-1"');
   });
 
+  it('keeps the spend record when the document is deleted', async () => {
+    // Deleting an artifact to tidy a list must never quietly reduce what the
+    // month appears to have cost. The sections go with it (they mean nothing
+    // alone); the ModelUsage rows survive with a null artifactId, still
+    // attributed to the estimate. This is enforced by the schema — Cascade on
+    // one relation, SetNull on the other — so it is asserted against a real
+    // database rather than trusted.
+    const artifactId = await makeArtifact(['cards']);
+    await runArtifact({ db, artifactId, modelProvider: stubProvider({ sections: 2 }).provider });
+
+    expect(await db.modelUsage.count({ where: { artifactId } })).toBe(3);
+    expect(await db.artifactSection.count({ where: { artifactId } })).toBe(2);
+
+    await db.estimateArtifact.delete({ where: { id: artifactId } });
+
+    expect(await db.artifactSection.count({ where: { artifactId } })).toBe(0);
+    const survivors = await db.modelUsage.findMany({
+      where: { estimateId, kind: 'ARTIFACT' },
+      select: { artifactId: true, costUsd: true },
+    });
+    expect(survivors).toHaveLength(3);
+    expect(survivors.every((u) => u.artifactId === null)).toBe(true);
+    // And the money is still countable.
+    expect(survivors.reduce((s, u) => s + (u.costUsd ?? 0), 0)).toBeGreaterThan(0);
+  });
+
   it('refuses rather than generating a document about nothing', async () => {
     // Every requested section empty means the model would be asked to write
     // about an estimate it cannot see, and it would fill the gap by inventing

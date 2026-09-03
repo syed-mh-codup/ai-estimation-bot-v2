@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
 import type { ArtifactOutline } from '@repo/shared';
 import { auth } from '@/lib/auth';
@@ -8,6 +9,27 @@ import { Pill } from '@/components/ui/pill';
 import { ArtifactFrame } from './ArtifactFrame';
 import { ArtifactProgress } from './ArtifactProgress';
 import { ResumeButton } from './ResumeButton';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { deleteArtifact } from './actions';
+
+/**
+ * Delete, then go back to the estimate.
+ *
+ * A thin wrapper over the action so the page can bind it to ConfirmDialog's
+ * form: the authorization and the state guard live in `deleteArtifact`, where
+ * they are unit-tested without a browser.
+ */
+async function deleteArtifactAction(formData: FormData) {
+  'use server';
+  const artifactId = formData.get('artifactId');
+  const estimateId = formData.get('estimateId');
+  if (typeof artifactId !== 'string' || typeof estimateId !== 'string') return;
+
+  await deleteArtifact(artifactId);
+
+  revalidatePath(`/estimates/${estimateId}`);
+  redirect(`/estimates/${estimateId}`);
+}
 
 /**
  * One generated document. AEH-239.
@@ -43,6 +65,10 @@ export default async function ArtifactPage({
   // already guaranteed; re-validating here would break a progress view over a
   // document that is generating perfectly well.
   const outline = (artifact.outline ?? null) as ArtifactOutline | null;
+
+  // An Inngest function is writing to this row, so it cannot be deleted yet.
+  // The control is hidden rather than shown and then refused.
+  const generating = artifact.status === 'RUNNING' || artifact.status === 'IDLE';
 
   // The run that produced the numbers in this document has since been
   // superseded. Not an error — an artifact is a snapshot and says so in its own
@@ -156,6 +182,37 @@ export default async function ArtifactPage({
       {artifact.status === 'DONE' && artifact.content && (
         <div className="mt-5">
           <ArtifactFrame html={artifact.content} filename={filename} />
+        </div>
+      )}
+
+      {/* Admin only, and last on the page: destructive, rare, and it should not
+          sit next to Download where a mis-click is expensive. */}
+      {session.user.role === 'ADMIN' && !generating && (
+        <div className="mt-8 max-w-[720px] border-t border-line-soft pt-4">
+          <ConfirmDialog
+            action={deleteArtifactAction}
+            hidden={{ artifactId: artifact.id, estimateId }}
+            title="Delete this document?"
+            description={
+              <>
+                <span className="font-medium text-ink">{artifact.title}</span> and its{' '}
+                {artifact.sections.length}{' '}
+                {artifact.sections.length === 1 ? 'section' : 'sections'} will be permanently
+                deleted. This can&rsquo;t be undone, and anyone you have already sent the file to
+                keeps their copy. What it cost stays on the estimate&rsquo;s spend.
+              </>
+            }
+            confirmLabel="Delete document"
+            trigger={
+              <button
+                type="button"
+                className="text-xs text-ink-3 hover:text-brick"
+                data-testid="delete-artifact"
+              >
+                Delete this document
+              </button>
+            }
+          />
         </div>
       )}
     </div>
