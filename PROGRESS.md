@@ -9,30 +9,167 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## Current: nothing in flight
+## Current: AEH-239 — artifact generation alongside the WBS (PLANNED, awaiting approval)
 
-AEH-235 is Done, merged and on master at `e3abf01`. The implementation record
-lives on the ticket, not here — including the framing (the estimate owns its
-dependency graph; the preset library's is a record, never read back), the
-Cartographer, the saved configurations and what a re-derive keeps.
+Branch `feat/aeh-239-artifacts`. Nothing implemented yet — this is the agreed
+shape, written down before any code so a crashed session can resume from it.
 
-The branch `feat/aeh-235-scope-configurator` is fully contained in master and can
-be deleted.
+### The hard requirement, and what actually satisfies it
 
-Four things this left for whoever picks up next.
+"I shouldn't have to come back to the code to add support for a new artifact."
+So an artifact TYPE is a database row, never a Prisma enum and never a switch
+statement. Three things have to be data for that to hold, and all three are
+versioned text an admin edits:
+
+  the prompt          what the model is asked to produce
+  the corpus sections which slices of the estimate it is shown
+  the render template the self-contained HTML shell its output drops into
+
+What stays code, deliberately: the FORMAT. A format is a renderer, and a new
+renderer is a code change by definition. The ticket says as much — "a renderer
+chosen by format rather than by type". Two formats ship (HTML, MARKDOWN); the
+six artifact types named on the ticket all fit inside them, which is the point.
+
+### The 300s ceiling decides the generation shape
+
+The requester's own reference artifact, scope-atlas-agent-intelligence-v1.html
+on AEH-235, is 100,605 bytes. That is roughly 25,000 output tokens. On Vercel
+Hobby's hard 300s per-step ceiling a heavy model cannot reliably stream that in
+one call — it is 300-500s at realistic rates. Asking the model to write the
+whole page is therefore not a safe default.
+
+So the model produces DATA, and a template renders it:
+
+  1. The active type version's prompt + selected corpus sections go to the
+     model. It returns JSON — 35 entities, 12 journeys, whatever the type is
+     about. Call it 6-10k output tokens, comfortably inside the ceiling.
+  2. That JSON is substituted into the type's render template at the literal
+     placeholder `__ARTIFACT_DATA__`, inside a
+     `<script type="application/json">` tag. The template's own script renders
+     it. One string replace, no templating engine, no new dependency.
+  3. The result is one self-contained HTML document, stored whole.
+
+The ~90KB of tabs, styling and click-to-trace behaviour lives in the template,
+written once and reviewed once, instead of being re-hallucinated per estimate.
+A typo in the layout is fixed by editing the template — no model call, no spend.
+
+A type may leave `renderTemplate` null, in which case the model's output IS the
+document. That is the escape hatch for small artifacts (a one-page tranche
+impact narrative) where 25k tokens is not in question. Which path a type takes
+is data, not code.
+
+### Data model
+
+  ArtifactType         id, key (slug, unique), name, description, format,
+                       enabled, order, createdAt
+  ArtifactTypeVersion  id, artifactTypeId, version, promptBody, modelString,
+                       corpusSections String[], renderTemplate String?, active,
+                       changeReason, changeMotivation, createdAt, createdBy
+  EstimateArtifact     id, estimateId, artifactTypeId, typeVersion Int,
+                       format, title, content String, inputs Json?,
+                       createdAt, createdById
+
+`ArtifactTypeVersion` is `PromptVersion` with three more fields and a FK
+instead of an enum id — the same single-active-per-parent invariant, held by
+the same `$transaction` pattern as `activateVersion`.
+
+`typeVersion` is snapshotted on the artifact: a delivered document must still
+say which prompt produced it after the type is edited. `inputs Json?` exists
+from day one because re-allocation provenance and tranche impact both need to
+name a saved ScopeScenario, and adding that column later is exactly the
+migration this ticket is trying to abolish.
+
+No status column and no Inngest. Same reasoning as the Cartographer: there is
+nothing durable to resume, so the row is written on success and the failure
+goes down the stream. Types are archived via `enabled`, never hard-deleted —
+generated artifacts are client deliverables and must keep their lineage.
+
+One-time enum changes, not per-type: `ArtifactFormat { HTML, MARKDOWN }`,
+`UsageKind += ARTIFACT`, and `ModelUsage.artifactId` so spend attributes to the
+document that caused it.
+
+### The dossier
+
+One `buildArtifactDossier(db, estimateId)` assembling independently selectable
+named sections — sow, requirements, cards, roles, rollup, graph, hiddenWork,
+scenarios, narrative. A type ticks the ones it needs. Adding a TYPE touches no
+code; adding a SECTION does, and that is a change to what data exists at all,
+not to artifact support.
+
+A third corpus builder, after `buildOracleCorpus` and `buildScopeCorpus`, needs
+the reason Cartographer wrote down for diverging: Oracle's corpus omits
+`MenuItem.id`, is explicitly marked as the seam Oracle's retrieval work will
+change, and is a chat corpus rather than a selectable one. The dossier is
+section-addressable by construction, which neither of the others is.
+
+### Slices
+
+  1  Schema + admin. Migration, then `/admin/artifact-types` — list, create,
+     edit-creates-a-version, version history, activate. Create flow mirrors
+     `/admin/presets` (prompts has no create); history mirrors
+     `/admin/prompts/[kind]/[version]`. Model picker reuses
+     `fetchModelOptions()`. Nothing generates yet.
+     Tests: single-active invariant, slug derivation and collision.
+
+  2  Dossier + generator. `packages/agents/src/artifacts.ts` —
+     `buildArtifactDossier`, `renderDossier`, `runArtifact`. Loads the active
+     type version, builds only the ticked sections, calls the model, records
+     usage against ARTIFACT + artifactId, substitutes the template, writes the
+     row. No UI.
+     Tests: section selection, unknown-section tolerance, template
+     substitution, placeholder-absent handling, fence stripping, the
+     null-template direct path.
+
+  3  Generate and view. SSE `POST /api/estimates/[id]/artifacts`, shaped like
+     scope-map down to the 401/404/409/503 ladder and errors-in-the-stream.
+     Compact "Artifacts" card in the estimate rail — count, link, generate
+     picker, and nothing more, because AEH-302 is already about that rail
+     being overloaded. Full view at `/estimates/[id]/artifacts/[artifactId]`.
+     Stub provider under `OPENROUTER_STUB`, mirroring
+     `cartographer-provider.ts`, deriving from the corpus it was handed rather
+     than returning a canned payload.
+
+  4  Seed the six types as data, and prove one end to end. Targeted script
+     `db:seed:artifact-types` — never the bootstrap seed, which would revert
+     ten live prompts to their v1 bodies. `graft build`, PROGRESS.md, and the
+     implementation record onto the ticket.
+
+### Rendering safely
+
+`<iframe sandbox="allow-scripts" srcdoc={content}>`. `allow-scripts` WITHOUT
+`allow-same-origin` — the pair together defeats the sandbox entirely, and the
+frame must not be able to reach our origin, cookies or DOM. The app sets no CSP
+of its own, so the generated document carries its own in a `<meta>` tag
+(`default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';
+img-src data:`), which makes "self-contained" enforced rather than hoped for.
+
+A Download button, because handing the file to a client is the entire point.
+A staleness chip when `artifact.createdAt < estimate.runFinishedAt`: the run
+that produced this artifact's numbers has since been superseded.
+
+### Traps this plan already knows about
+
+- `content` can be 100KB. Every list query selects everything BUT `content`.
+- AEH-306: every existing agent prompt still asserts the preset library is the
+  P01-P45 ecommerce range, which is false. The new artifact prompts must not
+  repeat that mistake — they describe no library at all.
+- The e2e suite is not green on master (AEH-282), so slice 3's spec may not be
+  gateable. Unit coverage carries the weight, as it did on AEH-240.
+- Component tests still do not exist here. Logic stays out of components —
+  `artifact-dto.ts` and a pure template-substitution module, testable in ms.
+
+### Still carried forward (not AEH-239's, but still true)
 
 **Component tests do not exist in this repo.** `vitest.config.ts` is
 `environment: 'node'`, the include pattern is `*.test.ts` not `*.test.tsx`, and
 neither jsdom nor testing-library is installed. So logic inside a React
 component can only be reached by Playwright, at ~5 min per spec file and ~13 min
-for the suite. The workaround AEH-235 used was to keep logic out of components
-(`scope-interaction.ts`, `scope-dto.ts` — 40-odd tests in ~150ms). Adding jsdom
-plus testing-library is the real fix and is an untaken dependency decision.
+for the suite. Adding jsdom plus testing-library is the real fix and is an
+untaken dependency decision.
 
 **The e2e suite is not green on master.** `estimates-create.spec.ts:17` fails
 reproducibly there; `oracle.spec.ts` fails non-deterministically with a
-different set each run. Both verified by stashing and re-running. Recorded on
-AEH-282 with detail.
+different set each run. Recorded on AEH-282 with detail.
 
 **The "Load bearing" chip on the estimate screen is dead** and knowingly left
 alone — `PresetDependency` is empty, so `notSafelyRemovable` is false for every
@@ -42,13 +179,17 @@ card. Accepted debt, wants its own ticket. See [[preset-graph-is-empty]].
 ecommerce/B2B range P01–P45. Voiding that library made it false in all ten, and
 it degrades matching silently rather than erroring. Should be scheduled ahead of
 the preset wave. The bodies exist only in Neon dev/main, so it is a data change
-with a runbook, not a code edit. The new CARTOGRAPHER prompt deliberately does
-not repeat the mistake.
+with a runbook, not a code edit. The CARTOGRAPHER prompt deliberately does not
+repeat the mistake, and neither will the artifact prompts.
 
 **Undecided from AEH-242:** it was §2 of six. §3 (AEH-243), §3b (AEH-245), §4
 (AEH-246) and §5 each still want their own migration against a preset model that
 is being reshaped anyway. Landing them as one reshape may be cheaper than four
 sequential ones. Raised, never settled — worth deciding before the next starts.
+
+**AEH-235 is Done**, merged and on master at `e3abf01`; its record lives on the
+ticket. The branch `feat/aeh-235-scope-configurator` is contained in master and
+can be deleted.
 
 ## Databases
 
