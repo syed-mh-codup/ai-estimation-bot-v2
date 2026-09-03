@@ -15,21 +15,31 @@ const DB_URL =
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
 
 const created: string[] = [];
-let sequenceBefore = '';
 
 beforeAll(async () => {
   await db.$connect();
-  // A sequence is shared, mutable state that does NOT roll back with a
-  // transaction or a row delete. These tests consume codes (and one deliberately
-  // jumps to P99999), so without restoring it afterwards every run would leave
-  // the environment allocating from a higher number than it should — a test
-  // permanently changing the data it ran against.
-  sequenceBefore = await peekNext();
 });
 
 afterAll(async () => {
+  // Rows created here are cleaned up. The SEQUENCE is deliberately left where
+  // it ended up.
+  //
+  // This teardown used to rewind it with setval, to avoid "permanently changing
+  // the data it ran against". That is the one thing it must not do. The
+  // sequence is global mutable state shared with every other test file running
+  // against this same database, and rewinding it re-issues numbers that a
+  // concurrent test already has Preset rows for — which surfaces as
+  // `Unique constraint failed on the fields: (code)` in whichever file happens
+  // to be allocating at the time, most often writeback-promote. It is
+  // scheduling-dependent, so it hides until an unrelated new test file shifts
+  // the worker layout, which is exactly how it was found (AEH-316).
+  //
+  // Leaving it advanced is both harmless and the documented contract: see
+  // preset-code.ts, "a gap is harmless, a reissued code would collide with a
+  // unique constraint". Drift is self-correcting anyway, because
+  // syncPresetCodeSequence only ever moves the sequence forward past the real
+  // max.
   await db.preset.deleteMany({ where: { id: { in: created } } });
-  await db.$executeRawUnsafe(`SELECT setval('preset_code_seq', ${sequenceBefore}, false)`);
   await db.$disconnect();
 });
 
