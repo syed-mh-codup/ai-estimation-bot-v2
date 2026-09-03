@@ -47,7 +47,21 @@ export function ArtifactsPanel({
   const [choice, setChoice] = useState(types[0]?.key ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [plan, setPlan] = useState<{ title: string; sections: string[] } | null>(null);
+  const [plan, setPlan] = useState<{
+    title: string;
+    sections: string[];
+    /** Ticked sections this estimate has no data for. */
+    empty: { key: string; label: string }[];
+    /** Ticked keys this build no longer knows about. */
+    retired: string[];
+  } | null>(null);
+  /**
+   * Which slow thing is in flight. `busy` alone was not enough: the preview
+   * link and the Generate button share it, so a preview left the link merely
+   * faded with its text unchanged, which reads as a dead button for however
+   * long the model takes.
+   */
+  const [pending, setPending] = useState<'none' | 'preview' | 'generate'>('none');
 
   const anyRunning = rows.some((r) => r.status === 'RUNNING' || r.status === 'IDLE');
 
@@ -80,6 +94,7 @@ export function ArtifactsPanel({
   const preview = async (): Promise<void> => {
     if (!choice) return;
     setBusy(true);
+    setPending('preview');
     setError(null);
     setPlan(null);
     try {
@@ -91,6 +106,8 @@ export function ArtifactsPanel({
       const data = (await res.json()) as {
         error?: string;
         outline?: { title: string; sections: { title: string }[] };
+        empty?: { key: string; label: string }[];
+        retired?: string[];
       };
       if (!res.ok || !data.outline) {
         setError(data.error ?? 'Could not plan the document.');
@@ -99,17 +116,24 @@ export function ArtifactsPanel({
       setPlan({
         title: data.outline.title,
         sections: data.outline.sections.map((s) => s.title),
+        // Kept, not discarded. "You ticked Hidden work and this estimate has
+        // none" is the most useful thing a preview can say, and it is the
+        // reason to look before generating.
+        empty: data.empty ?? [],
+        retired: data.retired ?? [],
       });
     } catch {
       setError('Could not reach the server.');
     } finally {
       setBusy(false);
+      setPending('none');
     }
   };
 
   const generate = async (): Promise<void> => {
     if (!choice) return;
     setBusy(true);
+    setPending('generate');
     setError(null);
     setPlan(null);
     try {
@@ -128,6 +152,7 @@ export function ArtifactsPanel({
       setError('Could not reach the server.');
     } finally {
       setBusy(false);
+      setPending('none');
     }
   };
 
@@ -175,7 +200,7 @@ export function ArtifactsPanel({
             className="mt-1.5 text-[11.5px] text-ink-3 underline-offset-2 hover:text-green hover:underline disabled:opacity-50"
             data-testid="preview-artifact-plan"
           >
-            Preview the plan first
+            {pending === 'preview' ? 'Planning…' : 'Preview the plan first'}
           </button>
         )}
 
@@ -200,6 +225,25 @@ export function ArtifactsPanel({
               Nothing generated yet — {plan.sections.length}{' '}
               {plan.sections.length === 1 ? 'section' : 'sections'} would be written.
             </p>
+
+            {/* The reason to look before generating. A section the brief asks
+                about but this estimate has no data for produces a thin or
+                hedged document, and it is far cheaper to learn that here than
+                after paying for every section. */}
+            {plan.empty.length > 0 && (
+              <p className="mt-1.5 text-[11px] text-bronze-ink" data-testid="artifact-plan-empty">
+                Nothing to read in: {plan.empty.map((e) => e.label).join(', ')}. This estimate has
+                none yet, so the document will have to work without{' '}
+                {plan.empty.length === 1 ? 'it' : 'them'}.
+              </p>
+            )}
+
+            {plan.retired.length > 0 && (
+              <p className="mt-1.5 text-[11px] text-bronze-ink" data-testid="artifact-plan-retired">
+                This type asks for {plan.retired.join(', ')}, which no longer exists. Untick it on
+                the artifact type and save.
+              </p>
+            )}
           </div>
         )}
 

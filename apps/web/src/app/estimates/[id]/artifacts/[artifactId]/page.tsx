@@ -1,10 +1,13 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@repo/db';
+import type { ArtifactOutline } from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { ArtifactFrame } from './ArtifactFrame';
+import { ArtifactProgress } from './ArtifactProgress';
+import { ResumeButton } from './ResumeButton';
 
 /**
  * One generated document. AEH-239.
@@ -35,6 +38,11 @@ export default async function ArtifactPage({
   // Checked rather than assumed: an artifact id from another estimate would
   // otherwise render here under this estimate's breadcrumb.
   if (!artifact || artifact.estimateId !== estimateId) notFound();
+
+  // Written by the outline step after passing its schema, so the shape is
+  // already guaranteed; re-validating here would break a progress view over a
+  // document that is generating perfectly well.
+  const outline = (artifact.outline ?? null) as ArtifactOutline | null;
 
   // The run that produced the numbers in this document has since been
   // superseded. Not an error — an artifact is a snapshot and says so in its own
@@ -110,29 +118,40 @@ export default async function ArtifactPage({
                 {artifact.sections.length}{' '}
                 {artifact.sections.length === 1 ? 'section was' : 'sections were'} written before it
                 stopped, and{' '}
-                {artifact.sections.length === 1 ? 'it is' : 'they are'} kept — generating again
-                re-does only what is missing.
+                {artifact.sections.length === 1 ? 'it is' : 'they are'} kept.
               </p>
             )}
+
+            {/* Resume, not Generate. Generate would start a NEW document and
+                pay for every section again; this re-runs the same one against
+                the plan it already has. */}
+            <ResumeButton
+              estimateId={estimateId}
+              artifactId={artifact.id}
+              written={artifact.sections.length}
+              planned={outline?.sections.length ?? 0}
+            />
           </CardBody>
         </Card>
       )}
 
-      {artifact.status === 'RUNNING' && (
-        <Card className="mt-5 max-w-[720px]">
-          <CardBody>
-            <Eyebrow>{artifact.stage ?? 'Working'}</Eyebrow>
-            <p className="mt-1.5 text-[13px] text-ink-2">
-              {artifact.sections.length > 0
-                ? `${artifact.sections.length} ${
-                    artifact.sections.length === 1 ? 'section' : 'sections'
-                  } written so far.`
-                : 'Planning the document.'}{' '}
-              This page shows the finished document when it is done.
-            </p>
-          </CardBody>
-        </Card>
-      )}
+      {/* Server-rendered once, then kept live by its own poll. The page is a
+          server component, so without this it showed a frozen line for the
+          whole of a multi-minute generation — accurate at first paint and
+          misleading a second later. */}
+      <ArtifactProgress
+        estimateId={estimateId}
+        artifactId={artifact.id}
+        initial={{
+          status: artifact.status,
+          stage: artifact.stage,
+          pct: artifact.pct,
+          error: artifact.error,
+          title: outline?.title ?? null,
+          sections: (outline?.sections ?? []).map((s) => ({ id: s.id, title: s.title })),
+          written: artifact.sections.map((s) => s.sectionId),
+        }}
+      />
 
       {artifact.status === 'DONE' && artifact.content && (
         <div className="mt-5">
