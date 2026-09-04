@@ -63,7 +63,6 @@ export async function GET(
     stage: artifact.stage,
     pct: artifact.pct,
     error: artifact.error,
-    title: outline?.title ?? null,
     sections: (outline?.sections ?? []).map((s) => ({ id: s.id, title: s.title })),
     written: artifact.sections.map((s) => s.sectionId),
   });

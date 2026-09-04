@@ -722,6 +722,9 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
       estimateId: true,
       artifactTypeId: true,
       typeVersion: true,
+      // The document's name. Defaulted to the type's name when the row was
+      // created and editable from then on — see the update below the outline.
+      title: true,
       artifactType: { select: { name: true } },
       estimate: { select: { title: true } },
       // Present when this is a RESUME of a generation that failed part-way.
@@ -769,9 +772,16 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
 
   // Persisted before any section is written, so the UI can show the plan while
   // the slow part runs, and so a failure halfway is still readable afterwards.
+  //
+  // `title` is deliberately NOT written here. The artifact's name is the type's
+  // name, set when the row is created, and it belongs to whoever is going to
+  // send the document — they can rename it. The outline still carries a title
+  // of its own; it is the model's suggestion and nothing reads it. A generation
+  // that renamed the row would silently undo a rename made while it ran, and
+  // would make the same type come out under a different name every time.
   await db.estimateArtifact.update({
     where: { id: artifactId },
-    data: { title: outline.title, outline: outline as unknown as object },
+    data: { outline: outline as unknown as object },
   });
 
   await report({
@@ -908,6 +918,15 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
       select: { sectionId: true, title: true, html: true },
     });
 
+    // Re-read rather than using the copy from the top of this function, for the
+    // same reason the sections are re-read: the name is the user's, so it may
+    // have been changed while the sections were being written, and the document
+    // should go out under the name it has now.
+    const named = await db.estimateArtifact.findUniqueOrThrow({
+      where: { id: artifactId },
+      select: { title: true },
+    });
+
     const shellSections: ShellSection[] = rows.map((r) => ({
       sectionId: r.sectionId,
       title: r.title,
@@ -916,7 +935,7 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
 
     const html = assembleArtifact(
       {
-        title: outline.title,
+        title: named.title,
         subtitle: artifact.estimate.title,
         footer: `${artifact.artifactType.name} · generated from the estimate "${artifact.estimate.title}" on ${new Date().toISOString().slice(0, 10)}. Figures are the estimate's own at the time of generation.`,
       },
@@ -940,5 +959,5 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
 
   await report({ stage: 'Done', pct: 100, sections: outline.sections.length, written: outline.sections.length });
 
-  return { title: outline.title, sections: outline.sections.length, chars: content.length };
+  return { title: artifact.title, sections: outline.sections.length, chars: content.length };
 }
