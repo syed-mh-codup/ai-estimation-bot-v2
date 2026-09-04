@@ -68,6 +68,39 @@ import type { StepRunner } from './run-estimate';
 const SECTION_WORD_BUDGET = 700;
 
 /**
+ * How much thinking an artifact call is allowed, and how long it may take.
+ *
+ * Both are AEH-321. Every generation before it died the same way: one step ran
+ * past Vercel's 300s, the platform killed the process with
+ * FUNCTION_INVOCATION_TIMEOUT, and Inngest recorded a bare "your server
+ * returned HTTP 504" with no step output and no clue which section did it.
+ *
+ * Measured against the exact ERD section that had been taking runs down — same
+ * prompt, same model, one variable:
+ *
+ *   default        143.4s   41,336 completion tokens (33,542 of them reasoning)
+ *   effort 'low'    87.3s    3,909 completion tokens (1,396 of them reasoning)
+ *
+ * Reasoning was ~80% of the wall clock and ~90% of the tokens, and it is billed
+ * as completion, so turning it down is the same lever for the deadline and the
+ * bill. The visible document survives it: 14,470 characters of HTML against
+ * 26,876, which is nearer the planned budget anyway.
+ *
+ * Not `{ enabled: false }`. That was measured too: the same call with reasoning
+ * off hung for over nine minutes and never returned. Down, never off.
+ *
+ * The timeout is the guard rail rather than the fix. 240s leaves ~60s of the
+ * function's 300s for the step to record a real error, so a slow call now fails
+ * saying which model exceeded what — and the sections already written survive
+ * for the resume, which a 504 also allowed but never explained.
+ *
+ * Both are constants here and belong in the artifact type's own version row
+ * next to `modelString`, which an admin already edits. That is AEH-322.
+ */
+const ARTIFACT_REASONING = { effort: 'low' } as const;
+const ARTIFACT_TIMEOUT_MS = 240_000;
+
+/**
  * There is deliberately NO max_tokens on the section call. It was tried, on
  * 3 September, and it made things worse.
  *
@@ -152,8 +185,14 @@ class "scroll-x" so it scrolls itself. The page must never scroll sideways.
 
 Images cannot be fetched. Draw with HTML, CSS and inline SVG.
 
-Write the section, in full, to the brief. Do not summarise and do not leave
-placeholders for a human to fill in.
+Aim for about ${SECTION_WORD_BUDGET} words of rendered content. This is the
+figure your section was PLANNED against — the outline split the document so that
+each part would fit it — and it is a production constraint, not a style note: a
+section that runs long takes the whole document down with a timeout.
+
+Cover your whole brief, and leave no placeholders for a human to fill in. If the
+brief looks bigger than the budget, write the part that matters most and trust
+the sections around you to carry the rest — they were planned to.
 `.trim();
 
 /**
@@ -219,6 +258,8 @@ async function planOutline(
       // plan the same document twice. It is also what makes the dry run
       // predictive rather than merely indicative.
       temperature: 0,
+      reasoning: ARTIFACT_REASONING,
+      timeoutMs: ARTIFACT_TIMEOUT_MS,
     },
     ArtifactOutlineSchema,
     'ARTIFACT_OUTLINE',
@@ -519,6 +560,8 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
         // laying out a wireframe or an entity diagram is design work, and a
         // deterministic setting here produces stilted, samey documents.
         temperature: 0.4,
+        reasoning: ARTIFACT_REASONING,
+        timeoutMs: ARTIFACT_TIMEOUT_MS,
       });
       await recorder.record({ kind: 'ARTIFACT', model: result.model, usage: result.usage });
 
