@@ -179,7 +179,11 @@ function buildDepartmentTab(role: RoleKind, title: string, menuItems: MenuItem[]
       hiddenColumns: [DEPT_COLUMNS.cardId],
       numericColumns: [DEPT_COLUMNS.base, DEPT_COLUMNS.taxed],
       columnWidths: [
-        { column: DEPT_COLUMNS.label, pixels: 320 },
+        // Wide enough for a full line item description. These rows write an
+        // empty string into the phase column, which Sheets counts as occupied,
+        // so a long description is clipped at the column edge rather than
+        // overflowing into the space beside it.
+        { column: DEPT_COLUMNS.label, pixels: 460 },
         { column: DEPT_COLUMNS.phase, pixels: 110 },
         { column: DEPT_COLUMNS.base, pixels: 70 },
         { column: DEPT_COLUMNS.taxed, pixels: 70 },
@@ -281,10 +285,15 @@ function buildSummaryTab(menuItems: MenuItem[], meta: ExportMeta): SpreadsheetTa
   );
 
   const head: Row[] = [
-    [BANNER],
+    // Column B, not A. A carries the join key and is hidden, and a disclaimer
+    // in a hidden column is a disclaimer nobody reads — which only a look at
+    // the rendered sheet shows, since the cell is present and correct.
+    ['', BANNER],
     [],
-    ['', `${meta.estimateTitle} — Estimate`, '', '', '', '', `Exported ${formatDate(meta.exportedAt)}`],
-    [],
+    ['', `${meta.estimateTitle} — Estimate`],
+    // Its own row rather than the far end of the title's. A long estimate name
+    // overflows column B and collides with anything sharing the row.
+    ['', `Exported ${formatDate(meta.exportedAt)}`],
     departmentHeadings(''),
     ['', 'ESTIMATE TOTAL', ...totals],
     [],

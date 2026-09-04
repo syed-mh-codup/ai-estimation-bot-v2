@@ -166,7 +166,9 @@ async function main(): Promise<void> {
         continue;
       }
       if (tab.title === 'Summary') {
-        check(/rebuilt from scratch/i.test(tab.headers[0] ?? ''), 'Summary: opens with the disclaimer banner', (tab.headers[0] ?? '').slice(0, 60));
+        // Joined, because the banner sits in column B — A is the hidden join key.
+        const banner = tab.headers.join(' ').trim();
+        check(/rebuilt from scratch/i.test(banner), 'Summary: opens with the disclaimer banner', banner.slice(0, 60));
       } else {
         check(JSON.stringify(tab.headers) === JSON.stringify(EXPECTED_DEPT_HEADERS), `${tab.title}: header row`, tab.headers.join(' | '));
       }

@@ -76,10 +76,14 @@ describe('AEH-317: summary tab', () => {
 
   it('opens with the disclaimer, then the estimate identity', () => {
     const tab = summary();
-    expect(String(tab.rows[0]?.[0])).toMatch(/rebuilt from scratch/i);
-    expect(String(tab.rows[0]?.[0])).toMatch(/Copy the tab/i);
+    // Column B: column A is the hidden join key, and a banner put there renders
+    // as an empty amber stripe.
+    expect(String(tab.rows[0]?.[0])).toBe('');
+    expect(String(tab.rows[0]?.[1])).toMatch(/rebuilt from scratch/i);
+    expect(String(tab.rows[0]?.[1])).toMatch(/Copy the tab/i);
     expect(String(tab.rows[2]?.[1])).toBe('Acme Portal — Estimate');
-    expect(String(tab.rows[2]?.[6])).toBe('Exported 4 Sep 2026');
+    // Its own row, or a long title overflows into it.
+    expect(String(tab.rows[3]?.[1])).toBe('Exported 4 Sep 2026');
   });
 
   it('groups deliverables by phase, in delivery order, with a subtotal each', () => {
