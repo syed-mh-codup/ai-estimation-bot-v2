@@ -43,3 +43,6 @@ apps/web/playwright-report/
 /.cursor/
 /.gemini/
 /.kiro/
+
+# Session-continuity scratch (CLAUDE.md) — notes for resuming work, not a repo artifact.
+progress.md
