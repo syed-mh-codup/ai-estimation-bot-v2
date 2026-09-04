@@ -411,21 +411,40 @@ export class LiveSheetsProvider implements ISheetsProvider {
       });
     }
 
-    // Formatting needs sheet ids, and any tab added above did not have one when
-    // this method started — hence the second read rather than unpicking the
-    // batch's replies.
-    const formatted = tabs.filter((t) => t.format);
-    if (formatted.length === 0) return;
+    // Ordering and formatting both need sheet ids, and any tab added above did
+    // not have one when this method started — hence the second read rather than
+    // unpicking the batch's replies.
     const after = await sheets.spreadsheets.get({ spreadsheetId });
     const idByTitle = new Map(
       (after.data.sheets ?? []).map((s) => [s.properties?.title ?? '', s.properties?.sheetId]),
     );
-    const formatting = formatted.flatMap((t) => {
+
+    // Tab order is not implied by anything Google does — an added sheet lands
+    // at the end of the file. A spreadsheet migrating from the old per-role
+    // layout already had QA, PM and BA, so Summary and Development were
+    // appended after them and the tab the whole design insists opens first
+    // opened fourth. Caught only by the live run; no offline test sees an
+    // index Google assigned.
+    //
+    // Assigned ascending, which is what makes a plain sequence of moves land
+    // where it is asked to: each request applies to the state the one before
+    // it left behind. Tabs this exporter does not own keep their relative order
+    // and follow the generated ones.
+    const requestsAfter: Array<Record<string, unknown>> = tabs.flatMap((t, index) => {
       const sheetId = idByTitle.get(t.title);
-      return sheetId === undefined || sheetId === null ? [] : formatRequests(sheetId, t);
+      if (sheetId === undefined || sheetId === null) return [];
+      return [{ updateSheetProperties: { properties: { sheetId, index }, fields: 'index' } }];
     });
-    if (formatting.length > 0) {
-      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: formatting } });
+
+    for (const t of tabs) {
+      if (!t.format) continue;
+      const sheetId = idByTitle.get(t.title);
+      if (sheetId === undefined || sheetId === null) continue;
+      requestsAfter.push(...formatRequests(sheetId, t));
+    }
+
+    if (requestsAfter.length > 0) {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: requestsAfter } });
     }
   }
 

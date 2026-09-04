@@ -148,11 +148,15 @@ async function main(): Promise<void> {
     console.log(`  ${first.url}`);
 
     console.log('\nReading the spreadsheet back out of Drive');
-    const readback = await provider.describeTabs(first.spreadsheetId);
+    const readbackAll = await provider.describeTabs(first.spreadsheetId);
+    // The intruder tab is left behind on purpose by a previous run of this
+    // script — it survives re-exports, which is the whole point of it. So every
+    // assertion about what the EXPORT produced has to look past it.
+    const readback = readbackAll.filter((t) => t.title !== INTRUDER_TAB);
     check(
       JSON.stringify(readback.map((t) => t.title)) === JSON.stringify(EXPECTED_TABS),
-      `tabs are exactly ${EXPECTED_TABS.join(', ')}`,
-      readback.map((t) => t.title).join(', ') || '(none)',
+      `tabs are exactly ${EXPECTED_TABS.join(', ')}, in that order`,
+      readbackAll.map((t) => t.title).join(', ') || '(none)',
     );
     for (const tab of readback) {
       const expectedRows = expectedRowCounts.get(tab.title);
@@ -188,9 +192,13 @@ async function main(): Promise<void> {
     check(totalRow.slice(2).some((c) => Number(c) > 0), 'Summary: the estimate total actually computed a number', totalRow.slice(2).join(' | '));
 
     console.log(`\nOwnership — a tab somebody else made must survive a re-export`);
-    await provider.createBareTab(first.spreadsheetId, INTRUDER_TAB);
+    // Idempotent: a previous run's intruder is still there precisely because
+    // the fix works, and Google rejects adding a sheet whose name is taken.
+    if (!readbackAll.some((t) => t.title === INTRUDER_TAB)) {
+      await provider.createBareTab(first.spreadsheetId, INTRUDER_TAB);
+    }
     const withIntruder = await provider.describeTabs(first.spreadsheetId);
-    check(withIntruder.some((t) => t.title === INTRUDER_TAB), `${INTRUDER_TAB} was added`, withIntruder.map((t) => t.title).join(', '));
+    check(withIntruder.some((t) => t.title === INTRUDER_TAB), `${INTRUDER_TAB} is present before the re-export`, withIntruder.map((t) => t.title).join(', '));
 
     console.log('\nIdempotency — the tag must be findable, and a second export must not duplicate');
     const found = await provider.getSpreadsheetId(estimate.id);
