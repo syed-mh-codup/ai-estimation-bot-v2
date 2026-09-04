@@ -120,9 +120,37 @@ pre.diagram{margin:0 0 1em;padding:12px 14px;overflow-x:auto;white-space:pre;
   background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
   font-size:12.5px;line-height:1.5;color:var(--ink-2)}
 pre.diagram[data-diagram-error]{background:var(--brick-tint);border-color:var(--brick-line)}
-/* And after. No max-width: a wide ERD scrolls in .scroll-x rather than shrink. */
-div.diagram{margin:0 0 1em}
-div.diagram svg{display:block;height:auto}
+/* And after: a pan/zoom viewport, not a scroll box. See DIAGRAM_JS. */
+.diagram{margin:0 0 1em;border:1px solid var(--line-soft);border-radius:8px;
+  background:var(--surface);overflow:hidden}
+.diagram-view{position:relative;height:clamp(300px,58vh,700px);overflow:hidden;
+  cursor:grab;touch-action:none}
+.diagram-view.is-dragging{cursor:grabbing}
+.diagram-view:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+/* transform-origin at the corner keeps the zoom-at-cursor arithmetic linear. */
+.diagram-pan{position:absolute;top:0;left:0;transform-origin:0 0}
+.diagram-pan svg{display:block;height:auto;max-width:none}
+.diagram-bar{display:flex;align-items:center;gap:5px;padding:6px 8px;
+  border-top:1px solid var(--line-soft);background:var(--surface-2)}
+.diagram-bar button{appearance:none;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink-2);border-radius:6px;padding:3px 9px;font:inherit;font-size:12px;
+  line-height:1.45;cursor:pointer}
+.diagram-bar button:hover{border-color:var(--ink-4);color:var(--ink)}
+.diagram-zoom{font-size:11px;color:var(--ink-4);min-width:44px;text-align:center}
+.diagram-hint{margin-left:auto;font-size:11px;color:var(--ink-4)}
+/* Maximised: real fullscreen where the viewer delegates it, this where it does not. */
+.diagram.is-max{position:fixed;inset:0;z-index:9999;margin:0;border:0;border-radius:0;
+  background:var(--canvas);display:flex;flex-direction:column}
+.diagram.is-max .diagram-view,.diagram:fullscreen .diagram-view{height:auto;flex:1}
+.diagram:fullscreen{background:var(--canvas);display:flex;flex-direction:column;
+  border:0;border-radius:0}
+@media print{
+  /* A zoomed diagram would otherwise print as a crop of itself. */
+  .diagram.is-max{position:static;inset:auto}
+  .diagram-view{height:auto;overflow:visible}
+  .diagram-pan{position:static;transform:none!important}
+  .diagram-bar{display:none}
+}
 `;
 
 const CHROME_CSS = `
@@ -187,9 +215,233 @@ const CHROME_JS = `
  *
  * Loaded after CHROME_JS so tab switching is live before 3.5MB starts
  * downloading; a slow connection must not leave the navigation dead.
+ *
+ * ## Navigating one, once it is drawn — AEH-329
+ *
+ * `navigate()` makes a rendered diagram zoomable, draggable and full-screenable.
+ * It is called from render()'s SUCCESS path only: a block mermaid could not
+ * parse keeps its visible `<pre>`, and a zoom control attached to notation
+ * nobody can zoom would be worse than no control at all.
+ *
+ * Mechanically it is one `translate` plus `scale` on `.diagram-pan` inside a
+ * fixed-height `.diagram-view`. Hand-rolled rather than svg-pan-zoom or
+ * d3-zoom, because a second library means a second entry in `script-src` and
+ * the whole point of the exact-path pin above is that there is only ever one.
+ * Zoom is applied ABOUT A POINT, so whatever is under the cursor stays under
+ * it — that is the `x = px - (px - x) * (k'/k)` line, and it is why
+ * `transform-origin` is pinned to the corner.
+ *
+ * ## Fit means fit to WIDTH, and that was measured
+ *
+ * Fitting both axes is the obvious reading of "fit" and it is wrong here. The
+ * first real document tried against this — a seven-journey user flow on the
+ * Geoshield estimate — has flowcharts about 625px wide and 2,575px tall, and
+ * fitting both put them on screen at 16%, which is a grey smudge rather than a
+ * diagram. So it fits WIDTH, top-aligned, and the reader pans down to follow
+ * the flow, the way any document viewer behaves.
+ *
+ * FLOOR then covers the opposite shape: a very wide ERD would fit its width at
+ * 20% and be just as unreadable, so it stops shrinking at 0.35 and is panned
+ * sideways instead. On either axis, an axis the diagram DOES fit is centred and
+ * one it does not starts at that edge — never centred-and-cropped-both-ends.
+ *
+ * The whole-diagram overview is still one click away on the minus button, with
+ * the percentage readout saying where you are.
+ *
+ * ## Fit meets the hidden-panel trap from both sides
+ *
+ * Fitting needs the diagram's size and the viewport's, and a panel that is not
+ * the frontmost one is assembled `hidden`:
+ *
+ * - The DIAGRAM's size is read from the `width`/`height` attributes mermaid
+ *   writes, which `useMaxWidth:false` makes intrinsic. Never `getBBox()` or
+ *   `getBoundingClientRect()`, which are the calls that return zeros under
+ *   `display:none` — the same trap that decided render() over run().
+ * - The VIEWPORT's size cannot be faked that way, so the first honest fit is
+ *   driven by a `ResizeObserver`: it fires when the box first has a non-zero
+ *   size, which is when the reader opens that tab. It also covers a window
+ *   resize, and it stands down once the reader has zoomed or dragged, so it
+ *   never re-fits out from under somebody.
+ *
+ * ## Two deliberate refusals
+ *
+ * A bare wheel is left alone and only ctrl/cmd+wheel zooms. A document whose
+ * tab is one large diagram would otherwise be impossible to scroll past with
+ * the pointer over it, which is the failure every embedded map used to have.
+ *
+ * And full screen is two-tier. `document.fullscreenEnabled` is FALSE inside
+ * `sandbox="allow-scripts"` unless the viewer delegates it with
+ * `allow="fullscreen"` — measured, with this document's own CSP, and the origin
+ * stays opaque either way, so the delegation is not a loosening of the sandbox.
+ * A downloaded copy is a top-level document and has it outright. Where it is
+ * missing the control falls back to `position:fixed` inside the document, which
+ * fills the frame rather than the screen: smaller, but the feature degrades
+ * instead of doing nothing when clicked. State is synced from
+ * `fullscreenchange` so the browser's own Escape cannot desync the label.
+ *
+ * Comments here are kept terse ON PURPOSE. Every byte of this string ships
+ * inside every artifact that draws, so the reasoning lives up here where it
+ * does not.
  */
 const DIAGRAM_JS = `
 (function(){
+  function navigate(box){
+    var view=box.querySelector('.diagram-view');
+    var pan=box.querySelector('.diagram-pan');
+    var svg=pan.querySelector('svg');
+    var readout=box.querySelector('.diagram-zoom');
+    var fullBtn=box.querySelector('[data-act="full"]');
+    if(!view||!pan||!svg){return}
+
+    var k=1,x=0,y=0;
+    /* Reader picked their own view; stop auto-fitting under them. */
+    var touched=false;
+    var MIN=0.1,MAX=8,FLOOR=0.35;
+
+    function apply(){
+      pan.style.transform='translate('+x+'px,'+y+'px) scale('+k+')';
+      readout.textContent=Math.round(k*100)+'%';
+    }
+    function clamp(v){return v<MIN?MIN:v>MAX?MAX:v}
+
+    /* Intrinsic size. Anything measured in a hidden panel reads zero. */
+    function natural(){
+      var w=parseFloat(svg.getAttribute('width'))||svg.viewBox.baseVal.width||0;
+      var h=parseFloat(svg.getAttribute('height'))||svg.viewBox.baseVal.height||0;
+      return {w:w,h:h};
+    }
+
+    function fit(){
+      var n=natural();
+      var vw=view.clientWidth,vh=view.clientHeight;
+      /* Still hidden. The observer calls back when it is not. */
+      if(!n.w||!n.h||!vw||!vh){return false}
+      /* Width, not both, and never below FLOOR. See the note above. */
+      k=clamp(Math.max(Math.min(vw/n.w,1),FLOOR));
+      /* Centre on an axis it fits, otherwise start at that edge. */
+      x=Math.max(0,(vw-n.w*k)/2);
+      y=Math.max(0,(vh-n.h*k)/2);
+      apply();
+      return true;
+    }
+
+    /* Zoom about a point, so the thing under the cursor stays under it. */
+    function zoomAt(px,py,factor){
+      var nk=clamp(k*factor);
+      if(nk===k){return}
+      x=px-(px-x)*(nk/k);
+      y=py-(py-y)*(nk/k);
+      k=nk;
+      touched=true;
+      apply();
+    }
+    function zoomCentre(factor){zoomAt(view.clientWidth/2,view.clientHeight/2,factor)}
+
+    /* drag to pan; two pointers pinch */
+    var pointers={},last=null,pinch=null;
+
+    view.addEventListener('pointerdown',function(e){
+      pointers[e.pointerId]={x:e.clientX,y:e.clientY};
+      view.setPointerCapture(e.pointerId);
+      var ids=Object.keys(pointers);
+      if(ids.length===1){last={x:e.clientX,y:e.clientY};view.classList.add('is-dragging')}
+      else if(ids.length===2){
+        var a=pointers[ids[0]],b=pointers[ids[1]];
+        pinch=Math.hypot(a.x-b.x,a.y-b.y);
+        last=null;
+      }
+    });
+
+    view.addEventListener('pointermove',function(e){
+      if(!pointers[e.pointerId]){return}
+      pointers[e.pointerId]={x:e.clientX,y:e.clientY};
+      var ids=Object.keys(pointers);
+      if(ids.length===2&&pinch){
+        var a=pointers[ids[0]],b=pointers[ids[1]];
+        var d=Math.hypot(a.x-b.x,a.y-b.y);
+        if(d>0){
+          var r=view.getBoundingClientRect();
+          zoomAt((a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top,d/pinch);
+          pinch=d;
+        }
+        return;
+      }
+      if(!last){return}
+      x+=e.clientX-last.x;
+      y+=e.clientY-last.y;
+      last={x:e.clientX,y:e.clientY};
+      touched=true;
+      apply();
+    });
+
+    function release(e){
+      delete pointers[e.pointerId];
+      if(Object.keys(pointers).length<2){pinch=null}
+      if(!Object.keys(pointers).length){last=null;view.classList.remove('is-dragging')}
+    }
+    view.addEventListener('pointerup',release);
+    view.addEventListener('pointercancel',release);
+
+    /* Modifier only: a bare wheel must still scroll the page. */
+    view.addEventListener('wheel',function(e){
+      if(!e.ctrlKey&&!e.metaKey){return}
+      e.preventDefault();
+      var r=view.getBoundingClientRect();
+      zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.12:1/1.12);
+    },{passive:false});
+
+    view.addEventListener('dblclick',function(){touched=false;fit()});
+
+    view.addEventListener('keydown',function(e){
+      if(e.key==='+'||e.key==='='){zoomCentre(1.2);e.preventDefault()}
+      else if(e.key==='-'||e.key==='_'){zoomCentre(1/1.2);e.preventDefault()}
+      else if(e.key==='0'){touched=false;fit();e.preventDefault()}
+      /* Escape for the CSS fallback; the browser owns real full screen. */
+      else if(e.key==='Escape'&&box.classList.contains('is-max')){
+        box.classList.remove('is-max');
+        syncFull();
+        e.preventDefault();
+      }
+    });
+
+    /* full screen, falling back to filling the frame */
+    function isFull(){
+      return document.fullscreenElement===box||box.classList.contains('is-max');
+    }
+    function syncFull(){
+      fullBtn.textContent=isFull()?'Exit full screen':'Full screen';
+      /* Re-fit unless the reader has chosen their own zoom. */
+      if(!touched){requestAnimationFrame(fit)}
+    }
+    function maximise(on){box.classList.toggle('is-max',on);syncFull()}
+
+    fullBtn.addEventListener('click',function(){
+      if(document.fullscreenElement===box){
+        if(document.exitFullscreen){document.exitFullscreen()}
+        return;
+      }
+      if(box.classList.contains('is-max')){maximise(false);return}
+      /* False in the viewer unless it delegates; true when downloaded. */
+      if(document.fullscreenEnabled&&box.requestFullscreen){
+        box.requestFullscreen().then(syncFull).catch(function(){maximise(true)});
+      }else{
+        maximise(true);
+      }
+    });
+
+    document.addEventListener('fullscreenchange',syncFull);
+
+    box.querySelector('[data-act="in"]').addEventListener('click',function(){zoomCentre(1.2)});
+    box.querySelector('[data-act="out"]').addEventListener('click',function(){zoomCentre(1/1.2)});
+    box.querySelector('[data-act="fit"]').addEventListener('click',function(){touched=false;fit()});
+
+    /* The first honest viewport measurement arrives when its tab opens. */
+    if(window.ResizeObserver){
+      new ResizeObserver(function(){if(!touched){fit()}}).observe(view);
+    }
+    fit();
+  }
+
   var blocks=[].slice.call(document.querySelectorAll('pre.diagram'));
   if(!blocks.length){return}
   var m=window.mermaid;
@@ -205,7 +457,7 @@ const DIAGRAM_JS = `
         primaryBorderColor:'#d6d1c1',secondaryColor:'#e0e8dd',tertiaryColor:'#f2e7ce',
         lineColor:'#948f81',textColor:'#555146',fontSize:'14px'
       },
-      /* Keep the natural width and let .scroll-x do its job. */
+      /* Natural size, so Fit can compute a scale and zooming stays crisp. */
       er:{useMaxWidth:false},sequence:{useMaxWidth:false},
       flowchart:{useMaxWidth:false},state:{useMaxWidth:false}
     });
@@ -218,10 +470,20 @@ const DIAGRAM_JS = `
     try{
       m.render('mmd-'+i,src).then(function(out){
         var box=document.createElement('div');
-        box.className='diagram scroll-x';
-        box.innerHTML=out.svg;
+        box.className='diagram';
+        box.innerHTML=
+          '<div class="diagram-view" tabindex="0"><div class="diagram-pan">'+out.svg+
+          '</div></div><div class="diagram-bar">'+
+          '<button type="button" data-act="out" title="Zoom out">&minus;</button>'+
+          '<button type="button" data-act="in" title="Zoom in">+</button>'+
+          '<span class="diagram-zoom">100%</span>'+
+          '<button type="button" data-act="fit">Fit</button>'+
+          '<button type="button" data-act="full">Full screen</button>'+
+          '<span class="diagram-hint">drag to move &middot; ctrl+scroll to zoom</span>'+
+          '</div>';
         pre.parentNode.replaceChild(box,pre);
-        if(out.bindFunctions){try{out.bindFunctions(box)}catch(e){}}
+        if(out.bindFunctions){try{out.bindFunctions(box.querySelector('.diagram-pan'))}catch(e){}}
+        navigate(box);
       }).catch(function(){
         pre.setAttribute('data-diagram-error','1');
       });
