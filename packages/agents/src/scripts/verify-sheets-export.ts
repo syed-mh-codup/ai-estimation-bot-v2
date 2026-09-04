@@ -22,7 +22,8 @@ import {
   LiveSheetsProvider,
   StubSheetsProvider,
 } from '@repo/providers';
-import type { MenuItem } from '@repo/shared';
+import type { MenuItem, RoleKind } from '@repo/shared';
+import { computeRollup } from '../rollup';
 import { buildExportTabs, exportToSheets } from '../sheets-export';
 import { loadEnvFiles } from './load-env';
 
@@ -191,7 +192,30 @@ async function main(): Promise<void> {
     const summary = readback.find((t) => t.title === 'Summary');
     const totalRow = summary?.rows[5] ?? [];
     check(String(totalRow[1] ?? '') === 'ESTIMATE TOTAL', 'Summary: the estimate total is where the layout says', String(totalRow[1] ?? '(missing)'));
-    check(totalRow.slice(2).some((c) => Number(c) > 0), 'Summary: the estimate total actually computed a number', totalRow.slice(2).join(' | '));
+
+    // "A number came out" is a much weaker claim than it looks. The formula
+    // chain runs card -> phase subtotal -> estimate total across five tabs, and
+    // a double-counted row or a card silently dropped from every phase block
+    // still produces a plausible number. So check it against the app's own
+    // rollup, which is what the estimate screen shows, department by
+    // department. One decimal, because that is the format the cells carry.
+    const rollup = computeRollup(items);
+    const taxedByRole = new Map(rollup.perRole.map((r) => [r.role, r.totalTaxedHours]));
+    const round1 = (n: number): number => Math.round(n * 10) / 10;
+    const departments: RoleKind[] = ['DEV', 'QA', 'PM', 'BA'];
+    const mismatches = departments.flatMap((role, i) => {
+      const inSheet = Number(totalRow[2 + i]);
+      const inApp = round1(taxedByRole.get(role) ?? 0);
+      return inSheet === inApp ? [] : [`${role}: sheet ${inSheet} vs app ${inApp}`];
+    });
+    const grandInSheet = Number(totalRow[2 + departments.length]);
+    const grandInApp = round1(rollup.grandTotalTaxedHours);
+    if (grandInSheet !== grandInApp) mismatches.push(`TOTAL: sheet ${grandInSheet} vs app ${grandInApp}`);
+    check(
+      mismatches.length === 0,
+      "Summary totals equal the app's own rollup, department by department",
+      mismatches.length > 0 ? mismatches.join(' | ') : `${grandInApp} taxed hours, matching across all ${departments.length}`,
+    );
 
     console.log(`\nOwnership — a tab somebody else made must survive a re-export`);
     // Idempotent: a previous run's intruder is still there precisely because
@@ -222,6 +246,20 @@ async function main(): Promise<void> {
       `${INTRUDER_TAB} survived the re-export (a tab this exporter does not own is never deleted)`,
       afterUpdate.map((t) => t.title).join(', '),
     );
+    // The overwrite warning compares Drive's modifiedTime against the value read
+    // straight after our own write. If Drive's metadata lagged that write even
+    // slightly, the stored baseline would be a pre-write timestamp and every
+    // later export would warn — the precise failure the warning was designed to
+    // avoid, and one that would only show up in somebody's face a week later.
+    const modifiedNow = await provider.getModifiedTime(second.spreadsheetId);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const modifiedLater = await provider.getModifiedTime(second.spreadsheetId);
+    check(
+      modifiedNow !== null && modifiedLater !== null && modifiedNow.getTime() === modifiedLater.getTime(),
+      'Drive reports a settled modifiedTime straight after the write (the warning baseline is trustworthy)',
+      `${modifiedNow?.toISOString() ?? 'null'} then ${modifiedLater?.toISOString() ?? 'null'}`,
+    );
+
     const rowsStable = afterUpdate
       .filter((t) => t.title !== INTRUDER_TAB)
       .every((t) => t.dataRows === (expectedRowCounts.get(t.title) ?? 0));
