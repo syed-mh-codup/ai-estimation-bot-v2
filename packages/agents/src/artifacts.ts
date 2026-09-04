@@ -70,10 +70,16 @@ import type { StepRunner } from './run-estimate';
  * roughly 1,800 words each, near three times the budget — and its fourth
  * section exceeded a 240s call budget twice and failed the run.
  *
- * The lever that has actually moved this is SECTION COUNT, which is why the
- * outline envelope now sets a floor of ten rather than a preference for five to
- * twelve. A document's total volume is roughly what the model wants to say; the
- * ceiling is per CALL. So the only way to fit is more calls, each smaller.
+ * The lever that has actually moved this is SECTION COUNT: a document's total
+ * volume is roughly what the model wants to say, the ceiling is per CALL, so
+ * the only way to fit prose that runs long is more calls, each smaller.
+ *
+ * A flat floor of ten was tried for exactly one afternoon and was wrong. It made
+ * every artifact type pay for a problem only SOME of them have: an ERD is one
+ * diagram on one canvas, and ten sections of it is ten fragments of a thing
+ * nobody wanted fragmented. Section count follows the CONTENT, and the brief —
+ * which is data, and knows what the document is — overrides the guidance
+ * entirely. A budget is a constraint on each section; it was never a quota.
  */
 const SECTION_WORD_BUDGET = 700;
 
@@ -182,11 +188,18 @@ Rules that decide whether this document can be produced at all:
   sections must agree on in it — entity names, journey ids, tranche labels. If
   two sections would otherwise name the same thing differently, that name
   belongs here.
-- Plan AT LEAST 10 sections, and prefer 12-20. Fewer than ten is almost always
-  wrong: it means some section is carrying more than one subject, and that is
-  the section that will run long and take the document down. Splitting costs
-  nothing — each section is a separate call with its own budget — so when in
-  doubt, split.
+- THE BRIEF DECIDES THE SHAPE. If it says the document is a single thing, or
+  names the sections it wants, follow it exactly. Everything below is for when
+  the brief leaves the shape open.
+- Let the CONTENT decide how many sections there are. A document that is ONE
+  THING — a single diagram, one canvas, one table — is ONE section, and cutting
+  it into pieces would destroy the thing that makes it useful. Do not split what
+  is meant to be read whole.
+- A document that is prose, or covers many subjects, must be split until every
+  part fits the budget above. That usually means 10-20 sections rather than 4: a
+  section carrying more than one subject is the one that runs long and takes the
+  whole document down with a timeout. When a subject could be one section or
+  three, make it three.
 - "id" must be lowercase, hyphenated, and unique.
 
 Base the plan on the source material you are given. Do not invent scope that is
