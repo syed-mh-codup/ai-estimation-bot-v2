@@ -497,6 +497,74 @@ describe('normaliseDiagramBlocks', () => {
     expect(out).toContain('<pre class="diagram">' + src + '</pre>');
   });
 
+  it('quotes the two flowchart labels that really killed a generation', () => {
+    // AEH-330, both from real stored notation. mermaid reports `got 'PS'` — its
+    // Paren-Start token — and the whole diagram dies, so a bare bracket in a
+    // label is not a cosmetic problem.
+    const course = normaliseDiagramBlocks(
+      wrap('flowchart TD\n  DROP1 -- Yes --> COURSE[Take course(s)]'),
+      'Academy',
+    );
+    expect(course).toContain('COURSE["Take course(s)"]');
+
+    const klaviyo = normaliseDiagramBlocks(
+      wrap('flowchart TD\n  Klaviyo <-->|email marketing (being phased out)| P0'),
+      'Context',
+    );
+    expect(klaviyo).toContain('|"email marketing (being phased out)"|');
+  });
+
+  it('never quotes a shape delimiter, which would break a working diagram', () => {
+    // Parens are also shape syntax. The rule that skips these has to test that
+    // the content OPENS AND CLOSES with a pair: a rule that skipped anything
+    // merely ending in a paren also skipped "Take course(s)" and so did nothing
+    // at all to the case above.
+    const src = [
+      'flowchart TD',
+      '  P0((DealerOS))',
+      '  P11((1.1 Dashboard Analytics))',
+      '  D1[(Dealer Profile)]',
+      '  W[/Parallelogram/]',
+      '  H{{Hexagon}}',
+    ].join('\n');
+    const out = normaliseDiagramBlocks(wrap(src), 'Core');
+    expect(out).toContain('P0((DealerOS))');
+    expect(out).toContain('P11((1.1 Dashboard Analytics))');
+    expect(out).toContain('D1[(Dealer Profile)]');
+    expect(out).toContain('W[/Parallelogram/]');
+    expect(out).toContain('H{{Hexagon}}');
+  });
+
+  it('leaves a label alone when it needs nothing', () => {
+    // The eleven of thirteen real blocks that were already fine must come
+    // through byte-identical, or the repair is a liability rather than a net.
+    const src = [
+      'flowchart TD',
+      '  A["Dealer in DealerOS<br>Warranty section"] --> B{"License on file?"}',
+      '  B -->|"No"| C["Blocked"]',
+      '  DROP1{Completes<br>course?} --> OUT1[Drops out]',
+    ].join('\n');
+    const body = /<pre class="diagram">([\s\S]*?)<\/pre>/.exec(
+      normaliseDiagramBlocks(wrap(src), 'Flow'),
+    )![1]!;
+    // Only the angle-bracket escaping should have happened.
+    expect(body).toBe(src.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  });
+
+  it('does not reach into a diagram that is not a flowchart', () => {
+    // erDiagram uses braces structurally; quoting an attribute block would
+    // wreck it. The guard is the opening keyword.
+    const src = [
+      'erDiagram',
+      '  CUSTOMER {',
+      '    uuid id PK',
+      '    string email "unique"',
+      '  }',
+      '  CUSTOMER ||--o{ ORDER : places',
+    ].join('\n');
+    expect(normaliseDiagramBlocks(wrap(src), 'ERD')).toContain(src);
+  });
+
   it('leaves a fragment with no diagram in it completely untouched', () => {
     const html = '<h2>Tranches</h2><p>Three of them.</p><pre><code>npm i</code></pre>';
     expect(normaliseDiagramBlocks(html, 'Tranches')).toBe(html);

@@ -549,6 +549,67 @@ export function stripFence(text: string): string {
  * the browser does it, and a diagram that fails there shows its notation
  * instead of an empty box.
  */
+/**
+ * Quote a flowchart label that mermaid cannot parse unquoted. AEH-330.
+ *
+ * A bare `(` inside a label is a parse error — mermaid reports `got 'PS'`,
+ * its Paren-Start token, and the whole diagram dies. Both real failures were
+ * this, out of thirteen blocks generated across two artifact types:
+ *
+ *   COURSE[Take course(s)]                          -> got 'PS'
+ *   Klaviyo <-->|email marketing (being phased out)| -> got 'PS'
+ *
+ * Quoting the text fixes both, and mermaid accepts a quoted label in every
+ * shape, so the repair cannot make a working diagram worse.
+ *
+ * ## What is deliberately NOT touched
+ *
+ * Parentheses are also SHAPE delimiters — `((circle))`, `[(cylinder)]` — and
+ * quoting those breaks a diagram that worked. So content is skipped when it
+ * OPENS AND CLOSES with a matching delimiter pair.
+ *
+ * That pairing is the whole subtlety, and getting it wrong is how this was
+ * first written: a rule that skipped content merely STARTING OR ENDING with a
+ * delimiter also skipped `Take course(s)`, because it happens to end in a
+ * paren — so the repair silently did nothing to the exact case it was for. It
+ * was caught by running mermaid over the real stored notation rather than by
+ * reading the regex.
+ *
+ * Scoped to flowchart and graph. `erDiagram` attribute blocks use braces
+ * structurally and a sequence diagram's `alt`/`loop` labels are not bracketed
+ * at all, so this must not run over either.
+ */
+function quoteFlowchartLabels(src: string): string {
+  if (!/^\s*(flowchart|graph)\b/.test(src)) return src;
+
+  const pairs: readonly [string, string][] = [
+    ['(', ')'],
+    ['[', ']'],
+    ['{', '}'],
+  ];
+  const isShapePayload = (t: string): boolean => {
+    const a = t[0]!;
+    const b = t[t.length - 1]!;
+    if (pairs.some(([o, c]) => a === o && b === c)) return true;
+    // [/parallelogram/], [\inverse\], [/trapezoid\]
+    return (a === '/' || a === '\\') && (b === '/' || b === '\\');
+  };
+
+  const fix = (open: string, close: string, body: string): string => {
+    const t = body.trim();
+    if (!t) return `${open}${body}${close}`;
+    if (t.startsWith('"') && t.endsWith('"')) return `${open}${body}${close}`;
+    if (!/[()]/.test(t)) return `${open}${body}${close}`;
+    if (isShapePayload(t)) return `${open}${body}${close}`;
+    return `${open}"${t}"${close}`;
+  };
+
+  return src
+    .replace(/\[([^[\]\n]*)\]/g, (_m, b: string) => fix('[', ']', b))
+    .replace(/\{([^{}\n]*)\}/g, (_m, b: string) => fix('{', '}', b))
+    .replace(/\|([^|\n]*)\|/g, (_m, b: string) => fix('|', '|', b));
+}
+
 export function normaliseDiagramBlocks(html: string, sectionTitle: string): string {
   return html.replace(diagramBlockRe(), (_full, rawBody: string) => {
     let body = rawBody
@@ -577,7 +638,7 @@ export function normaliseDiagramBlocks(html: string, sectionTitle: string): stri
       );
     }
 
-    return `<pre class="diagram">${body}</pre>`;
+    return `<pre class="diagram">${quoteFlowchartLabels(body)}</pre>`;
   });
 }
 

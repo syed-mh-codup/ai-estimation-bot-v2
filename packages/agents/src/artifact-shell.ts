@@ -175,8 +175,15 @@ const CHROME_JS = `
  * of collapsed boxes. `render()` measures in its own temporary container
  * attached to `<body>` — always visible, regardless of which tab the block is
  * in — and hands back the markup to inject. It is also the only form that lets
- * a parse failure be caught, rather than mermaid replacing the block with its
- * own "Syntax error" bomb graphic inside a document bound for a client.
+ * a parse failure be caught at all, so a broken diagram falls back to its
+ * notation instead of vanishing.
+ *
+ * Catching is NOT sufficient on its own, and AEH-330 is the correction: on a
+ * parse failure mermaid leaves the temp div attached to `<body>` holding its
+ * "Syntax error in text" bomb graphic, so a rejected promise that was handled
+ * still put a bomb icon and the word "error" at the foot of a client-facing
+ * document. `sweep` below removes it. Measured, not reasoned about — the div
+ * was found in the DOM after a caught rejection.
  *
  * ## Every exit leaves the notation on screen
  *
@@ -210,6 +217,13 @@ const DIAGRAM_JS = `
       flowchart:{useMaxWidth:false},state:{useMaxWidth:false}
     });
   }catch(e){return}
+  /* mermaid measures in a temp div it attaches to <body> as "d" + the render
+     id, and on a parse failure it leaves that div there holding its "Syntax
+     error in text" bomb graphic. Catching the rejection does NOT remove it. */
+  function sweep(i){
+    var stray=document.getElementById('dmmd-'+i);
+    if(stray&&stray.parentNode){stray.parentNode.removeChild(stray)}
+  }
   blocks.forEach(function(pre,i){
     /* textContent, so the &lt; the notation had to be written with decodes
        back to the "<" mermaid expects. */
@@ -222,11 +236,14 @@ const DIAGRAM_JS = `
         box.innerHTML=out.svg;
         pre.parentNode.replaceChild(box,pre);
         if(out.bindFunctions){try{out.bindFunctions(box)}catch(e){}}
+        sweep(i);
       }).catch(function(){
         pre.setAttribute('data-diagram-error','1');
+        sweep(i);
       });
     }catch(e){
       pre.setAttribute('data-diagram-error','1');
+      sweep(i);
     }
   });
 })();
@@ -461,6 +478,13 @@ export const DIAGRAM_CONTRACT = [
   '- It is Mermaid syntax, inside HTML. So write &lt; for "<" and &amp; for "&".',
   '  A state fork is &lt;&lt;fork&gt;&gt; and a line break in a label is &lt;br&gt;.',
   '  Arrows contain no "<" — write --> and ->> and --o{ exactly as they are.',
+  '- QUOTE EVERY LABEL. Write A["text"] and B{"text?"} and -->|"text"|, always,',
+  '  even when the text looks harmless. An unquoted label containing a bracket',
+  '  of any kind is a parse error that kills the whole diagram — "Take course(s)"',
+  '  unquoted is enough to do it. Quoting is always accepted, so there is no',
+  '  case where leaving the quotes off is better.',
+  '- Label an edge with the pipe form, -->|"text"| — not the -- text --> form.',
+  '  One spelling, quoted, everywhere.',
   '- One diagram per block. Several blocks are fine, and so is prose, a heading',
   '  and a legend around them: a diagram almost always needs a sentence saying',
   '  what to look at, and an unexplained one is half a deliverable.',
