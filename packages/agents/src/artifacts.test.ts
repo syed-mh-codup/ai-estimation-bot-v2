@@ -340,6 +340,49 @@ describe('assembleArtifact', () => {
   });
 });
 
+describe('the diagram renderer script', () => {
+  const scriptOf = (html: string): string => {
+    // The last inline script in a document that draws is DIAGRAM_JS.
+    const all = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+    return all[all.length - 1]!;
+  };
+  const withDiagram = (): string =>
+    assembleArtifact({ title: 't', subtitle: 's', footer: 'f' }, [
+      {
+        sectionId: 'erd',
+        title: 'ERD',
+        html: '<pre class="diagram">erDiagram\n A ||--o{ B : has</pre>',
+      },
+    ]);
+
+  it('is valid JavaScript', () => {
+    // A brace slip in a template-literal script is invisible to every other
+    // test in this file — they all match substrings — and shows up only as a
+    // document where no diagram ever renders. Parsing it here is the only
+    // check that can fail on the mistake rather than on its consequences.
+    expect(() => new Function(scriptOf(withDiagram()))).not.toThrow();
+  });
+
+  it('waits for a laid-out document before rendering anything', () => {
+    // AEH-331. A document that is not being laid out measures as zero, and
+    // mermaid REJECTS rather than laying out badly — so every block was
+    // marked red on a document that only needed a refresh. Reproduced at the
+    // time as 0 of 7 rendered with the container display:none, against 7 of 7
+    // with it visible.
+    const js = scriptOf(withDiagram());
+    expect(js).toContain('whenMeasurable');
+    expect(js).toContain('document.body.clientWidth>0');
+    expect(js).toContain('ResizeObserver');
+    // The observer alone is not enough: a browser without one, or a document
+    // that never reports a box, must still attempt the render.
+    expect(js).toContain('setInterval');
+    // And the render pass must be INSIDE the gate, not merely near it.
+    expect(js.indexOf('whenMeasurable(function()')).toBeLessThan(
+      js.indexOf('blocks.forEach'),
+    );
+  });
+});
+
 describe('the CSS contract', () => {
   it('names only classes the shell actually ships', () => {
     // The contract and the stylesheet live in one module precisely so they
