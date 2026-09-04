@@ -282,6 +282,26 @@ describe('chat call budget', () => {
     expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).not.toHaveProperty('reasoning');
   });
 
+  it('passes provider routing through and omits it when unset', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await provider().chat({
+      model: 'deepseek/deepseek-v4-flash-0731',
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: { sort: 'throughput' },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).provider).toEqual({ sort: 'throughput' });
+
+    await provider().chat({
+      model: 'deepseek/deepseek-v4-flash-0731',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    // Omitted, not sent as undefined: OpenRouter's default routing must stay
+    // the default for every caller that has not opted in.
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).not.toHaveProperty('provider');
+  });
+
   it('sends no abort signal when no timeout is asked for', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse()));
     vi.stubGlobal('fetch', fetchMock);
