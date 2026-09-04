@@ -430,9 +430,15 @@ export const CSS_CONTRACT = [
  */
 export const DIAGRAM_CONTRACT = [
   'FORMAL DIAGRAMS: write the notation, not the drawing.',
-  'For an entity relationship diagram, a sequence, a state machine or a flow, do',
-  'NOT hand-draw SVG. Write Mermaid notation in a <pre class="diagram"> and it is',
-  'laid out for you:',
+  'This block is about entity relationship diagrams, sequences, state machines',
+  'and flows — notations with a standard shape and a mechanical layout. It does',
+  'NOT apply to wireframes or low-fidelity UI: those have no formal notation,',
+  'their free-form arrangement IS the deliverable, and they stay HTML and CSS as',
+  'described above. If there is no formal diagram in your section, nothing in the',
+  'rest of this block applies to you.',
+  '',
+  'For one that there is: do NOT hand-draw the SVG. Write Mermaid notation in a',
+  '<pre class="diagram"> and it is laid out for you:',
   '',
   '  <pre class="diagram">erDiagram',
   '  CUSTOMER {',
@@ -465,7 +471,4 @@ export const DIAGRAM_CONTRACT = [
   '  what to look at, and an unexplained one is half a deliverable.',
   '- Layout is not your problem. No coordinates, no widths, no positions, and no',
   '  <style> for the diagram — it is themed to match this page already.',
-  '',
-  'Wireframes and low-fidelity UI are the exception and stay HTML and CSS: they',
-  'have no formal notation, and their free-form arrangement IS the deliverable.',
 ].join('\n');

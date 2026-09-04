@@ -268,8 +268,8 @@ ${CSS_CONTRACT}
 Anything wide — a table, a diagram, a wide grid — must be inside an element with
 class "scroll-x" so it scrolls itself. The page must never scroll sideways.
 
-Images cannot be fetched. Draw with HTML, CSS and inline SVG — with one
-exception, below, which is the most common thing anybody draws here.
+Images cannot be fetched. Draw with HTML, CSS and inline SVG. There is one
+exception, below, and it does not apply to every section.
 
 ${DIAGRAM_CONTRACT}
 `.trim();
