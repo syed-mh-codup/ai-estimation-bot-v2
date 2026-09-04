@@ -1,7 +1,9 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
+
 import { prisma } from '@repo/db';
-import { requireAdmin } from '@/lib/rbac';
+import { requireAdmin, requireUser } from '@/lib/rbac';
 
 /**
  * Delete one generated document. AEH-239.
@@ -50,4 +52,42 @@ export async function deleteArtifact(artifactId: string): Promise<void> {
   }
 
   await prisma.estimateArtifact.delete({ where: { id: artifactId } });
+}
+
+/**
+ * Rename one generated document.
+ *
+ * An artifact is created under its type's name — "Entity model" — and that is
+ * the whole default. It is a name, not a summary, so the only thing that can
+ * improve on it is a person who knows what they are about to send: two entity
+ * models cut against different scenarios need telling apart, and the type name
+ * cannot do it. The generation run deliberately does not touch this column, so
+ * a rename made while sections are still being written survives, and the
+ * document assembles under the new name.
+ *
+ * Any signed-in user, unlike `deleteArtifact` above. Deleting destroys a
+ * client deliverable; renaming one is reversible by typing the old name back,
+ * and the person best placed to name it is whoever is sending it.
+ *
+ * No `assertEditable` — a FINALISED estimate is the main case for producing
+ * documents from it, and nothing here touches the estimate's numbers.
+ */
+export async function renameArtifact(artifactId: string, title: string): Promise<void> {
+  await requireUser();
+
+  const trimmed = title.trim().slice(0, 200);
+  // An empty name would leave the masthead and the panel row blank with nothing
+  // to click back into. Silently keeping the old one matches `renameEstimate`.
+  if (!trimmed) return;
+
+  const row = await prisma.estimateArtifact.update({
+    where: { id: artifactId },
+    data: { title: trimmed },
+    select: { estimateId: true },
+  });
+
+  // The estimate screen lists artifacts by title from its own server render,
+  // and only re-polls while one is generating. Without this a rename would not
+  // show up there until something else happened to invalidate the page.
+  revalidatePath(`/estimates/${row.estimateId}`);
 }

@@ -48,7 +48,12 @@ export function ArtifactsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<{
-    title: string;
+    /**
+     * The name the document will be created under — the artifact type's name.
+     * NOT the title the outline suggests: nothing uses that, because an
+     * artifact is named after its type and renamed only by a person.
+     */
+    name: string;
     sections: string[];
     /** Ticked sections this estimate has no data for. */
     empty: { key: string; label: string }[];
@@ -105,7 +110,7 @@ export function ArtifactsPanel({
       });
       const data = (await res.json()) as {
         error?: string;
-        outline?: { title: string; sections: { title: string }[] };
+        outline?: { sections: { title: string }[] };
         empty?: { key: string; label: string }[];
         retired?: string[];
       };
@@ -114,7 +119,7 @@ export function ArtifactsPanel({
         return;
       }
       setPlan({
-        title: data.outline.title,
+        name: types.find((t) => t.key === choice)?.name ?? 'This document',
         sections: data.outline.sections.map((s) => s.title),
         // Kept, not discarded. "You ticked Hidden work and this estimate has
         // none" is the most useful thing a preview can say, and it is the
@@ -215,7 +220,7 @@ export function ArtifactsPanel({
             className="mt-2.5 rounded-md border border-line-soft bg-surface-2 p-2.5"
             data-testid="artifact-plan"
           >
-            <p className="text-[12px] font-semibold text-ink">{plan.title}</p>
+            <p className="text-[12px] font-semibold text-ink">{plan.name}</p>
             <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11.5px] text-ink-3">
               {plan.sections.map((s, i) => (
                 <li key={`${s}-${i}`}>{s}</li>
