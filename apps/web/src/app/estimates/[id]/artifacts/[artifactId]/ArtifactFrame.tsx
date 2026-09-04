@@ -68,6 +68,20 @@ export function ArtifactFrame({
         ref={frameRef}
         // NEVER add allow-same-origin: with allow-scripts it lifts the sandbox.
         sandbox="allow-scripts"
+        // Lets a diagram go full screen. AEH-329.
+        //
+        // A different mechanism from `sandbox`, not a loosening of it:
+        // Permissions Policy delegates one capability, while the sandbox is
+        // what keeps the document in an opaque origin. Measured with the
+        // artifact's own CSP inside this exact sandbox — `allow-scripts` alone
+        // reports `document.fullscreenEnabled === false`, adding this reports
+        // true, and the origin stays opaque in both. So the line above still
+        // holds and this does not weaken it.
+        //
+        // Without it the diagram's own control falls back to filling the frame
+        // rather than the screen, which is why this is an improvement and not a
+        // dependency.
+        allow="fullscreen"
         srcDoc={html}
         title="Generated artifact"
         data-testid="artifact-frame"

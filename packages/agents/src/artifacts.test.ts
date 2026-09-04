@@ -575,3 +575,100 @@ describe('normaliseDiagramBlocks', () => {
     expect(() => normaliseDiagramBlocks(two, 'ERD')).toThrow(/not a diagram/);
   });
 });
+
+describe('diagram navigation', () => {
+  // AEH-329. A rendered diagram is zoomable, draggable and can go full screen.
+  // Asserted against the shipped document, the same way the render() choice is:
+  // the failures these prevent are interaction bugs that only appear in a
+  // browser, so what CAN be pinned here is that the mechanism is present.
+  const nav = (): string =>
+    assembleArtifact({ title: 't', subtitle: 's', footer: 'f' }, [
+      { sectionId: 'a', title: 'A', html: '<p>prose</p>' },
+      {
+        sectionId: 'erd',
+        title: 'ERD',
+        html: '<pre class="diagram">erDiagram\n A ||--o{ B : has</pre>',
+      },
+    ]);
+
+  it('ships a control for each of the four things asked for', () => {
+    const html = nav();
+    expect(html).toContain('data-act="in"');
+    expect(html).toContain('data-act="out"');
+    expect(html).toContain('data-act="fit"');
+    expect(html).toContain('data-act="full"');
+    // Exiting is the same control, relabelled — a separate button for it would
+    // sit dead on screen whenever the diagram is not full screen.
+    expect(html).toContain('Exit full screen');
+  });
+
+  it('attaches the controls only to a diagram that rendered', () => {
+    // The fallback for a block mermaid could not parse is the visible notation,
+    // and a zoom control on text nobody can zoom is worse than no control. So
+    // navigate() is called inside render()'s success path and the failure path
+    // only marks the <pre>.
+    const js = nav();
+    const ok = js.indexOf('navigate(box)');
+    const fail = js.indexOf("pre.setAttribute('data-diagram-error'");
+    expect(ok).toBeGreaterThan(-1);
+    expect(fail).toBeGreaterThan(-1);
+    // navigate() is in the .then, the marker is in the .catch that follows it.
+    expect(ok).toBeLessThan(fail);
+  });
+
+  it('sizes the diagram from its attributes, never by measuring it', () => {
+    // The AEH-324 trap again: a panel that is not the frontmost is assembled
+    // hidden, and anything measured inside display:none comes back zero. The
+    // width mermaid writes is intrinsic, so Fit can be computed while hidden.
+    const html = nav();
+    expect(html).toContain("getAttribute('width')");
+    expect(html).not.toContain('getBBox(');
+  });
+
+  it('waits for a real measurement of the viewport before fitting', () => {
+    // The other half of the same trap: the SVG's size is knowable while hidden
+    // but the VIEWPORT's is not, so the first honest fit happens when the
+    // reader opens that tab. This is also what handles a window resize.
+    expect(nav()).toContain('ResizeObserver');
+  });
+
+  it('leaves a bare wheel alone so the page can still scroll', () => {
+    // A document whose tab is one large diagram would otherwise be impossible
+    // to scroll past with a pointer over it.
+    const html = nav();
+    expect(html).toContain('if(!e.ctrlKey&&!e.metaKey){return}');
+    expect(html).toContain('{passive:false}');
+  });
+
+  it('falls back to filling the frame when full screen is not delegated', () => {
+    // document.fullscreenEnabled is false inside sandbox="allow-scripts"
+    // unless the viewer passes allow="fullscreen", so the control has to
+    // degrade rather than do nothing. A downloaded copy is top-level and gets
+    // the real thing.
+    const html = nav();
+    expect(html).toContain('document.fullscreenEnabled');
+    expect(html).toContain('is-max');
+    expect(html).toContain('.diagram.is-max{position:fixed');
+    // And the browser's own Escape must not desync the button label.
+    expect(html).toContain("addEventListener('fullscreenchange'");
+  });
+
+  it('resets the transform for print', () => {
+    // Somebody sends this to a client as a PDF. A zoomed diagram would
+    // otherwise print as a crop of itself, and the controls would print too.
+    const html = nav();
+    expect(html).toContain('.diagram-pan{position:static;transform:none!important}');
+    expect(html).toContain('.diagram-bar{display:none}');
+  });
+
+  it('costs a document with no diagram in it nothing at all', () => {
+    // The navigation code rides inside DIAGRAM_JS, which is already omitted
+    // unless a section draws. A wireframe pack must not carry any of it.
+    const plain = assembleArtifact({ title: 't', subtitle: 's', footer: 'f' }, [
+      { sectionId: 'a', title: 'A', html: '<p>prose</p>' },
+    ]);
+    expect(plain).not.toContain('data-act="full"');
+    expect(plain).not.toContain('ResizeObserver');
+    expect(plain).not.toContain('cdn.jsdelivr.net');
+  });
+});
