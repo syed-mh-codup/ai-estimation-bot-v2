@@ -14,7 +14,9 @@ export type ExportSheetsProps = {
   estimateId: string;
   /** Persisted on the estimate, so the link survives a reload without re-exporting. */
   initialSheetUrl: string | null;
-  action: (estimateId: string) => Promise<ExportOutcome>;
+  /** Who last overwrote the spreadsheet and when, from the export log. */
+  initialLastExport: string | null;
+  action: (estimateId: string, confirmed?: boolean) => Promise<ExportOutcome>;
 };
 
 const CONFIRMATION_MS = 2500;
@@ -28,18 +30,25 @@ const CONFIRMATION_MS = 2500;
  * So the link lives here, next to the thing that creates it. Re-exporting
  * replaces that same sheet rather than making another, and the button says so
  * once one exists — that behaviour was never discoverable before.
+ *
+ * AEH-317 made the replacement honest. It rewrites Summary and every department
+ * tab from scratch, and account executives work inside those tabs, so when the
+ * spreadsheet has been touched since this system last wrote to it the button
+ * stops and says what pressing it again will cost.
  */
-export function ExportSheets({ estimateId, initialSheetUrl, action }: ExportSheetsProps) {
+export function ExportSheets({ estimateId, initialSheetUrl, initialLastExport, action }: ExportSheetsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [url, setUrl] = useState<string | null>(initialSheetUrl);
+  const [lastExport, setLastExport] = useState<string | null>(initialLastExport);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [exportedAt, setExportedAt] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
-  const run = () => {
+  const run = (confirmed: boolean) => {
     setError(null);
     startTransition(async () => {
       // The action reports failure by returning it. Any throw that still gets
@@ -47,20 +56,29 @@ export function ExportSheets({ estimateId, initialSheetUrl, action }: ExportShee
       // allowed to become a server-side exception page.
       let outcome: ExportOutcome;
       try {
-        outcome = await action(estimateId);
+        outcome = await action(estimateId, confirmed);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'The export failed for an unknown reason.');
         return;
       }
 
-      if (!outcome.ok) {
+      if (outcome.kind === 'failed') {
+        setWarning(null);
         setError(outcome.error);
         return;
       }
 
+      if (outcome.kind === 'needs-confirmation') {
+        // Nothing has been written. The next press carries the confirmation.
+        setWarning(outcome.warning);
+        return;
+      }
+
+      setWarning(null);
       // A recreated sheet gets a new URL, so take it from the result rather
       // than assuming the one already on screen is still right.
       setUrl(outcome.url);
+      setLastExport(outcome.lastExport);
       setExportedAt(Date.now());
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => setExportedAt(0), CONFIRMATION_MS);
@@ -69,20 +87,39 @@ export function ExportSheets({ estimateId, initialSheetUrl, action }: ExportShee
     });
   };
 
-  const state = exportStateOf({ pending, error, url, exportedAt });
+  const state = exportStateOf({ pending, error, url, exportedAt, warning });
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="export-panel">
       <Button
         type="button"
-        variant="outline"
+        variant={state === 'confirming' ? 'destructive' : 'outline'}
         full
-        onClick={run}
+        onClick={() => run(state === 'confirming')}
         disabled={pending}
         data-testid="export-sheets"
       >
         {exportButtonLabel(state)}
       </Button>
+
+      {state === 'confirming' && warning && (
+        <>
+          <p
+            className="rounded-[8px] border border-bronze-line bg-bronze-tint px-3 py-2 text-[11.5px] leading-snug text-bronze-ink"
+            data-testid="export-overwrite-warning"
+          >
+            {warning}
+          </p>
+          <button
+            type="button"
+            className="text-[11px] text-bronze-ink hover:underline"
+            onClick={() => setWarning(null)}
+            data-testid="export-cancel"
+          >
+            Leave the spreadsheet alone
+          </button>
+        </>
+      )}
 
       {url && (
         <a
@@ -96,9 +133,15 @@ export function ExportSheets({ estimateId, initialSheetUrl, action }: ExportShee
         </a>
       )}
 
+      {lastExport && state !== 'confirming' && (
+        <p className="text-[11px] leading-snug text-bronze-ink" data-testid="export-last">
+          {lastExport}
+        </p>
+      )}
+
       {(state === 'ready' || state === 'done') && (
         <p className="text-[11px] leading-snug text-bronze-ink">
-          Exporting again replaces this same sheet, so edits and re-runs stay in one file.
+          Re-exporting rewrites Summary and the department tabs. Tabs you add yourself are left alone.
         </p>
       )}
 

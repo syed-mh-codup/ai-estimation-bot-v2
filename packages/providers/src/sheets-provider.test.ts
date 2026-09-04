@@ -127,7 +127,10 @@ describe('AEH-232: where the spreadsheet gets created', () => {
       requestBody: { data: Array<{ range: string }>; valueInputOption: string };
     };
     expect(body.requestBody.data.map((d) => d.range)).toEqual(["'DEV'!A1:B2", "'Roll-Up'!A1:B1"]);
-    expect(body.requestBody.valueInputOption).toBe('RAW');
+    // AEH-317: formulas are the export's reason for existing now. Under RAW a
+    // written "=SUMIF(...)" is stored as those characters and not one number in
+    // the file is linked to any other.
+    expect(body.requestBody.valueInputOption).toBe('USER_ENTERED');
   });
 });
 

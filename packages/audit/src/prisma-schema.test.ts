@@ -44,7 +44,11 @@ describe('AEH-228: prisma schema parser', () => {
     // count for an artifact reason, that requirement has been broken. The one
     // enum change was a value on UsageKind — ARTIFACT, singular, covering every
     // type, because per-artifact attribution is ModelUsage.artifactId.
-    expect(schema.models.size).toBe(30);
+    //
+    // 30 -> 31 is SheetExport (AEH-317): the Sheets export overwrites the
+    // spreadsheet wholesale, so who did that and when is a fact only a table
+    // can hold. Not an artifact type, so it does not bear on the rule above.
+    expect(schema.models.size).toBe(31);
     expect(schema.enums.size).toBe(16);
   });
 
