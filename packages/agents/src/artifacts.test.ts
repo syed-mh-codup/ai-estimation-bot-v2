@@ -68,6 +68,22 @@ describe('uniqueSectionIds', () => {
 });
 
 describe('stripFence', () => {
+  it('strips an opening fence that is never closed', () => {
+    // The live failure (AEH-321): a long section opened ```html and ran out
+    // before closing it, and a both-ends regex left the marker in the document.
+    expect(stripFence('```html\n<style>\n  .a { color: red }\n</style>\n<p>hi</p>')).toBe(
+      '<style>\n  .a { color: red }\n</style>\n<p>hi</p>',
+    );
+  });
+
+  it('leaves a fence that is part of the content alone', () => {
+    // Only a fence on the FIRST line is a wrapper. One further in belongs to
+    // the section — a code sample in a <pre> — and stripping it would corrupt
+    // the document rather than clean it.
+    const html = '<pre><code>```bash\nnpm i\n```</code></pre>';
+    expect(stripFence(html)).toBe(html);
+  });
+
   it('removes a fence wrapping the whole response', () => {
     expect(stripFence('```html\n<p>hi</p>\n```')).toBe('<p>hi</p>');
   });

@@ -294,6 +294,32 @@ describe('chat call budget', () => {
     expect(fetchMock.mock.calls[0]![1].signal).toBeUndefined();
   });
 
+  it('names the budget when the abort lands on the BODY READ, not the request', async () => {
+    // The real shape of an OpenRouter timeout: headers arrive in milliseconds
+    // and the completion elapses inside .json(). AEH-321's first live timeout
+    // escaped as a bare TimeoutError because only the request was wrapped.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.reject(
+            Object.assign(new Error('The operation was aborted due to timeout'), {
+              name: 'TimeoutError',
+            }),
+          ),
+      }),
+    );
+
+    await expect(
+      provider().chat({
+        model: 'deepseek/deepseek-v4-flash-0731',
+        messages: [{ role: 'user', content: 'hi' }],
+        timeoutMs: 240_000,
+      }),
+    ).rejects.toThrow(/deepseek\/deepseek-v4-flash-0731 exceeded its 240000ms budget/);
+  });
+
   it('names the model and the budget when the call is abandoned', async () => {
     vi.stubGlobal(
       'fetch',

@@ -61,9 +61,19 @@ import type { StepRunner } from './run-estimate';
  * taste. The first real generation planned four sections for an ERD and wrote
  * 7,073 then 14,935 output tokens — the second of those about 2.5x the intent —
  * before the third exceeded the function's 300s and returned a gateway 504.
- * Asking for half as much per section, and for more sections, is what keeps
- * each call inside the ceiling. It is now the ONLY thing that does — capping
- * output tokens was tried the same day and had to be reverted; see below.
+ *
+ * The budget alone does not hold, and 4 September proved it twice. Stating it
+ * in the OUTLINE envelope did nothing, because the outline is not what writes
+ * the section — the section envelope had never been told the figure at all, and
+ * was being told to write "in full" and not to summarise. Once it WAS told, a
+ * seven-section ERD still came back at 10,127, 11,247 and 12,309 characters —
+ * roughly 1,800 words each, near three times the budget — and its fourth
+ * section exceeded a 240s call budget twice and failed the run.
+ *
+ * The lever that has actually moved this is SECTION COUNT, which is why the
+ * outline envelope now sets a floor of ten rather than a preference for five to
+ * twelve. A document's total volume is roughly what the model wants to say; the
+ * ceiling is per CALL. So the only way to fit is more calls, each smaller.
  */
 const SECTION_WORD_BUDGET = 700;
 
@@ -155,7 +165,11 @@ Rules that decide whether this document can be produced at all:
   sections must agree on in it — entity names, journey ids, tranche labels. If
   two sections would otherwise name the same thing differently, that name
   belongs here.
-- Prefer 5-12 sections. One section is correct only for a genuinely tiny document.
+- Plan AT LEAST 10 sections, and prefer 12-20. Fewer than ten is almost always
+  wrong: it means some section is carrying more than one subject, and that is
+  the section that will run long and take the document down. Splitting costs
+  nothing — each section is a separate call with its own budget — so when in
+  doubt, split.
 - "id" must be lowercase, hyphenated, and unique.
 
 Base the plan on the source material you are given. Do not invent scope that is
@@ -169,6 +183,11 @@ Return an HTML FRAGMENT and nothing else. No <!doctype>, no <html>, no <head>,
 no <body>, no markdown fences, no commentary before or after. Start with your
 first element.
 
+Nothing here is rendered as markdown, so do not write any. **bold** is not bold,
+it is two asterisks the reader sees. Use <strong>. Likewise <em> for emphasis,
+<ul>/<li> for a list, <h2>/<h3> for a heading, and <code> for code. This applies
+inside prose you are otherwise writing as HTML, which is where it gets missed.
+
 The page around you already exists: it supplies the document title, the tab bar,
 the navigation and the footer. Do not re-create any of them, and do not write a
 tab bar of your own.
@@ -177,6 +196,10 @@ You may include <style> and <script> in your fragment. Your section is wrapped i
 an element with the id given below, so SCOPE EVERY SELECTOR under it —
   #panel-<your-section-id> .thing { ... }
 — never a bare ".thing", or your styles will fight the other sections'.
+
+That wrapper ALREADY EXISTS. It is put around your fragment for you. Do NOT
+write an element carrying that id yourself: a second one nests inside the first,
+duplicates the id, and gives your section two sets of padding.
 
 ${CSS_CONTRACT}
 
@@ -371,8 +394,23 @@ export function uniqueSectionIds(raw: readonly string[]): string[] {
  */
 export function stripFence(text: string): string {
   const trimmed = text.trim();
-  const match = /^```(?:html|HTML)?\s*\n([\s\S]*?)\n?```$/.exec(trimmed);
-  return match ? match[1]!.trim() : trimmed;
+
+  // Deliberately anchored on the OPENING fence alone, with the closing one
+  // optional. The previous version required both ends and so did nothing at all
+  // when a model opened ```html and never closed it — which is exactly what a
+  // long section does, and it put a literal "```html" line at the top of a
+  // finished, client-facing document on 4 September (AEH-321).
+  //
+  // Only a fence on the very first line counts. A ``` appearing later is inside
+  // the section's own content — a code sample in a <pre>, say — and removing it
+  // would corrupt the document rather than clean it.
+  const open = /^```[a-zA-Z]*[ \t]*\r?\n/.exec(trimmed);
+  if (!open) return trimmed;
+
+  return trimmed
+    .slice(open[0].length)
+    .replace(/\r?\n?```[ \t]*$/, '')
+    .trim();
 }
 
 /** The section call's user message. Exported so a test can assert what is sent. */
