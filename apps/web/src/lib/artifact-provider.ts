@@ -40,6 +40,11 @@ function stubArtifactProvider(): IModelProvider {
         id: h.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `section-${i + 1}`,
         title: h,
         brief: `Summarise what the dossier says under "${h}".`,
+        // One diagram section, always, and deliberately not the first one:
+        // AEH-324's renderer measures in its own container precisely because a
+        // panel that is not the frontmost is assembled `hidden`, and a stub
+        // that only ever put a diagram in tab one would exercise the easy case.
+        kind: (i === 1 ? 'diagram' : 'prose') as 'diagram' | 'prose',
       }));
       return JSON.stringify({
         title: 'Stub artifact',
@@ -54,6 +59,33 @@ function stubArtifactProvider(): IModelProvider {
     // renders something that looks like a real artifact.
     const scoped = /#panel-([a-z0-9-]+)/.exec(text)?.[1] ?? 'unknown';
     const title = /You are writing section \d+ of \d+: "(.+?)"/.exec(text)?.[1] ?? 'Section';
+
+    // Told apart by the tail it was handed, the same way the outline call is
+    // told apart from a section call. This is the only way to see the diagram
+    // renderer end to end without paying for a real generation.
+    if (text.includes('NO word budget')) {
+      return [
+        `<h2>${title}</h2>`,
+        `<p class="muted">Stub notation for section <span class="num">${scoped}</span>.</p>`,
+        // Attributed, not just named: the contract asks for them, so the stub
+        // has to exercise the shape a real ERD actually has.
+        '<pre class="diagram">erDiagram',
+        '  ESTIMATE {',
+        '    uuid id PK',
+        '    string title',
+        '  }',
+        '  SECTION {',
+        '    uuid id PK',
+        '    uuid estimateId FK',
+        '    int order',
+        '  }',
+        '  ESTIMATE ||--o{ SECTION : contains',
+        '  SECTION ||--|{ LINE_ITEM : holds',
+        '  ESTIMATE ||--o| ARTIFACT : produces',
+        '</pre>',
+      ].join('\n');
+    }
+
     return [
       `<style>#panel-${scoped} .stub{border-left:3px solid var(--green)}</style>`,
       `<h2>${title}</h2>`,

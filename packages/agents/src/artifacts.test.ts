@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { assembleArtifact, escapeHtml, CSS_CONTRACT } from './artifact-shell';
-import { normaliseSectionId, sectionPrompt, stripFence, uniqueSectionIds } from './artifacts';
+import {
+  normaliseDiagramBlocks,
+  normaliseSectionId,
+  sectionEnvelope,
+  sectionPrompt,
+  stripFence,
+  uniqueSectionIds,
+} from './artifacts';
 import type { ArtifactOutline } from '@repo/shared';
 
 /**
@@ -114,9 +121,9 @@ const outline = (over: Partial<ArtifactOutline> = {}): ArtifactOutline => ({
   title: 'Scope atlas',
   vocabulary: ['Order', 'Fulfilment'],
   sections: [
-    { id: 'entities', title: 'Entity model', brief: 'Every logical entity.' },
-    { id: 'journeys', title: 'Journeys', brief: 'Every end-to-end journey.' },
-    { id: 'tranches', title: 'Tranches', brief: 'The delivery tranches.' },
+    { id: 'entities', title: 'Entity model', brief: 'Every logical entity.', kind: 'diagram' },
+    { id: 'journeys', title: 'Journeys', brief: 'Every end-to-end journey.', kind: 'prose' },
+    { id: 'tranches', title: 'Tranches', brief: 'The delivery tranches.', kind: 'prose' },
   ],
   ...over,
 });
@@ -163,7 +170,7 @@ describe('sectionPrompt', () => {
   });
 
   it('omits the empty scaffolding on a single-section document', () => {
-    const one = outline({ sections: [{ id: 'a', title: 'A', brief: 'B' }], vocabulary: [] });
+    const one = outline({ sections: [{ id: 'a', title: 'A', brief: 'B', kind: 'prose' }], vocabulary: [] });
     const p = sectionPrompt({ outline: one, index: 0, sectionId: 'a', corpus: 'C', done: [] });
     expect(p).not.toContain('Still to come');
     expect(p).not.toContain('Already written');
@@ -175,6 +182,10 @@ describe('sectionPrompt', () => {
     expect(p).toContain('THE SOW');
   });
 });
+
+/** The CSP meta tag's content attribute, so a test can assert on the policy alone. */
+const csp = (html: string): string =>
+  /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? '';
 
 describe('assembleArtifact', () => {
   const meta = { title: 'Scope atlas', subtitle: 'Acme rebuild', footer: 'generated' };
@@ -198,7 +209,85 @@ describe('assembleArtifact', () => {
     // client.
     const html = assembleArtifact(meta, sections);
     expect(html).toContain("default-src 'none'");
-    expect(html).toContain("img-src data:");
+    expect(html).toContain('img-src data:');
+    // A document with no diagram in it is not merely self-contained by luck —
+    // it names no remote source at all, exactly as before AEH-324.
+    expect(csp(html)).not.toContain('https:');
+    expect(html).not.toContain('cdn.jsdelivr.net');
+  });
+
+  it('widens the CSP by exactly one file, and only for a document that draws', () => {
+    // The load-bearing test for AEH-324. `script-src https://cdn.jsdelivr.net`
+    // would be the obvious spelling and it is the wrong one: that CDN serves
+    // any npm package and any GitHub repo, and the corpus these documents are
+    // built from comes out of client-uploaded files, so a prompt injection
+    // could pull arbitrary code into a document we hand to a client. The
+    // allowance is one immutable URL, and this is what stops somebody widening
+    // it to the bare host later.
+    const html = assembleArtifact(meta, [
+      ...sections,
+      { sectionId: 'erd', title: 'ERD', html: '<pre class="diagram">erDiagram\n A ||--o{ B : has</pre>' },
+    ]);
+    const policy = csp(html);
+
+    const remote = policy.match(/https:\/\/[^;\s]+/g) ?? [];
+    expect(remote).toHaveLength(1);
+    expect(remote[0]).toBe(
+      'https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js',
+    );
+    // A path that does not end in "/" matches that file and nothing else, so
+    // the exactness IS the mechanism, not a tidiness preference.
+    expect(remote[0]!.endsWith('/')).toBe(false);
+
+    // Everything else stays shut. connect-src is absent on purpose: it inherits
+    // default-src 'none', which the UMD bundle permits because it has no lazy
+    // chunks to fetch. Naming it here at all would be the hole reopening.
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).not.toContain('connect-src');
+    expect(policy).toContain('img-src data:');
+    expect(policy).toContain('font-src data:');
+  });
+
+  it('pins the renderer by content as well as by name', () => {
+    // The second lock. The path match says which file; SRI says which bytes,
+    // so a compromised or silently-republished CDN artefact is refused by the
+    // browser rather than executed inside a client-facing document.
+    const html = assembleArtifact(meta, [
+      { sectionId: 'erd', title: 'ERD', html: '<pre class="diagram">erDiagram\n A ||--o{ B : has</pre>' },
+    ]);
+    expect(html).toContain('integrity="sha384-');
+    expect(html).toContain('crossorigin="anonymous"');
+  });
+
+  it('renders diagrams with render(), not run(), because later panels are hidden', () => {
+    // getBBox() returns zeros inside display:none, so mermaid's in-place run()
+    // would lay out every diagram outside the first tab with all its labels
+    // measured as zero-width. render() measures in its own container attached
+    // to <body>. This asserts the shape of the fix, since the failure it
+    // prevents only shows up in a browser on the second tab.
+    const html = assembleArtifact(meta, [
+      sections[0]!,
+      { sectionId: 'erd', title: 'ERD', html: '<pre class="diagram">erDiagram\n A ||--o{ B : has</pre>' },
+    ]);
+    expect(html).toContain('m.render(');
+    expect(html).not.toContain('mermaid.run(');
+    expect(html).toContain('startOnLoad:false');
+    // And the tab chrome is live before 3.5MB starts downloading.
+    expect(html.indexOf("querySelectorAll('.tab')")).toBeLessThan(
+      html.indexOf('<script src="https://cdn.jsdelivr.net'),
+    );
+  });
+
+  it('leaves the notation on screen when the renderer never arrives', () => {
+    // The whole offline story: the <pre> ships visible and is replaced on
+    // success, so a client opening the downloaded file with no network reads
+    // notation instead of staring at an empty box.
+    const html = assembleArtifact(meta, [
+      { sectionId: 'erd', title: 'ERD', html: '<pre class="diagram">erDiagram\n A ||--o{ B : has</pre>' },
+    ]);
+    expect(html).toContain('<pre class="diagram">erDiagram');
+    expect(html).toContain('pre.diagram{');
+    expect(html).not.toContain('pre.diagram{display:none');
   });
 
   it('wraps each section in its own element with the id its CSS is scoped to', () => {
@@ -261,9 +350,160 @@ describe('the CSS contract', () => {
       { title: 't', subtitle: 's', footer: 'f' },
       [{ sectionId: 'a', title: 'A', html: '' }],
     );
-    for (const cls of ['.card', '.grid-2', '.pill', '.eyebrow', '.muted', '.scroll-x']) {
+    for (const cls of [
+      '.card',
+      '.grid-2',
+      '.pill',
+      '.eyebrow',
+      '.muted',
+      '.scroll-x',
+      '.diagram',
+    ]) {
       expect(CSS_CONTRACT).toContain(cls);
       expect(shipped).toContain(cls);
     }
+  });
+});
+
+describe('sectionEnvelope', () => {
+  it('offers the notation block to every section, not just the diagram ones', () => {
+    // A prose section explaining how checkout works legitimately wants a
+    // sequence diagram in the middle of it. `kind` governs the word budget and
+    // whether the subject may be split — never whether a diagram is allowed.
+    for (const kind of ['prose', 'diagram'] as const) {
+      expect(sectionEnvelope(kind)).toContain('<pre class="diagram">');
+    }
+  });
+
+  it('gives a prose section the word budget and a diagram section none', () => {
+    // The two tails make OPPOSITE demands, which is why they are branched
+    // rather than concatenated. Handing a diagram section the budget is what
+    // produced seven per-domain ERDs where one system diagram was asked for.
+    expect(sectionEnvelope('prose')).toContain('Aim for about');
+    expect(sectionEnvelope('diagram')).not.toContain('Aim for about');
+    expect(sectionEnvelope('diagram')).toContain('NO word budget');
+    expect(sectionEnvelope('diagram')).toContain('Do not split it');
+  });
+
+  it('asks an entity diagram for attributes, not just entity names', () => {
+    // Boxes with only names in them are a list of nouns with lines between
+    // them. The attribute block is what makes an ERD a deliverable, so the
+    // worked example in the contract has to show one.
+    const env = sectionEnvelope('diagram');
+    expect(env).toContain('uuid id PK');
+    expect(env).toContain('uuid customerId FK');
+    expect(env).toContain('ATTRIBUTES');
+  });
+
+  it('teaches the angle-bracket rule, which is the one that breaks silently', () => {
+    // stateDiagram-v2 spells a fork <<fork>>, which raw inside a <pre> is
+    // markup rather than notation.
+    expect(sectionEnvelope('prose')).toContain('&lt;&lt;fork&gt;&gt;');
+  });
+});
+
+describe('normaliseDiagramBlocks', () => {
+  const wrap = (body: string): string => `<p>Lead-in.</p><pre class="diagram">${body}</pre>`;
+
+  it('leaves a well-formed block alone apart from canonicalising the tag', () => {
+    const out = normaliseDiagramBlocks(wrap('erDiagram\n  A ||--o{ B : has'), 'ERD');
+    expect(out).toContain('<pre class="diagram">erDiagram');
+    expect(out).toContain('A ||--o{ B : has');
+    expect(out).toContain('<p>Lead-in.</p>');
+  });
+
+  it('escapes a raw angle bracket the prompt asked for as an entity', () => {
+    // The likeliest thing to be got wrong, and mechanical to fix, so it is
+    // repaired rather than thrown on — a throw costs a paid retry.
+    const out = normaliseDiagramBlocks(
+      wrap('stateDiagram-v2\n  [*] --> <<fork>>'),
+      'States',
+    );
+    expect(out).toContain('--&gt; &lt;&lt;fork&gt;&gt;');
+    expect(out).not.toContain('<<fork>>');
+  });
+
+  it('converges both spellings on the entity form', () => {
+    // textContent decodes them in the browser, so "-->" and "--&gt;" must both
+    // reach mermaid as "-->".
+    const raw = normaliseDiagramBlocks(wrap('flowchart TD\n  A --> B'), 'Flow');
+    const escaped = normaliseDiagramBlocks(wrap('flowchart TD\n  A --&gt; B'), 'Flow');
+    expect(raw).toBe(escaped);
+  });
+
+  it('strips a markdown fence the model nested inside the block', () => {
+    // stripFence deliberately only looks at line one of the whole response, so
+    // a fence inside the <pre> sails past it and reaches mermaid as a syntax
+    // error.
+    const out = normaliseDiagramBlocks(
+      wrap('```mermaid\nsequenceDiagram\n  A->>B: hi\n```'),
+      'Sequence',
+    );
+    expect(out).toContain('<pre class="diagram">sequenceDiagram');
+    expect(out).not.toContain('```');
+  });
+
+  it('accepts every notation keyword the contract names', () => {
+    for (const first of [
+      'erDiagram',
+      'sequenceDiagram',
+      'stateDiagram-v2',
+      'stateDiagram',
+      'flowchart TD',
+      'graph LR',
+    ]) {
+      expect(() => normaliseDiagramBlocks(wrap(`${first}\n  A --> B`), 'D')).not.toThrow();
+    }
+  });
+
+  it('rejects a block that is prose rather than notation', () => {
+    // What a retry actually fixes, so it throws rather than shipping a block
+    // that will only fail in the client's browser.
+    expect(() =>
+      normaliseDiagramBlocks(wrap('The entities are as follows:'), 'ERD'),
+    ).toThrow(/not a diagram/);
+  });
+
+  it('rejects an empty block, which is a billed call that produced nothing', () => {
+    expect(() => normaliseDiagramBlocks(wrap('\n  \n'), 'ERD')).toThrow(/empty diagram block/);
+  });
+
+  it('names the section in the error, since a run has a dozen of them', () => {
+    expect(() => normaliseDiagramBlocks(wrap('nonsense'), 'Warranty domain')).toThrow(
+      /Warranty domain/,
+    );
+  });
+
+  it('handles the tag a model actually writes, not just the one it was asked for', () => {
+    const out = normaliseDiagramBlocks(
+      '<pre class="diagram scroll-x" data-x="1">erDiagram\n  A ||--o{ B : has</pre>',
+      'ERD',
+    );
+    expect(out).toBe('<pre class="diagram">erDiagram\n  A ||--o{ B : has</pre>');
+  });
+
+  it('carries an entity attribute block through unharmed', () => {
+    // The braces and the quoted comment are notation, not markup, so nothing
+    // in the repair pass may touch them.
+    const src = [
+      'erDiagram',
+      '  CUSTOMER {',
+      '    uuid id PK',
+      '    string email "unique"',
+      '  }',
+      '  CUSTOMER ||--o{ ORDER : places',
+    ].join('\n');
+    const out = normaliseDiagramBlocks(wrap(src), 'ERD');
+    expect(out).toContain('<pre class="diagram">' + src + '</pre>');
+  });
+
+  it('leaves a fragment with no diagram in it completely untouched', () => {
+    const html = '<h2>Tranches</h2><p>Three of them.</p><pre><code>npm i</code></pre>';
+    expect(normaliseDiagramBlocks(html, 'Tranches')).toBe(html);
+  });
+
+  it('checks every block, not just the first', () => {
+    const two = `${wrap('erDiagram\n  A ||--o{ B : has')}${wrap('still prose')}`;
+    expect(() => normaliseDiagramBlocks(two, 'ERD')).toThrow(/not a diagram/);
   });
 });
