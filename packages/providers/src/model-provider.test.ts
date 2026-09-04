@@ -240,3 +240,98 @@ describe('chat: a response with no content', () => {
     expect(res.finishReason).toBeNull();
   });
 });
+
+/**
+ * The call budget added for AEH-321.
+ *
+ * Every artifact generation before it died to a platform timeout rather than an
+ * error of its own: the model call had no ceiling, so the only thing that ended
+ * a slow completion was Vercel killing the process, which reaches Inngest as a
+ * bare HTTP 504 with no step output. These lock in the two things that stopped
+ * happening — the knob reaching OpenRouter at all, and the deadline covering
+ * the fallback rather than restarting for it.
+ */
+describe('chat call budget', () => {
+  function jsonResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        model: 'deepseek/deepseek-v4-flash-0731',
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.001 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
+  it('passes reasoning through to OpenRouter and omits it when unset', async () => {
+    // A fresh Response per call: a body can only be read once.
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await provider().chat({
+      model: 'deepseek/deepseek-v4-flash-0731',
+      messages: [{ role: 'user', content: 'hi' }],
+      reasoning: { effort: 'low' },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).reasoning).toEqual({ effort: 'low' });
+
+    await provider().chat({
+      model: 'deepseek/deepseek-v4-flash-0731',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).not.toHaveProperty('reasoning');
+  });
+
+  it('sends no abort signal when no timeout is asked for', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await provider().chat({
+      model: 'deepseek/deepseek-v4-flash-0731',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    expect(fetchMock.mock.calls[0]![1].signal).toBeUndefined();
+  });
+
+  it('names the model and the budget when the call is abandoned', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'TimeoutError' })),
+    );
+
+    await expect(
+      provider().chat({
+        model: 'deepseek/deepseek-v4-flash-0731',
+        messages: [{ role: 'user', content: 'hi' }],
+        timeoutMs: 240_000,
+      }),
+    ).rejects.toThrow(/deepseek\/deepseek-v4-flash-0731 exceeded its \d+ms budget/);
+  });
+
+  it('gives the fallback what is LEFT of the budget, not a fresh one', async () => {
+    // The bug this exists to prevent: a per-attempt timeout lets a caller
+    // asking for 240s wait 480s, past the ceiling it set the timeout to respect.
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('primary is down'))
+      .mockImplementationOnce(() => Promise.resolve(jsonResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const withFallback = new OpenRouterModelProvider({
+      apiKey: 'test-key',
+      fallbackModel: 'anthropic/claude-sonnet-5',
+    });
+    await withFallback.chat({
+      model: 'deepseek/deepseek-v4-flash-0731',
+      messages: [{ role: 'user', content: 'hi' }],
+      timeoutMs: 240_000,
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body).model).toBe('anthropic/claude-sonnet-5');
+    // Both attempts carry a signal, and the second's deadline is inside the
+    // first's — the budget is for the call, not for each try at it.
+    expect(fetchMock.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+    expect(fetchMock.mock.calls[1]![1].signal).toBeInstanceOf(AbortSignal);
+  });
+});

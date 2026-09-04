@@ -29,6 +29,42 @@ export type ChatOptions = {
    * triggers the old "fallback to a stub value" bug.
    */
   responseFormat?: 'json_object';
+  /**
+   * How much a reasoning model is allowed to think before it answers.
+   *
+   * Measured, on 4 September, against the ERD section that had been taking
+   * whole generations down (AEH-321). Same prompt, same model
+   * (`deepseek/deepseek-v4-flash-0731`), one variable:
+   *
+   *   default        143.4s   41,336 completion tokens (33,542 of them reasoning)
+   *   effort 'low'    87.3s    3,909 completion tokens (1,396 of them reasoning)
+   *
+   * So on this model reasoning is ~80% of both the wall clock and the bill, and
+   * `completion_tokens` INCLUDES it — a usage row reading 30k is mostly thought,
+   * not document.
+   *
+   * `{ enabled: false }` is deliberately not used anywhere and should not be:
+   * the same call with reasoning switched off hung for over nine minutes and
+   * never returned. Turn it DOWN, never OFF.
+   *
+   * Passed through verbatim; OpenRouter's `/models` feed lists `reasoning` and
+   * `reasoning_effort` in `supported_parameters` for models that accept it.
+   */
+  reasoning?: { effort?: 'low' | 'medium' | 'high'; max_tokens?: number };
+  /**
+   * Give up on the whole call — primary AND fallback — after this many ms.
+   *
+   * Without it a call has no ceiling of its own, so on a serverless deploy the
+   * only thing that ends a slow completion is the platform killing the process:
+   * on Vercel that is a 300s `FUNCTION_INVOCATION_TIMEOUT`, which Inngest sees
+   * as a bare HTTP 504 with no step output. Every one of AEH-321's failed
+   * generations died that way — the whole budget spent, the completion paid
+   * for, and an error that names nothing.
+   *
+   * A caller that sets this fails inside the platform's ceiling instead, with
+   * an error that says what timed out.
+   */
+  timeoutMs?: number;
 };
 
 export type EmbedOptions = {
@@ -186,14 +222,20 @@ export class OpenRouterModelProvider implements IModelProvider {
   }
 
   async chat(options: ChatOptions): Promise<ChatResult> {
-    const response = await this.fetchWithFallback('/chat/completions', options.model, {
-      model: options.model,
-      messages: options.messages,
-      temperature: options.temperature ?? 0,
-      max_tokens: options.maxTokens,
-      ...(options.plugins ? { plugins: options.plugins } : {}),
-      ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {}),
-    });
+    const response = await this.fetchWithFallback(
+      '/chat/completions',
+      options.model,
+      {
+        model: options.model,
+        messages: options.messages,
+        temperature: options.temperature ?? 0,
+        max_tokens: options.maxTokens,
+        ...(options.plugins ? { plugins: options.plugins } : {}),
+        ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {}),
+        ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+      },
+      options.timeoutMs,
+    );
     const parsed = ChatResponseSchema.parse(response);
     return {
       text: parsed.choices[0]?.message.content ?? '',
@@ -221,15 +263,20 @@ export class OpenRouterModelProvider implements IModelProvider {
    * the user is already reading.
    */
   async *chatStream(options: ChatOptions): AsyncIterable<ChatStreamEvent> {
-    const res = await this.fetchRaw('/chat/completions', {
-      model: options.model,
-      messages: options.messages,
-      temperature: options.temperature ?? 0,
-      max_tokens: options.maxTokens,
-      stream: true,
-      stream_options: { include_usage: true },
-      ...(options.plugins ? { plugins: options.plugins } : {}),
-    });
+    const res = await this.fetchRaw(
+      '/chat/completions',
+      {
+        model: options.model,
+        messages: options.messages,
+        temperature: options.temperature ?? 0,
+        max_tokens: options.maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...(options.plugins ? { plugins: options.plugins } : {}),
+        ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+      },
+      options.timeoutMs,
+    );
     if (!res.body) throw new Error('OpenRouter returned no response body for a streamed call');
 
     const reader = res.body.getReader();
@@ -305,36 +352,71 @@ export class OpenRouterModelProvider implements IModelProvider {
     };
   }
 
+  /**
+   * `timeoutMs` is a budget for the CALL, not for each attempt.
+   *
+   * A per-attempt timeout would let a primary that burns the whole budget be
+   * followed by a fallback that gets a fresh one, so a caller asking for 240s
+   * could sit for 480s — past the very ceiling it set the timeout to stay
+   * inside. So the deadline is fixed once, here, and the fallback gets whatever
+   * is left of it.
+   */
   private async fetchWithFallback(
     path: string,
     model: string,
     body: Record<string, unknown>,
+    timeoutMs?: number,
   ): Promise<unknown> {
+    const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+    const remaining = (): number | undefined =>
+      deadline === undefined ? undefined : Math.max(1, deadline - Date.now());
     try {
-      return await this.fetchApi(path, body);
+      return await this.fetchApi(path, body, remaining());
     } catch (err) {
       if (this.fallbackModel && model !== this.fallbackModel) {
-        return this.fetchApi(path, { ...body, model: this.fallbackModel });
+        return this.fetchApi(path, { ...body, model: this.fallbackModel }, remaining());
       }
       throw err;
     }
   }
 
-  private async fetchApi(path: string, body: Record<string, unknown>): Promise<unknown> {
-    const res = await this.fetchRaw(path, body);
+  private async fetchApi(
+    path: string,
+    body: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<unknown> {
+    const res = await this.fetchRaw(path, body, timeoutMs);
     return res.json();
   }
 
-  private async fetchRaw(path: string, body: Record<string, unknown>): Promise<Response> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.config.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://codup.co',
-      },
-      body: JSON.stringify(body),
-    });
+  private async fetchRaw(
+    path: string,
+    body: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<Response> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://codup.co',
+        },
+        body: JSON.stringify(body),
+        ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
+      });
+    } catch (err) {
+      // Name the timeout. An abort surfaces as a bare `TimeoutError`, and the
+      // whole point of setting a deadline was to get an error that says which
+      // model was too slow rather than a platform 504 that says nothing.
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new Error(
+          `OpenRouter call to ${String(body['model'])} exceeded its ${timeoutMs}ms budget and was abandoned.`,
+        );
+      }
+      throw err;
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`OpenRouter API error ${res.status}: ${text}`);

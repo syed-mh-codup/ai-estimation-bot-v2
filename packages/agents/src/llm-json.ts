@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { UsageKind } from '@repo/db';
-import type { ChatMessage, IModelProvider, TokenUsage } from '@repo/providers';
+import type { ChatOptions, IModelProvider, TokenUsage } from '@repo/providers';
 import type { UsageRecorder } from './usage-recorder';
 
 export class LLMJsonError extends Error {
@@ -40,7 +40,7 @@ export class LLMJsonError extends Error {
  */
 export async function chatJSON<S extends z.ZodTypeAny>(
   modelProvider: IModelProvider,
-  options: { model: string; messages: ChatMessage[]; temperature?: number },
+  options: Omit<ChatOptions, 'responseFormat'>,
   schema: S,
   agentLabel: string,
   attribution: { kind: UsageKind; recorder: UsageRecorder },
@@ -111,7 +111,7 @@ function parseLLMJson<S extends z.ZodTypeAny>(
  */
 export async function streamJSON<S extends z.ZodTypeAny>(
   modelProvider: IModelProvider,
-  options: { model: string; messages: ChatMessage[]; temperature?: number },
+  options: Omit<ChatOptions, 'responseFormat'>,
   schema: S,
   agentLabel: string,
   attribution: { kind: UsageKind; recorder: UsageRecorder },
