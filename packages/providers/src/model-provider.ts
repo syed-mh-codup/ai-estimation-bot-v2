@@ -65,6 +65,32 @@ export type ChatOptions = {
    * an error that says what timed out.
    */
   timeoutMs?: number;
+  /**
+   * Which upstream host OpenRouter should serve this model from.
+   *
+   * OpenRouter serves one model from several providers at very different
+   * speeds, and routes by PRICE unless told otherwise — so on a call with a
+   * hard deadline the default is exactly backwards: it will pick the cheapest
+   * host, which is frequently the slowest.
+   *
+   * That is not theoretical. On 4 September the artifact outline call was
+   * measured at 37.2s standalone and abandoned twice at 240s in production
+   * inside the same ten minutes — same prompt, same model, same reasoning
+   * setting. The only variable left is who served it.
+   *
+   * `sort: 'throughput'` costs more per token by construction, because it stops
+   * choosing on price. At roughly two cents a document that is not the
+   * constraint; missing the function's ceiling is.
+   *
+   * Passed through verbatim.
+   */
+  provider?: {
+    sort?: 'throughput' | 'latency' | 'price';
+    order?: string[];
+    only?: string[];
+    ignore?: string[];
+    allow_fallbacks?: boolean;
+  };
 };
 
 export type EmbedOptions = {
@@ -263,6 +289,7 @@ export class OpenRouterModelProvider implements IModelProvider {
         ...(options.plugins ? { plugins: options.plugins } : {}),
         ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {}),
         ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+        ...(options.provider ? { provider: options.provider } : {}),
       },
       options.timeoutMs,
     );
@@ -304,6 +331,7 @@ export class OpenRouterModelProvider implements IModelProvider {
         stream_options: { include_usage: true },
         ...(options.plugins ? { plugins: options.plugins } : {}),
         ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+        ...(options.provider ? { provider: options.provider } : {}),
       },
       options.timeoutMs,
     );

@@ -111,6 +111,23 @@ const ARTIFACT_REASONING = { effort: 'low' } as const;
 const ARTIFACT_TIMEOUT_MS = 240_000;
 
 /**
+ * Buy the fastest host rather than the cheapest one.
+ *
+ * OpenRouter serves a model from several upstream providers and routes by PRICE
+ * by default, which on a call with a hard ceiling is exactly backwards. The
+ * evidence is a single afternoon: with reasoning already capped, the outline
+ * call was measured at 37.2s standalone and abandoned twice at 240s in
+ * production within the same ten minutes — same prompt, same model, same
+ * settings. Prompt size had already been ruled out. Who served it is the only
+ * variable left.
+ *
+ * This raises the per-token price, deliberately. A document costs about two
+ * cents; a document that never finishes costs the whole run, twice over,
+ * because every abandoned attempt is still a paid completion.
+ */
+const ARTIFACT_PROVIDER = { sort: 'throughput' } as const;
+
+/**
  * There is deliberately NO max_tokens on the section call. It was tried, on
  * 3 September, and it made things worse.
  *
@@ -283,6 +300,7 @@ async function planOutline(
       temperature: 0,
       reasoning: ARTIFACT_REASONING,
       timeoutMs: ARTIFACT_TIMEOUT_MS,
+      provider: ARTIFACT_PROVIDER,
     },
     ArtifactOutlineSchema,
     'ARTIFACT_OUTLINE',
@@ -600,6 +618,7 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
         temperature: 0.4,
         reasoning: ARTIFACT_REASONING,
         timeoutMs: ARTIFACT_TIMEOUT_MS,
+        provider: ARTIFACT_PROVIDER,
       });
       await recorder.record({ kind: 'ARTIFACT', model: result.model, usage: result.usage });
 
