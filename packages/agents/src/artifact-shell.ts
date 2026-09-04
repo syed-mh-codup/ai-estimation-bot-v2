@@ -476,6 +476,34 @@ const DIAGRAM_JS = `
     var stray=document.getElementById('dmmd-'+i);
     if(stray&&stray.parentNode){stray.parentNode.removeChild(stray)}
   }
+  /* Do not render into a document that is not being laid out. Everything in
+     one measures as zero, and mermaid does not lay out badly in that case, it
+     REJECTS — which used to mark every block red on a document the reader had
+     only to refresh. AEH-331. */
+  function whenMeasurable(go){
+    if(document.body.clientWidth>0){go();return}
+    var fired=false, ro=null, iv=null;
+    function fire(){
+      if(fired){return}
+      fired=true;
+      if(ro){try{ro.disconnect()}catch(e){}}
+      if(iv){clearInterval(iv)}
+      go();
+    }
+    try{
+      ro=new ResizeObserver(function(){if(document.body.clientWidth>0){fire()}});
+      ro.observe(document.body);
+    }catch(e){}
+    /* Behind the observer, not instead of it: a browser without one, or a
+       document that never reports a box, must still attempt the render rather
+       than showing notation for ever. */
+    var tries=0;
+    iv=setInterval(function(){
+      if(document.body.clientWidth>0||++tries>100){fire()}
+    },100);
+  }
+
+  whenMeasurable(function(){
   blocks.forEach(function(pre,i){
     /* textContent, so the &lt; the notation had to be written with decodes
        back to the "<" mermaid expects. */
@@ -507,6 +535,7 @@ const DIAGRAM_JS = `
       pre.setAttribute('data-diagram-error','1');
       sweep(i);
     }
+  });
   });
 })();
 `;
