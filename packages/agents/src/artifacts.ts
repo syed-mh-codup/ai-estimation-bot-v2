@@ -192,6 +192,10 @@ an element with the id given below, so SCOPE EVERY SELECTOR under it —
   #panel-<your-section-id> .thing { ... }
 — never a bare ".thing", or your styles will fight the other sections'.
 
+That wrapper ALREADY EXISTS. It is put around your fragment for you. Do NOT
+write an element carrying that id yourself: a second one nests inside the first,
+duplicates the id, and gives your section two sets of padding.
+
 ${CSS_CONTRACT}
 
 Anything wide — a table, a diagram, a wide grid — must be inside an element with
@@ -385,8 +389,23 @@ export function uniqueSectionIds(raw: readonly string[]): string[] {
  */
 export function stripFence(text: string): string {
   const trimmed = text.trim();
-  const match = /^```(?:html|HTML)?\s*\n([\s\S]*?)\n?```$/.exec(trimmed);
-  return match ? match[1]!.trim() : trimmed;
+
+  // Deliberately anchored on the OPENING fence alone, with the closing one
+  // optional. The previous version required both ends and so did nothing at all
+  // when a model opened ```html and never closed it — which is exactly what a
+  // long section does, and it put a literal "```html" line at the top of a
+  // finished, client-facing document on 4 September (AEH-321).
+  //
+  // Only a fence on the very first line counts. A ``` appearing later is inside
+  // the section's own content — a code sample in a <pre>, say — and removing it
+  // would corrupt the document rather than clean it.
+  const open = /^```[a-zA-Z]*[ \t]*\r?\n/.exec(trimmed);
+  if (!open) return trimmed;
+
+  return trimmed
+    .slice(open[0].length)
+    .replace(/\r?\n?```[ \t]*$/, '')
+    .trim();
 }
 
 /** The section call's user message. Exported so a test can assert what is sent. */
