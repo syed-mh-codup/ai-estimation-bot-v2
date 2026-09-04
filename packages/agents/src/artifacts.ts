@@ -7,7 +7,14 @@ import {
 } from '@repo/shared';
 
 import { buildArtifactDossier, renderArtifactDossier } from './artifact-dossier';
-import { CSS_CONTRACT, assembleArtifact, type ShellSection } from './artifact-shell';
+import {
+  CSS_CONTRACT,
+  DIAGRAM_CONTRACT,
+  DIAGRAM_KEYWORDS,
+  assembleArtifact,
+  diagramBlockRe,
+  type ShellSection,
+} from './artifact-shell';
 import { chatJSON } from './llm-json';
 import { createUsageRecorder, type UsageRecorder } from './usage-recorder';
 
@@ -165,7 +172,7 @@ Plan the sections. Return JSON only, matching exactly:
 {
   "title": "the document's own title",
   "vocabulary": ["names, ids and terms every section must use identically"],
-  "sections": [{ "id": "a-slug", "title": "Tab label", "brief": "what this section must contain" }]
+  "sections": [{ "id": "a-slug", "title": "Tab label", "brief": "what this section must contain", "kind": "prose" }]
 }
 
 Rules that decide whether this document can be produced at all:
@@ -173,10 +180,11 @@ Rules that decide whether this document can be produced at all:
 - Each section is written by a SEPARATE later call that will NOT see the other
   sections' output. It sees only: the source material, this whole outline, and
   its own brief. So each brief must stand alone.
-- Each section must fit in about ${SECTION_WORD_BUDGET} words of rendered
-  content. If a subject is bigger than that, SPLIT IT into several sections.
-  This is a hard production constraint, not a style preference: a section that
-  runs long takes the whole document down with a timeout. That has happened.
+- Each "prose" section must fit in about ${SECTION_WORD_BUDGET} words of
+  rendered content. If a subject is bigger than that, SPLIT IT into several
+  sections. This is a hard production constraint, not a style preference: a
+  section that runs long takes the whole document down with a timeout. That has
+  happened.
 - So PREFER MORE, SMALLER SECTIONS. There is no cost to a document having many
   sections and a real cost to it having few: each is generated separately, so
   ten small ones succeed where four large ones fail. If a subject could be one
@@ -202,11 +210,35 @@ Rules that decide whether this document can be produced at all:
   three, make it three.
 - "id" must be lowercase, hyphenated, and unique.
 
+"kind" decides how a section gets written, and it is the one field that can
+exempt a section from everything above:
+
+- "diagram" means the section's deliverable IS a formal diagram — an entity
+  relationship diagram, a sequence, a state machine, a user flow. It is written
+  as notation and laid out mechanically, so THE WORD BUDGET DOES NOT APPLY and
+  it must NOT be split to fit one. One entity model of forty entities is ONE
+  section. Cutting it into seven per-domain fragments destroys the only thing a
+  system diagram is for, which is seeing the whole system at once.
+- "prose" is everything else, and it INCLUDES wireframes and low-fidelity UI.
+  Those have no formal notation and their free-form arrangement is the
+  deliverable, so they are drawn rather than declared, and they are subject to
+  the budget like any other prose section.
+- If you leave it out it is "prose".
+
 Base the plan on the source material you are given. Do not invent scope that is
 not there.
 `.trim();
 
-const SECTION_ENVELOPE = `
+/**
+ * Everything a section call is told regardless of what it is writing.
+ *
+ * DIAGRAM_CONTRACT is in here rather than in the diagram branch below, and that
+ * is deliberate: a prose section explaining how checkout works legitimately
+ * wants a sequence diagram in the middle of it. The outline's `kind` mark
+ * governs the word budget and whether the subject may be split — never whether
+ * a diagram is allowed.
+ */
+const SECTION_ENVELOPE_HEAD = `
 You are writing ONE section of a larger HTML document.
 
 Return an HTML FRAGMENT and nothing else. No <!doctype>, no <html>, no <head>,
@@ -236,8 +268,14 @@ ${CSS_CONTRACT}
 Anything wide — a table, a diagram, a wide grid — must be inside an element with
 class "scroll-x" so it scrolls itself. The page must never scroll sideways.
 
-Images cannot be fetched. Draw with HTML, CSS and inline SVG.
+Images cannot be fetched. Draw with HTML, CSS and inline SVG — with one
+exception, below, which is the most common thing anybody draws here.
 
+${DIAGRAM_CONTRACT}
+`.trim();
+
+/** The tail for a section whose deliverable is prose, a table, or a wireframe. */
+const SECTION_TAIL_PROSE = `
 Aim for about ${SECTION_WORD_BUDGET} words of rendered content. This is the
 figure your section was PLANNED against — the outline split the document so that
 each part would fit it — and it is a production constraint, not a style note: a
@@ -247,6 +285,44 @@ Cover your whole brief, and leave no placeholders for a human to fill in. If the
 brief looks bigger than the budget, write the part that matters most and trust
 the sections around you to carry the rest — they were planned to.
 `.trim();
+
+/**
+ * The tail for a section the outline marked `'diagram'`.
+ *
+ * It contradicts the prose tail on both counts, which is why the two are
+ * branched rather than concatenated: this section has NO word budget and must
+ * NOT be split. Telling one call both sets of rules is what produced seven
+ * per-domain ERDs where one system diagram was asked for — the budget is the
+ * pressure that made splitting look like the right answer, and notation removes
+ * the reason it ever was.
+ */
+const SECTION_TAIL_DIAGRAM = `
+Your section's deliverable IS the diagram, and it was planned as one whole
+thing on purpose.
+
+- ONE diagram, covering your whole brief. Do not split it into several smaller
+  ones and do not cover only part of the subject. The value of a system diagram
+  is seeing the system at once, and no other section is coming to finish it.
+- There is NO word budget on this section. Completeness of the diagram is what
+  matters, the notation for it is short, and laying it out costs you nothing.
+- Every entity, actor, state or step your brief names appears in the diagram.
+  No placeholders, no "and so on".
+- Around it, write a short lead-in saying what it shows, and a legend for any
+  notation a reader may not know. A few sentences — the diagram is the
+  deliverable, not the commentary.
+`.trim();
+
+/**
+ * What a section call is told, for the kind of section it is.
+ *
+ * Exported so a test can assert the branch rather than infer it: the two tails
+ * make opposite demands about size, and a section handed the wrong one fails in
+ * a way that only shows up as a timeout in production.
+ */
+export function sectionEnvelope(kind: 'prose' | 'diagram'): string {
+  const tail = kind === 'diagram' ? SECTION_TAIL_DIAGRAM : SECTION_TAIL_PROSE;
+  return `${SECTION_ENVELOPE_HEAD}\n\n${tail}`;
+}
 
 /**
  * Everything the outline call needs, gathered once.
@@ -444,6 +520,67 @@ export function stripFence(text: string): string {
     .trim();
 }
 
+/**
+ * Check and repair the diagram blocks in a section's fragment. AEH-324.
+ *
+ * ## Repair first, throw second
+ *
+ * Throwing costs a paid retry and up to 240s of the step's budget, so anything
+ * mechanical is fixed here instead:
+ *
+ * - A markdown fence INSIDE the block. `stripFence` deliberately only looks at
+ *   line one of the whole response, so a ```mermaid the model put inside the
+ *   `<pre>` sails past it and reaches mermaid as a syntax error. Removed.
+ * - Raw `<` and `>`. This is the rule the prompt spends a paragraph on, and it
+ *   is still the likeliest thing to be got wrong: `stateDiagram-v2` spells a
+ *   fork `<<fork>>`, which inside a `<pre>` is markup rather than text.
+ *   Escaping every raw angle bracket and leaving `&` alone converges both
+ *   spellings on the entity form, which `textContent` decodes back in the
+ *   browser — so `-->` and `--&gt;` both arrive at mermaid as `-->`.
+ * - The tag itself, rewritten to the canonical `<pre class="diagram">`, so the
+ *   shell's detection does not have to be as forgiving as the matcher.
+ *
+ * What is left throws, because it is what a retry actually fixes: a block that
+ * does not open with a notation keyword is prose or a stray fence, and an empty
+ * one is a billed call that produced nothing. Same discipline as the empty
+ * section check, and the same reason — this document is going to a client.
+ *
+ * There is deliberately no real parse. That needs mermaid, which needs a DOM;
+ * the browser does it, and a diagram that fails there shows its notation
+ * instead of an empty box.
+ */
+export function normaliseDiagramBlocks(html: string, sectionTitle: string): string {
+  return html.replace(diagramBlockRe(), (_full, rawBody: string) => {
+    let body = rawBody
+      // A fence the model nested inside the block. Only at the very start and
+      // end of the body — one appearing in the middle is not something we
+      // understand well enough to touch.
+      .replace(/^\s*```[a-zA-Z]*[ \t]*\r?\n/, '')
+      .replace(/\r?\n?\s*```[ \t]*$/, '')
+      .trim();
+
+    body = body.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    if (body.length === 0) {
+      throw new Error(
+        `Section "${sectionTitle}" has an empty diagram block. The notation was asked for and nothing was written.`,
+      );
+    }
+
+    // Compared against the DECODED first token: the escaping above has already
+    // turned any stray bracket into an entity, and a keyword never contains one.
+    const first = body.split(/\r?\n/, 1)[0]!.trim();
+    if (!DIAGRAM_KEYWORDS.some((k) => first.startsWith(k))) {
+      throw new Error(
+        `Section "${sectionTitle}" has a diagram block starting "${first.slice(0, 40)}", which is not a diagram. ` +
+          `The first line must start with one of: ${DIAGRAM_KEYWORDS.join(', ')}.`,
+      );
+    }
+
+    return `<pre class="diagram">${body}</pre>`;
+  });
+}
+
 /** The section call's user message. Exported so a test can assert what is sent. */
 export function sectionPrompt(args: {
   outline: ArtifactOutline;
@@ -610,10 +747,19 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
       });
       if (already) return { sectionId, chars: 0, skipped: true };
 
+      // `?? 'prose'` rather than trusting the schema default: a resume reuses
+      // the STORED outline, which is cast and not re-parsed, so an outline
+      // planned before AEH-324 has no `kind` on it at all and the default
+      // never runs on exactly the path that would notice.
+      const kind = planned.kind ?? 'prose';
+
       const result = await modelProvider.chat({
         model: prep.modelString,
         messages: [
-          { role: 'system', content: `${SECTION_ENVELOPE}\n\n--- THE BRIEF ---\n${prep.promptBody}` },
+          {
+            role: 'system',
+            content: `${sectionEnvelope(kind)}\n\n--- THE BRIEF ---\n${prep.promptBody}`,
+          },
           {
             role: 'user',
             content: sectionPrompt({
@@ -651,6 +797,11 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
         throw new Error(`Section "${planned.title}" came back empty: ${why}`);
       }
 
+      // Checked and repaired BEFORE the upsert, so a bad block is never stored
+      // and never survives into a resume — the section step is skipped entirely
+      // when a row already exists, so anything written here is final.
+      const checked = normaliseDiagramBlocks(html, planned.title);
+
       // Upsert, not create. The step is retried on failure and replayed on
       // resume, and a second create would violate the unique key and fail the
       // whole run over work that actually succeeded.
@@ -662,9 +813,9 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
           order: i,
           title: planned.title,
           brief: planned.brief,
-          html,
+          html: checked,
         },
-        update: { order: i, title: planned.title, brief: planned.brief, html },
+        update: { order: i, title: planned.title, brief: planned.brief, html: checked },
       });
 
       return { sectionId, chars: result.text.length };

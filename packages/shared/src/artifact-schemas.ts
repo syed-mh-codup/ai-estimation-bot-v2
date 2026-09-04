@@ -31,6 +31,29 @@ export const ArtifactOutlineSectionSchema = z.object({
    * actually receives, so a vague brief here produces a vague section later.
    */
   brief: z.string().min(1),
+  /**
+   * What this section's deliverable IS, which decides how it gets written.
+   * AEH-324.
+   *
+   * `'diagram'` means the section's value lives in a formal notation — an ERD,
+   * a sequence, a state machine, a user flow — so it is written as notation and
+   * laid out by the renderer rather than hand-drawn in SVG. `'prose'` is
+   * everything else, wireframes and low-fidelity UI included: those have no
+   * standard notation and their free-form arrangement is the deliverable.
+   *
+   * This is a PLANNING field, not a rendering one — a diagram section still
+   * returns an HTML fragment, and the renderer finds its diagrams by the block
+   * marker inside it. What the mark actually buys is the exemption below: a
+   * diagram is not subject to SECTION_WORD_BUDGET and must not be split to fit
+   * it, which is what produced seven per-domain ERDs where one system diagram
+   * was wanted.
+   *
+   * Defaulted because most sections are prose and because an outline planned
+   * before this field existed must still parse. Read it as `?? 'prose'` all the
+   * same: a stored outline is CAST on resume, not re-parsed, so the default
+   * never runs on the path that most needs it.
+   */
+  kind: z.enum(['prose', 'diagram']).default('prose'),
 });
 
 export const ArtifactOutlineSchema = z.object({
