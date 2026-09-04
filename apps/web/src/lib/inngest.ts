@@ -13,6 +13,16 @@ export const EVENT_INGEST = 'estimate/ingest.requested' as const;
 export const EVENT_EMBED_PRESETS = 'preset/embed.requested' as const;
 export const EVENT_PROMOTE = 'estimate/finalised' as const;
 export const EVENT_ARTIFACT = 'estimate/artifact.requested' as const;
+/**
+ * Stop a generation that is already running. AEH-321.
+ *
+ * A separate event rather than a flag on the row, because Inngest cancels a run
+ * by matching an event against the one that started it — see `cancelOn` on
+ * `artifactFn`. A row flag would only be noticed by code that thought to look,
+ * and the whole problem is that the expensive part is a model call nobody is
+ * polling anything from.
+ */
+export const EVENT_ARTIFACT_CANCEL = 'estimate/artifact.cancelled' as const;
 
 export type EstimateEventData = { estimateId: string; runId?: string };
 

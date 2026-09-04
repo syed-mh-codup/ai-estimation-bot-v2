@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow } from '@/components/ui/card';
 
 /**
@@ -46,6 +47,13 @@ export function ArtifactProgress({
 }) {
   const router = useRouter();
   const [snap, setSnap] = useState<Snapshot>(initial);
+  // Set the moment Stop is pressed and never cleared: Inngest cancels BETWEEN
+  // steps, so the section already talking to the model finishes first and the
+  // poll keeps reporting progress for up to a couple of minutes afterwards.
+  // Without this the button would spring back to "Stop" and read as if the
+  // click had been lost.
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
 
   const live = snap.status === 'RUNNING' || snap.status === 'IDLE';
 
@@ -68,6 +76,30 @@ export function ArtifactProgress({
     }
   }, [estimateId, artifactId, router]);
 
+  const stop = useCallback(async () => {
+    setStopping(true);
+    setStopError(null);
+    try {
+      const res = await fetch(
+        `/api/estimates/${estimateId}/artifacts/${artifactId}/cancel`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setStopError(body.error ?? 'Could not stop this generation.');
+        setStopping(false);
+        return;
+      }
+      // Don't wait for the next poll to show it — the row is already settled by
+      // the route, and two seconds of "writing sections" after pressing Stop
+      // reads as a broken button.
+      void tick();
+    } catch {
+      setStopError('Could not reach the server. It may still be generating.');
+      setStopping(false);
+    }
+  }, [estimateId, artifactId, tick]);
+
   useEffect(() => {
     if (!live) return;
     const iv = setInterval(() => void tick(), 2000);
@@ -87,11 +119,23 @@ export function ArtifactProgress({
       <CardBody>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <Eyebrow>{snap.stage ?? 'Working'}</Eyebrow>
-          {planned > 0 && (
-            <span className="num text-[11.5px] text-ink-3" data-testid="artifact-progress-count">
-              {writtenCount} of {planned} written
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {planned > 0 && (
+              <span className="num text-[11.5px] text-ink-3" data-testid="artifact-progress-count">
+                {writtenCount} of {planned} written
+              </span>
+            )}
+            <Button
+              variant="danger"
+              size="xs"
+              onClick={() => void stop()}
+              disabled={stopping}
+              data-testid="stop-artifact"
+            >
+              <X size={12} strokeWidth={2.5} />
+              {stopping ? 'Stopping' : 'Stop'}
+            </Button>
+          </div>
         </div>
 
         <div
@@ -157,9 +201,20 @@ export function ArtifactProgress({
             </ol>
             <p className="mt-2.5 text-[11.5px] text-ink-4">
               Each section is written by its own model call, so they land one at a time. Anything
-              already ticked is saved — a failure part-way keeps it.
+              already ticked is saved — a failure part-way keeps it, and so does stopping.
             </p>
           </>
+        )}
+        {stopping && (
+          <p className="mt-2.5 text-[11.5px] text-ink-3" data-testid="stopping-notice">
+            Stopping. The section being written right now will finish first — it is paid for
+            either way, so it is kept rather than thrown away.
+          </p>
+        )}
+        {stopError && (
+          <p className="mt-2.5 text-[11.5px] text-brick" data-testid="stop-error">
+            {stopError}
+          </p>
         )}
       </CardBody>
     </Card>

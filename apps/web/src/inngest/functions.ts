@@ -9,6 +9,7 @@ import {
   EVENT_EMBED_PRESETS,
   EVENT_PROMOTE,
   EVENT_ARTIFACT,
+  EVENT_ARTIFACT_CANCEL,
   type EstimateEventData,
   type EmbedPresetsEventData,
   type PromoteEventData,
@@ -323,6 +324,16 @@ const artifactFn = inngest.createFunction(
     retries: 1,
     concurrency: 2,
     triggers: [{ event: EVENT_ARTIFACT }],
+    // Stop a generation from the UI. AEH-321.
+    //
+    // `match` pins the cancelling event to THIS artifact — without it one Stop
+    // would cancel every generation in flight.
+    //
+    // Inngest cancels BETWEEN steps: a section already talking to the model
+    // finishes first, so a click lands within about a section, not instantly.
+    // That is also why nothing is lost — the section that was in flight is
+    // still written, and the row stays resumable.
+    cancelOn: [{ event: EVENT_ARTIFACT_CANCEL, match: 'data.artifactId' }],
     onFailure: async ({ event, error }) => {
       const artifactId = (
         event as unknown as { data?: { event?: { data?: { artifactId?: string } } } }
@@ -331,8 +342,13 @@ const artifactFn = inngest.createFunction(
       // The sections already written are deliberately left in place. They are
       // what makes a retry cheap, and they are the difference between "failed
       // at section 7 of 9" and "start again".
-      await prisma.estimateArtifact.update({
-        where: { id: artifactId },
+      // `updateMany` with a status guard, not `update`. A cancelled run settles
+      // its own row before the event goes out, and if Inngest also reports that
+      // as a failure this would overwrite "Stopped from the app" with a generic
+      // cancellation error — replacing the one explanation a person can act on
+      // with one they cannot. Only a row still marked RUNNING is ours to fail.
+      await prisma.estimateArtifact.updateMany({
+        where: { id: artifactId, status: 'RUNNING' },
         data: {
           status: 'FAILED',
           stage: 'Failed',

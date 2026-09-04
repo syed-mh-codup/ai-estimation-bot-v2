@@ -183,6 +183,11 @@ Return an HTML FRAGMENT and nothing else. No <!doctype>, no <html>, no <head>,
 no <body>, no markdown fences, no commentary before or after. Start with your
 first element.
 
+Nothing here is rendered as markdown, so do not write any. **bold** is not bold,
+it is two asterisks the reader sees. Use <strong>. Likewise <em> for emphasis,
+<ul>/<li> for a list, <h2>/<h3> for a heading, and <code> for code. This applies
+inside prose you are otherwise writing as HTML, which is where it gets missed.
+
 The page around you already exists: it supplies the document title, the tab bar,
 the navigation and the footer. Do not re-create any of them, and do not write a
 tab bar of your own.
