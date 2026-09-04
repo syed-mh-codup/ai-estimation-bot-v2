@@ -115,17 +115,12 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft);
 th{background:var(--surface-2);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
 /* Wide content scrolls inside its own box; the page itself never does. */
 .scroll-x{overflow-x:auto}
-/* A diagram block before the renderer reaches it — and permanently, if the
-   renderer never arrives. Styled to be READ rather than hidden: notation is a
-   worse deliverable than a diagram and a much better one than an empty box, so
-   this is the offline and parse-failure state and it has to look deliberate. */
+/* Notation, before the renderer reaches it — and permanently if it never does. */
 pre.diagram{margin:0 0 1em;padding:12px 14px;overflow-x:auto;white-space:pre;
   background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
   font-size:12.5px;line-height:1.5;color:var(--ink-2)}
 pre.diagram[data-diagram-error]{background:var(--brick-tint);border-color:var(--brick-line)}
-/* And after it. No max-width on the svg: mermaid is told not to scale diagrams
-   down to fit, because a forty-entity ERD shrunk into 1100px is unreadable and
-   the point of .scroll-x is that it does not have to be. */
+/* And after. No max-width: a wide ERD scrolls in .scroll-x rather than shrink. */
 div.diagram{margin:0 0 1em}
 div.diagram svg{display:block;height:auto}
 `;
