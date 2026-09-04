@@ -212,6 +212,36 @@ export function qualifyModel(echoed: string | undefined, requested: string): str
   return echoed === requestedLeaf ? requested : echoed;
 }
 
+/**
+ * Run `fn`, and if the call budget aborts it, say so in words.
+ *
+ * An abort arrives as `TimeoutError: The operation was aborted due to timeout`,
+ * which names neither the model nor the budget — so the error a caller records
+ * is no more actionable than the platform 504 the budget exists to replace.
+ *
+ * Wraps BOTH the request and the body read, because for a buffered completion
+ * the wait is almost entirely in the read: OpenRouter sends headers as soon as
+ * it begins responding, so `fetch` resolves immediately and the model's whole
+ * generation elapses inside `.json()`.
+ */
+async function named<T>(
+  fn: () => Promise<T>,
+  body: Record<string, unknown>,
+  timeoutMs: number | undefined,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const name = (err as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new Error(
+        `OpenRouter call to ${String(body['model'])} exceeded its ${timeoutMs}ms budget and was abandoned.`,
+      );
+    }
+    throw err;
+  }
+}
+
 export class OpenRouterModelProvider implements IModelProvider {
   private readonly baseUrl: string;
   private readonly fallbackModel?: string;
@@ -386,7 +416,14 @@ export class OpenRouterModelProvider implements IModelProvider {
     timeoutMs?: number,
   ): Promise<unknown> {
     const res = await this.fetchRaw(path, body, timeoutMs);
-    return res.json();
+    // Reading the body is the part that actually waits, so it needs the same
+    // naming as the request. OpenRouter sends headers as soon as it starts
+    // responding and streams the JSON after, so `fetch` resolves in
+    // milliseconds and the whole completion elapses inside `.json()`. An abort
+    // therefore lands HERE, not on the request — which is how AEH-321's first
+    // real timeout still surfaced as a bare `TimeoutError: The operation was
+    // aborted due to timeout`, naming neither the model nor the budget.
+    return named(() => res.json(), body, timeoutMs);
   }
 
   private async fetchRaw(
@@ -394,29 +431,21 @@ export class OpenRouterModelProvider implements IModelProvider {
     body: Record<string, unknown>,
     timeoutMs?: number,
   ): Promise<Response> {
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}${path}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.config.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://codup.co',
-        },
-        body: JSON.stringify(body),
-        ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
-      });
-    } catch (err) {
-      // Name the timeout. An abort surfaces as a bare `TimeoutError`, and the
-      // whole point of setting a deadline was to get an error that says which
-      // model was too slow rather than a platform 504 that says nothing.
-      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new Error(
-          `OpenRouter call to ${String(body['model'])} exceeded its ${timeoutMs}ms budget and was abandoned.`,
-        );
-      }
-      throw err;
-    }
+    const res = await named(
+      () =>
+        fetch(`${this.baseUrl}${path}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://codup.co',
+          },
+          body: JSON.stringify(body),
+          ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
+        }),
+      body,
+      timeoutMs,
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`OpenRouter API error ${res.status}: ${text}`);
