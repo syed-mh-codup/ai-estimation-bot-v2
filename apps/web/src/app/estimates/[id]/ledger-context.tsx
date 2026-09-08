@@ -36,6 +36,7 @@ import {
   type TaxPercents,
 } from '@repo/shared';
 import type { TaxChangeNote } from '@/lib/estimate-tax';
+import { retaxRole } from './dto';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
 
 export const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
@@ -450,20 +451,7 @@ export function LedgerProvider({
 
     setTaxPercents((prev) => ({ ...prev, [role]: nextPct }));
     setOverrides((prev) => ({ ...prev, [OVERRIDE_FIELD[role]]: pct }));
-    setItems((prev) =>
-      prev.map((it) =>
-        it.overhead
-          ? it
-          : {
-              ...it,
-              lineItems: it.lineItems.map((li) =>
-                li.role === role
-                  ? { ...li, taxedHours: taxedHoursFor(li.baseHours, nextPct) }
-                  : li,
-              ),
-            },
-      ),
-    );
+    setItems((prev) => retaxRole(prev, role, nextPct));
 
     void (async () => {
       try {

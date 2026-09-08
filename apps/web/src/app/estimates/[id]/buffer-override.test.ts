@@ -240,8 +240,9 @@ describe('setEstimateTaxPct — provenance', () => {
   /** No change reason is collected — see the note on the action. */
   it('asks for no change reason', async () => {
     await setEstimateTaxPct(EST, 'QA', 30);
-    const [[arg]] = changeCreate.mock.calls;
-    expect((arg as { data: Record<string, unknown> }).data).not.toHaveProperty('changeReason');
+    const arg = changeCreate.mock.calls[0]?.[0] as { data: Record<string, unknown> } | undefined;
+    expect(arg).toBeDefined();
+    expect(arg?.data).not.toHaveProperty('changeReason');
   });
 
   it('records a reset back to inherit as a change to null', async () => {

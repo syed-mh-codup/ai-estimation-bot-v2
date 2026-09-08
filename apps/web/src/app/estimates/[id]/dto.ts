@@ -8,6 +8,7 @@
  * directive's semantics — and then fails the Next.js build, taking down every
  * route that imports anything from the file. Only `next build` catches it.
  */
+import { taxedHoursFor } from '@repo/shared';
 import type {
   MenuItem as MenuItemRow,
   RoleLineItem as RoleLineItemRow,
@@ -126,3 +127,30 @@ export function cardFlags(meta: MenuItemRow['meta']): CardFlags {
   };
 }
 export type SectionDTO = Pick<EstimateSectionRow, 'id' | 'title' | 'order'>;
+
+/**
+ * Re-tax one role's line items at a new buffer, across every card.
+ *
+ * This is the client's optimistic half of `setEstimateTaxPct`, and it lives
+ * here as a pure function for two reasons. It has to agree with the server
+ * exactly — same `taxedHoursFor`, same role-only scope, same exclusion of
+ * overhead cards — and a prediction that disagrees with what gets stored is a
+ * total that lies for one round trip and then jumps. Inline in the provider it
+ * was reachable only by driving a browser; out here it is directly assertable.
+ *
+ * Overhead cards are skipped, not re-taxed. Their hours are already a
+ * percentage OF taxed hours (injectProcessOverhead), so applying a buffer to
+ * one compounds a percentage on a percentage. AEH-335.
+ */
+export function retaxRole(items: ItemDTO[], role: string, pct: number): ItemDTO[] {
+  return items.map((it) =>
+    it.overhead
+      ? it
+      : {
+          ...it,
+          lineItems: it.lineItems.map((li) =>
+            li.role === role ? { ...li, taxedHours: taxedHoursFor(li.baseHours, pct) } : li,
+          ),
+        },
+  );
+}
