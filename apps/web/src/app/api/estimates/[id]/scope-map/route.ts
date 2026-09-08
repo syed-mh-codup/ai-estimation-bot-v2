@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { prisma } from '@repo/db';
-import { runCartographer } from '@repo/agents';
+import { runCartographer, toProviderSort, toReasoningEffort } from '@repo/agents';
 
 import { auth } from '@/lib/auth';
 import { cartographerModelProvider } from '@/lib/cartographer-provider';
@@ -65,7 +65,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const prompt = await prisma.promptVersion.findFirst({
     where: { kind: 'CARTOGRAPHER', active: true },
     orderBy: { version: 'desc' },
-    select: { body: true, modelString: true },
+    select: { body: true, modelString: true, reasoningEffort: true, providerSort: true },
   });
   if (!prompt) {
     // Not seeded. Worth its own message and status: the fix is a single
@@ -88,7 +88,17 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
           db: prisma,
           estimateId,
           modelProvider: cartographerModelProvider(),
-          prompt,
+          prompt: {
+            body: prompt.body,
+            modelString: prompt.modelString,
+            // Whatever the admin set on the CARTOGRAPHER prompt row. The editor
+            // offers the controls for every agent kind, so every agent kind has
+            // to honour them or the page is lying about what it does.
+            levers: {
+              reasoningEffort: toReasoningEffort(prompt.reasoningEffort?.toLowerCase()),
+              providerSort: toProviderSort(prompt.providerSort?.toLowerCase()),
+            },
+          },
           onProgress: (p) => send(controller, { type: 'progress', ...p }),
         });
         send(controller, { type: 'done', result });

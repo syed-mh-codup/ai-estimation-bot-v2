@@ -16,6 +16,12 @@ import {
   type ShellSection,
 } from './artifact-shell';
 import { chatJSON } from './llm-json';
+import {
+  callTuning,
+  toProviderSort,
+  toReasoningEffort,
+  type ModelCallLevers,
+} from './model-call';
 import { createUsageRecorder, type UsageRecorder } from './usage-recorder';
 
 /**
@@ -340,12 +346,19 @@ async function prepare(
   corpus: string;
   promptBody: string;
   modelString: string;
+  levers: ModelCallLevers;
   retired: string[];
   empty: CorpusSectionKey[];
 }> {
   const version = await db.artifactTypeVersion.findUniqueOrThrow({
     where: { artifactTypeId_version: { artifactTypeId, version: typeVersion } },
-    select: { promptBody: true, modelString: true, corpusSections: true },
+    select: {
+      promptBody: true,
+      modelString: true,
+      corpusSections: true,
+      reasoningEffort: true,
+      providerSort: true,
+    },
   });
 
   const dossier = await buildArtifactDossier(db, estimateId, version.corpusSections);
@@ -364,6 +377,14 @@ async function prepare(
     corpus: renderArtifactDossier(dossier),
     promptBody: version.promptBody,
     modelString: version.modelString,
+    // Each lever falls back on its own: a type where somebody set routing but
+    // left thinking alone keeps the code default for thinking, rather than
+    // having both reset because one was touched.
+    levers: {
+      reasoningEffort:
+        toReasoningEffort(version.reasoningEffort?.toLowerCase()) ?? ARTIFACT_REASONING.effort,
+      providerSort: toProviderSort(version.providerSort?.toLowerCase()) ?? ARTIFACT_PROVIDER.sort,
+    },
     retired: dossier.retired,
     empty: dossier.empty,
   };
@@ -372,7 +393,7 @@ async function prepare(
 /** The outline call. One place, so generation and the dry run plan identically. */
 async function planOutline(
   modelProvider: IModelProvider,
-  prep: { corpus: string; promptBody: string; modelString: string },
+  prep: { corpus: string; promptBody: string; modelString: string; levers?: ModelCallLevers },
   recorder: UsageRecorder,
 ): Promise<ArtifactOutline> {
   return chatJSON(
@@ -387,9 +408,21 @@ async function planOutline(
       // plan the same document twice. It is also what makes the dry run
       // predictive rather than merely indicative.
       temperature: 0,
+      // The outline keeps the fixed low setting rather than the type's, and
+      // this is the one asymmetry in AEH-322. A type makes two kinds of call
+      // with opposite needs: the outline is small and cheap and genuinely
+      // benefits from thinking, while the SECTION calls are what blow the
+      // ceiling. One field per version has to govern one of them, so it
+      // governs the expensive one and the plan stays predictable — which is
+      // also what keeps the dry run's plan equal to the real run's.
+      //
+      // Routing is not part of that trade: which host serves the call says
+      // nothing about the answer, so the outline follows the type's choice.
       reasoning: ARTIFACT_REASONING,
       timeoutMs: ARTIFACT_TIMEOUT_MS,
-      provider: ARTIFACT_PROVIDER,
+      ...(prep.levers?.providerSort
+        ? { provider: { sort: prep.levers.providerSort } }
+        : { provider: ARTIFACT_PROVIDER }),
     },
     ArtifactOutlineSchema,
     'ARTIFACT_OUTLINE',
@@ -846,9 +879,10 @@ export async function runArtifact(deps: ArtifactRunDeps): Promise<ArtifactRunRes
         // laying out a wireframe or an entity diagram is design work, and a
         // deterministic setting here produces stilted, samey documents.
         temperature: 0.4,
-        reasoning: ARTIFACT_REASONING,
-        timeoutMs: ARTIFACT_TIMEOUT_MS,
-        provider: ARTIFACT_PROVIDER,
+        // The section calls are the ones the type's own setting governs — see
+        // planOutline for why the outline does not follow it. Both levers fall
+        // back to the constants above when the type has chosen nothing.
+        ...callTuning(prep.levers, ARTIFACT_TIMEOUT_MS),
       });
       await recorder.record({ kind: 'ARTIFACT', model: result.model, usage: result.usage });
 

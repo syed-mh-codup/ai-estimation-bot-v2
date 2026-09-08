@@ -4,6 +4,9 @@ import {
   buildOracleCorpus,
   buildOracleMessages,
   deriveThreadTitle,
+  leverOptions,
+  toProviderSort,
+  toReasoningEffort,
   type OracleTurn,
 } from '@repo/agents';
 import { extractCitations } from '@repo/shared';
@@ -74,7 +77,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const prompt = await prisma.promptVersion.findFirst({
     where: { kind: 'ORACLE', active: true },
     orderBy: { version: 'desc' },
-    select: { body: true, modelString: true },
+    select: { body: true, modelString: true, reasoningEffort: true, providerSort: true },
   });
   if (!prompt) {
     // Not seeded. Worth its own message: the fix is `pnpm db:seed:oracle`, and
@@ -138,6 +141,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           model: prompt.modelString,
           messages,
           temperature: 0,
+          // Whatever the admin set on the ORACLE prompt row. Deliberately no
+          // timeout: the abort signal one installs covers the response body
+          // too, so a deadline here would truncate an answer somebody is
+          // already reading rather than rescue a stalled one. See leverOptions.
+          ...leverOptions({
+            reasoningEffort: toReasoningEffort(prompt.reasoningEffort?.toLowerCase()),
+            providerSort: toProviderSort(prompt.providerSort?.toLowerCase()),
+          }),
         })) {
           if (ev.type === 'delta') {
             answer += ev.text;

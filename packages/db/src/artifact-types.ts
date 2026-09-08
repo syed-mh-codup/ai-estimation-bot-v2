@@ -7,7 +7,12 @@
  * spec. Everything below is a plain function over a Prisma client, so the
  * single-active rule and slug allocation are covered in milliseconds.
  */
-import type { ChangeMotivation, PrismaClient } from './generated/client/index.js';
+import type {
+  ChangeMotivation,
+  PrismaClient,
+  ProviderSort,
+  ReasoningEffort,
+} from './generated/client/index.js';
 
 /**
  * Just enough of a Prisma client to look up taken keys.
@@ -88,6 +93,17 @@ export type ArtifactTypeDraft = {
   promptBody: string;
   modelString: string;
   corpusSections: string[];
+  /**
+   * How hard the model should think, and which host to buy from, for this
+   * version's calls.
+   *
+   * Optional, and absent means the same as null: no opinion, so the calling
+   * code's own defaults apply. That is what every version created before
+   * AEH-322 carries, and it is what a caller that does not care about call
+   * tuning should be able to say by saying nothing.
+   */
+  reasoningEffort?: ReasoningEffort | null;
+  providerSort?: ProviderSort | null;
   createdBy: string | null;
 };
 
@@ -126,6 +142,8 @@ export async function createArtifactType(
         promptBody: draft.promptBody,
         modelString: draft.modelString,
         corpusSections: draft.corpusSections,
+        reasoningEffort: draft.reasoningEffort ?? null,
+        providerSort: draft.providerSort ?? null,
         active: true,
         changeReason: 'created',
         createdBy: draft.createdBy,
@@ -139,6 +157,17 @@ export type ArtifactTypeVersionDraft = {
   promptBody: string;
   modelString: string;
   corpusSections: string[];
+  /**
+   * How hard the model should think, and which host to buy from, for this
+   * version's calls.
+   *
+   * Optional, and absent means the same as null: no opinion, so the calling
+   * code's own defaults apply. That is what every version created before
+   * AEH-322 carries, and it is what a caller that does not care about call
+   * tuning should be able to say by saying nothing.
+   */
+  reasoningEffort?: ReasoningEffort | null;
+  providerSort?: ProviderSort | null;
   changeReason: string;
   changeMotivation: ChangeMotivation;
   createdBy: string | null;
@@ -184,6 +213,8 @@ export async function saveArtifactTypeVersion(
         promptBody: draft.promptBody,
         modelString: draft.modelString,
         corpusSections: draft.corpusSections,
+        reasoningEffort: draft.reasoningEffort ?? null,
+        providerSort: draft.providerSort ?? null,
         active: true,
         changeReason: draft.changeReason,
         changeMotivation: draft.changeMotivation,

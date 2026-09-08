@@ -46,12 +46,13 @@ const NS = `run${Math.random().toString(36).slice(2, 8)}`;
 function stubProvider(opts: { sections?: number } = {}): {
   provider: IModelProvider;
   /** Live call count. A getter on the provider would be copied by value. */
-  state: { calls: number };
+  state: { calls: number; options: ChatOptions[] };
 } {
-  const state = { calls: 0 };
+  const state = { calls: 0, options: [] as ChatOptions[] };
   const provider = {
     async chat(options: ChatOptions) {
       state.calls += 1;
+      state.options.push(options);
       const text = options.messages.map((m) => String(m.content)).join('\n');
       const isOutline = text.includes('Plan the sections');
 
@@ -95,13 +96,17 @@ function stubProvider(opts: { sections?: number } = {}): {
   return { provider, state };
 }
 
-async function makeArtifact(corpusSections: string[]): Promise<string> {
+async function makeArtifact(
+  corpusSections: string[],
+  levers: { reasoningEffort?: 'LOW' | 'MEDIUM' | 'HIGH'; providerSort?: 'THROUGHPUT' | 'LATENCY' | 'PRICE' } = {},
+): Promise<string> {
   const type = await createArtifactType(db, {
     name: `${NS} ${Math.random().toString(36).slice(2, 8)}`,
     description: null,
     promptBody: 'Produce the entity model.',
     modelString: 'stub/artifact',
     corpusSections,
+    ...levers,
     createdBy: null,
   });
   const artifact = await db.estimateArtifact.create({
@@ -322,6 +327,62 @@ describe('previewArtifactOutline', () => {
         modelProvider: stubProvider().provider,
       }),
     ).rejects.toThrow(/Nothing to work from/);
+  });
+});
+
+describe('the artifact type\'s call levers', () => {
+  it("govern the section calls, while the outline keeps its own fixed setting", async () => {
+    // The one asymmetry in AEH-322, and the reason it is deliberate: a type
+    // makes two kinds of call with opposite needs. The outline is small and
+    // genuinely benefits from thinking, and it is also what the dry run shows,
+    // so it must plan the same document whatever the type is tuned to. The
+    // SECTION calls are the ones that blow the ceiling, so they are the ones
+    // one field per version governs.
+    const artifactId = await makeArtifact(['cards'], {
+      reasoningEffort: 'HIGH',
+      providerSort: 'LATENCY',
+    });
+    const { provider, state } = stubProvider({ sections: 2 });
+    await runArtifact({ db, artifactId, modelProvider: provider });
+
+    const [outline, ...sections] = state.options;
+    expect(sections).toHaveLength(2);
+
+    // The outline ignores the type's HIGH and stays low.
+    expect(outline!.reasoning).toEqual({ effort: 'low' });
+    // Every section follows it.
+    for (const call of sections) expect(call.reasoning).toEqual({ effort: 'high' });
+
+    // Routing is NOT part of that trade: which host serves a call says nothing
+    // about the answer, so every call follows the type, outline included.
+    for (const call of state.options) expect(call.provider).toEqual({ sort: 'latency' });
+  });
+
+  it("fall back per lever, so setting one does not reset the other", async () => {
+    // Only routing is set. Thinking must land on the artifact default rather
+    // than being dragged to unset alongside it.
+    const artifactId = await makeArtifact(['cards'], { providerSort: 'THROUGHPUT' });
+    const { provider, state } = stubProvider({ sections: 1 });
+    await runArtifact({ db, artifactId, modelProvider: provider });
+
+    for (const call of state.options) {
+      expect(call.provider).toEqual({ sort: 'throughput' });
+      expect(call.reasoning).toEqual({ effort: 'low' });
+    }
+  });
+
+  it("uses the code defaults when the type has chosen nothing", async () => {
+    const artifactId = await makeArtifact(['cards']);
+    const { provider, state } = stubProvider({ sections: 1 });
+    await runArtifact({ db, artifactId, modelProvider: provider });
+
+    for (const call of state.options) {
+      expect(call.reasoning).toEqual({ effort: 'low' });
+      expect(call.provider).toEqual({ sort: 'throughput' });
+      // Every artifact call carries a deadline, whatever the type says: it is
+      // a property of the step, not of the model. See CALL_TIMEOUTS.
+      expect(call.timeoutMs).toBe(240_000);
+    }
   });
 });
 

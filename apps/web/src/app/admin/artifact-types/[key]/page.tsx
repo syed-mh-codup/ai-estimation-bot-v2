@@ -13,8 +13,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { Input, Textarea, FieldLabel, Select } from '@/components/ui/input';
-import { Combobox } from '@/components/ui/combobox';
+import { ModelCallFields, toModelChoices } from '@/components/ui/model-call-fields';
 import { fetchModelOptions } from '@/lib/openrouter-models';
+import { leverToFormValue, readModelCallLevers } from '@/lib/model-call-levers';
 import { CorpusPicker, readCorpusSections } from '../CorpusPicker';
 
 const MOTIVATIONS: ChangeMotivation[] = [
@@ -49,6 +50,8 @@ async function saveType(formData: FormData) {
   const type = await prisma.artifactType.findUnique({ where: { key }, select: { id: true } });
   if (!type) return;
 
+  const levers = await readModelCallLevers(formData, modelString);
+
   const author = await prisma.user.findUnique({
     where: { id: admin.id },
     select: { email: true },
@@ -58,6 +61,8 @@ async function saveType(formData: FormData) {
     promptBody,
     modelString,
     corpusSections,
+    reasoningEffort: levers.reasoningEffort,
+    providerSort: levers.providerSort,
     changeReason,
     changeMotivation,
     createdBy: author?.email ?? null,
@@ -117,17 +122,7 @@ export default async function ArtifactTypeEditorPage({
   const { known, unknown } = partitionCorpusSections(active.corpusSections);
 
   const models = await fetchModelOptions();
-  const modelOptions = models.map((m) => ({
-    value: m.id,
-    label: m.name,
-    hint: [
-      m.contextLength ? `${Math.round(m.contextLength / 1000)}k context` : null,
-      m.promptPrice !== null ? `$${(m.promptPrice * 1_000_000).toFixed(2)}/M in` : null,
-      m.completionPrice !== null ? `$${(m.completionPrice * 1_000_000).toFixed(2)}/M out` : null,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  }));
+  const modelChoices = toModelChoices(models);
 
   return (
     <div data-testid="admin-artifact-type-editor">
@@ -213,18 +208,13 @@ export default async function ArtifactTypeEditorPage({
 
         <Card>
           <CardBody className="space-y-4 p-4 sm:p-5">
-            <div className="max-w-md">
-              <FieldLabel htmlFor="modelString">Model</FieldLabel>
-              <Combobox
-                id="modelString"
-                name="modelString"
-                value={active.modelString}
-                options={modelOptions}
-                placeholder="Choose a model"
-                emptyHint="Could not reach OpenRouter, so this is a plain text field. The value you type is saved as-is."
-                data-testid="artifact-model-combobox"
-              />
-            </div>
+            <ModelCallFields
+              models={modelChoices}
+              modelValue={active.modelString}
+              reasoningEffort={leverToFormValue(active.reasoningEffort)}
+              providerSort={leverToFormValue(active.providerSort)}
+              reasoningNote="AEH-321 measured reasoning at roughly 80% of an artifact call's wall clock and 90% of its tokens, and OpenRouter bills thinking as completion — so this is the same lever for the deadline and for the cost. A document that thinks less reads slightly flatter. There is deliberately no “off”."
+            />
           </CardBody>
         </Card>
 
@@ -331,6 +321,7 @@ export default async function ArtifactTypeEditorPage({
                 <tr className="border-b border-line bg-surface-2 text-left">
                   <th className="eyebrow px-4 py-2.5 font-bold">Version</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Model</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Called with</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Status</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Created</th>
                 </tr>
@@ -353,6 +344,14 @@ export default async function ArtifactTypeEditorPage({
                     </td>
                     <td className="num px-4 py-3 text-[12px] break-all text-ink-2">
                       {v.modelString}
+                    </td>
+                    <td className="px-4 py-3 text-[12px] text-ink-3">
+                      {[
+                        v.reasoningEffort ? `thinking ${v.reasoningEffort.toLowerCase()}` : null,
+                        v.providerSort ? `route ${v.providerSort.toLowerCase()}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || 'defaults'}
                     </td>
                     <td className="px-4 py-3">
                       {v.active ? (

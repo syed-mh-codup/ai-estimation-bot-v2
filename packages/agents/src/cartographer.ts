@@ -9,6 +9,7 @@ import {
 } from '@repo/shared';
 
 import { streamJSON } from './llm-json';
+import { leverOptions, type ModelCallLevers } from './model-call';
 import { createUsageRecorder } from './usage-recorder';
 
 /**
@@ -171,7 +172,7 @@ export async function runCartographer(args: {
   db: PrismaClient;
   estimateId: string;
   modelProvider: IModelProvider;
-  prompt: { body: string; modelString: string };
+  prompt: { body: string; modelString: string; levers?: ModelCallLevers };
   /** Called as the work advances. Optional: tests and scripts ignore it. */
   onProgress?: (p: CartographerProgress) => void;
 }): Promise<CartographerResult> {
@@ -205,6 +206,9 @@ export async function runCartographer(args: {
       // reading of the scope, not a creative act, and the same menu card should
       // produce the same graph twice.
       temperature: 0,
+      // No deadline: this is a route handler streaming to a person watching,
+      // not a step with a budget to divide. See leverOptions.
+      ...leverOptions(prompt.levers),
     },
     CartographerOutputSchema,
     'CARTOGRAPHER',

@@ -19,6 +19,23 @@ export type ModelOption = {
   /** USD per input token, as OpenRouter reports it. */
   promptPrice: number | null;
   completionPrice: number | null;
+  /**
+   * Whether this model accepts a reasoning-effort setting at all.
+   *
+   * Read from the feed's own `supported_parameters`, which is the only honest
+   * source: a hardcoded list of "the thinking models" would be a second source
+   * of truth about a third party's catalogue, wrong the week after it was
+   * written. It is what lets the editors offer the reasoning control for
+   * `~google/gemini-flash-latest` and not for `openai/gpt-4o-mini`, with no
+   * model names in the code.
+   *
+   * It matters because an unsupported lever is INERT, not rejected — measured
+   * against the live API, `reasoning: { effort: 'low' }` sent to gpt-4o-mini
+   * returns a normal completion with the field silently dropped. So nothing
+   * downstream would ever complain, and an admin could set a lever, see a save
+   * succeed, and get no effect and no explanation.
+   */
+  supportsReasoning: boolean;
 };
 
 const MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -29,7 +46,18 @@ type ApiModel = {
   context_length?: unknown;
   architecture?: { output_modalities?: unknown };
   pricing?: { prompt?: unknown; completion?: unknown };
+  supported_parameters?: unknown;
 };
+
+/**
+ * Either spelling counts. OpenRouter's feed lists `reasoning` and
+ * `reasoning_effort` as separate entries and a model may advertise one, the
+ * other, or both; all three cases mean the same thing to us.
+ */
+function readsReasoning(supported: unknown): boolean {
+  if (!Array.isArray(supported)) return false;
+  return supported.some((p) => p === 'reasoning' || p === 'reasoning_effort');
+}
 
 function toNumber(value: unknown): number | null {
   const n = typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : NaN;
@@ -66,6 +94,7 @@ export async function fetchModelOptions(): Promise<ModelOption[]> {
         contextLength: toNumber(m.context_length),
         promptPrice: toNumber(m.pricing?.prompt),
         completionPrice: toNumber(m.pricing?.completion),
+        supportsReasoning: readsReasoning(m.supported_parameters),
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
   } catch {
@@ -84,13 +113,19 @@ const STUB_MODELS: ModelOption[] = [
     contextLength: 200_000,
     promptPrice: 0.000003,
     completionPrice: 0.000015,
+    supportsReasoning: true,
   },
   {
+    // Deliberately false, and deliberately the model the seed uses: this is the
+    // case that proves the reasoning control is gated rather than always drawn.
+    // Checked against the live feed on 8 September — gpt-4o-mini advertises
+    // neither `reasoning` nor `reasoning_effort`.
     id: 'openai/gpt-4o-mini',
     name: 'OpenAI: GPT-4o-mini',
     contextLength: 128_000,
     promptPrice: 0.00000015,
     completionPrice: 0.0000006,
+    supportsReasoning: false,
   },
   {
     id: 'google/gemini-2.5-pro',
@@ -98,5 +133,6 @@ const STUB_MODELS: ModelOption[] = [
     contextLength: 1_000_000,
     promptPrice: 0.00000125,
     completionPrice: 0.00001,
+    supportsReasoning: true,
   },
 ];

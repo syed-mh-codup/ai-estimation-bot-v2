@@ -48,6 +48,32 @@ enum Level {
   HIGH
 }
 
+/// How hard a model should think before answering, for the models that have the
+/// setting at all.
+///
+/// There is deliberately no OFF. Measured during AEH-321: the same call with
+/// reasoning explicitly disabled hung for over nine minutes and never returned.
+/// Down, never off — and NULL means "send no reasoning field", which leaves the
+/// model's own default alone and is not the same thing as an off switch.
+enum ReasoningEffort {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// Which upstream host OpenRouter should buy a model from.
+///
+/// OpenRouter serves one model from several providers at very different speeds
+/// and routes by PRICE unless told otherwise, so on a call with a deadline the
+/// default is backwards. NULL means "leave OpenRouter's default alone"; PRICE is
+/// spelled out so an admin who deliberately chose the cheapest host can see on
+/// the page that they chose it.
+enum ProviderSort {
+  THROUGHPUT
+  LATENCY
+  PRICE
+}
+
 enum AgentKind {
   SUPERVISOR
   LIBRARIAN
@@ -475,6 +501,16 @@ model PromptVersion {
   version          Int
   body             String
   modelString      String
+  /// Reasoning effort for this version's model calls. NULL = leave the model's
+  /// own default alone. Only meaningful for models that advertise `reasoning` in
+  /// OpenRouter's `supported_parameters`; the editor hides the control for the
+  /// rest and the save drops the value, because an unsupported lever is silently
+  /// ignored by the API rather than rejected. AEH-322.
+  reasoningEffort  ReasoningEffort?
+  /// Which upstream host to buy from for this version's model calls. NULL =
+  /// OpenRouter's default, which is price. Unlike reasoning effort this is
+  /// routing rather than a model parameter, so it is meaningful for every model.
+  providerSort     ProviderSort?
   active           Boolean          @default(false)
   changeReason     String?
   changeMotivation ChangeMotivation @default(OTHER)
@@ -1058,6 +1094,16 @@ model ArtifactTypeVersion {
   /// The author's brief. See the note above: this is not the whole prompt.
   promptBody       String
   modelString      String
+  /// Reasoning effort for this version's model calls. NULL = leave the model's
+  /// own default alone. Only meaningful for models that advertise `reasoning` in
+  /// OpenRouter's `supported_parameters`; the editor hides the control for the
+  /// rest and the save drops the value, because an unsupported lever is silently
+  /// ignored by the API rather than rejected. AEH-322.
+  reasoningEffort  ReasoningEffort?
+  /// Which upstream host to buy from for this version's model calls. NULL =
+  /// OpenRouter's default, which is price. Unlike reasoning effort this is
+  /// routing rather than a model parameter, so it is meaningful for every model.
+  providerSort     ProviderSort?
   /// Which named slices of the estimate this type is shown, by key — "cards",
   /// "requirements", "graph". Validated against the dossier's catalogue at
   /// generation time rather than by the database, so that retiring a section

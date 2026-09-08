@@ -4,7 +4,7 @@ import type React from 'react';
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
-import { Combobox } from '@/components/ui/combobox';
+import { ModelCallFields, type ModelChoice } from '@/components/ui/model-call-fields';
 import { Input, Textarea, FieldLabel } from '@/components/ui/input';
 
 export type NewArtifactTypeState = { error?: string };
@@ -26,14 +26,14 @@ const initialState: NewArtifactTypeState = {};
  */
 export function NewArtifactTypeForm({
   action,
-  modelOptions,
+  modelChoices,
   corpusSlot,
 }: {
   action: (
     state: NewArtifactTypeState,
     formData: FormData,
   ) => Promise<NewArtifactTypeState>;
-  modelOptions: { value: string; label: string; hint?: string }[];
+  modelChoices: ModelChoice[];
   corpusSlot: React.ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
@@ -72,21 +72,18 @@ export function NewArtifactTypeForm({
             </p>
           </div>
 
-          <div className="max-w-md">
-            <FieldLabel htmlFor="modelString">Model</FieldLabel>
-            <Combobox
-              id="modelString"
-              name="modelString"
+          <div>
+            <ModelCallFields
+              models={modelChoices}
               // Empty rather than a hardcoded default. Picking the model is a
               // cost decision per artifact type — a wireframe pack is many more
               // calls than an ERD — so it is asked, not assumed.
-              value=""
-              options={modelOptions}
-              placeholder="Choose a model"
-              emptyHint="Could not reach OpenRouter, so this is a plain text field. The value you type is saved as-is."
-              data-testid="new-artifact-model"
+              modelValue=""
+              reasoningEffort={null}
+              providerSort={null}
+              reasoningNote="AEH-321 measured reasoning at roughly 80% of an artifact call's wall clock and 90% of its tokens, and OpenRouter bills thinking as completion — so this is the same lever for the deadline and for the cost. There is deliberately no “off”."
             />
-            <p className="mt-1 text-[12px] text-ink-4">
+            <p className="mt-2 text-[12px] text-ink-4">
               Generation is one call per section, so this is charged several times per document.
             </p>
           </div>

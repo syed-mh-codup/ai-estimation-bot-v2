@@ -5,6 +5,8 @@ import { createArtifactType, prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { Heading } from '@/components/ui/card';
 import { fetchModelOptions } from '@/lib/openrouter-models';
+import { readModelCallLevers } from '@/lib/model-call-levers';
+import { toModelChoices } from '@/components/ui/model-call-fields';
 import { CorpusPicker, readCorpusSections } from '../CorpusPicker';
 import { NewArtifactTypeForm, type NewArtifactTypeState } from './NewArtifactTypeForm';
 
@@ -58,12 +60,16 @@ async function createType(
     select: { email: true },
   });
 
+  const levers = await readModelCallLevers(formData, modelString);
+
   const { key } = await createArtifactType(prisma, {
     name,
     description: description || null,
     promptBody,
     modelString,
     corpusSections,
+    reasoningEffort: levers.reasoningEffort,
+    providerSort: levers.providerSort,
     createdBy: author?.email ?? null,
   });
 
@@ -76,17 +82,7 @@ export default async function NewArtifactTypePage() {
   // free text rather than blocking creation — same contract as the prompt
   // editor's.
   const models = await fetchModelOptions();
-  const modelOptions = models.map((m) => ({
-    value: m.id,
-    label: m.name,
-    hint: [
-      m.contextLength ? `${Math.round(m.contextLength / 1000)}k context` : null,
-      m.promptPrice !== null ? `$${(m.promptPrice * 1_000_000).toFixed(2)}/M in` : null,
-      m.completionPrice !== null ? `$${(m.completionPrice * 1_000_000).toFixed(2)}/M out` : null,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  }));
+  const modelChoices = toModelChoices(models);
 
   return (
     <div data-testid="admin-artifact-type-new">
@@ -107,7 +103,7 @@ export default async function NewArtifactTypePage() {
 
       <NewArtifactTypeForm
         action={createType}
-        modelOptions={modelOptions}
+        modelChoices={modelChoices}
         corpusSlot={<CorpusPicker selected={[]} />}
       />
     </div>

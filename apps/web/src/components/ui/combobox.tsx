@@ -35,6 +35,7 @@ export function Combobox({
   id,
   placeholder,
   emptyHint,
+  onValueChange,
   'data-testid': testId,
 }: {
   name: string;
@@ -44,6 +45,15 @@ export function Combobox({
   placeholder?: string;
   /** Shown when the list could not be loaded and this degrades to free text. */
   emptyHint?: string;
+  /**
+   * Fired whenever the selection changes, including in the free-text fallback.
+   *
+   * Exists because a sibling field can depend on WHICH model is picked: the
+   * reasoning-effort control is only offered for models that advertise support
+   * for it, and the selection lives in this component's state. Optional, so
+   * every existing caller is unaffected.
+   */
+  onValueChange?: (value: string) => void;
   'data-testid'?: string;
 }) {
   const [selected, setSelected] = useState(value);
@@ -93,6 +103,7 @@ export function Combobox({
           id={id}
           name={name}
           defaultValue={value}
+          onChange={(e) => onValueChange?.(e.target.value)}
           placeholder={placeholder}
           className="num w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink focus:border-green focus:outline-none"
           data-testid={testId ? `${testId}-fallback` : undefined}
@@ -152,6 +163,7 @@ export function Combobox({
                   aria-selected={o.value === selected}
                   onClick={() => {
                     setSelected(o.value);
+                    onValueChange?.(o.value);
                     setOpen(false);
                     setQuery('');
                   }}

@@ -96,6 +96,20 @@ export default async function PromptVersionDetailPage({
               <dd className="num text-[12.5px] break-all text-ink" data-testid="version-model">
                 {promptVersion.modelString}
               </dd>
+              {/* On the record next to the model, because reactivating an old
+                  version restores its call settings too — and "why was that run
+                  slower" is answered here or nowhere. */}
+              <dt className="eyebrow self-center">Called with</dt>
+              <dd className="text-[12.5px] text-ink" data-testid="version-levers">
+                {[
+                  promptVersion.reasoningEffort
+                    ? `thinking ${promptVersion.reasoningEffort.toLowerCase()}`
+                    : 'thinking at the model default',
+                  promptVersion.providerSort
+                    ? `routed for ${promptVersion.providerSort.toLowerCase()}`
+                    : 'routed by OpenRouter’s default (price)',
+                ].join(' · ')}
+              </dd>
               <dt className="eyebrow self-center">Created</dt>
               <dd className="num text-[12.5px] text-ink">
                 {new Date(promptVersion.createdAt).toLocaleString()}

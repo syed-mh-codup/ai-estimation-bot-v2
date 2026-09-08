@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { Input, Textarea, FieldLabel, Select } from '@/components/ui/input';
-import { Combobox } from '@/components/ui/combobox';
+import { ModelCallFields, toModelChoices } from '@/components/ui/model-call-fields';
 import { fetchModelOptions } from '@/lib/openrouter-models';
+import { leverToFormValue, readModelCallLevers } from '@/lib/model-call-levers';
 
 const MOTIVATIONS: ChangeMotivation[] = [
   'CORRECTION',
@@ -40,6 +41,9 @@ async function savePrompt(formData: FormData) {
     return;
   }
   const kind = kindRaw;
+  // Validated against the live catalogue, not trusted from the form: a model
+  // switch and a lever can arrive in the same submission. See the note there.
+  const levers = await readModelCallLevers(formData, modelString);
 
   // A prompt edit changes what every estimate is worth. Whoever made it should
   // be on the record — the detail page has an Author row and nothing was ever
@@ -65,6 +69,8 @@ async function savePrompt(formData: FormData) {
         version: nextVersion,
         body,
         modelString,
+        reasoningEffort: levers.reasoningEffort,
+        providerSort: levers.providerSort,
         active: true,
         changeReason,
         changeMotivation,
@@ -100,17 +106,7 @@ export default async function PromptEditorPage({
   // Live catalogue, cached for an hour, and an empty list degrades the picker
   // to free text rather than blocking the edit.
   const models = await fetchModelOptions();
-  const modelOptions = models.map((m) => ({
-    value: m.id,
-    label: m.name,
-    hint: [
-      m.contextLength ? `${Math.round(m.contextLength / 1000)}k context` : null,
-      m.promptPrice !== null ? `$${(m.promptPrice * 1_000_000).toFixed(2)}/M in` : null,
-      m.completionPrice !== null ? `$${(m.completionPrice * 1_000_000).toFixed(2)}/M out` : null,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  }));
+  const modelChoices = toModelChoices(models);
 
   return (
     <div data-testid="admin-prompt-editor">
@@ -174,18 +170,13 @@ export default async function PromptEditorPage({
 
         <Card>
           <CardBody className="space-y-4 p-4 sm:p-5">
-            <div className="max-w-md">
-              <FieldLabel htmlFor="modelString">Model</FieldLabel>
-              <Combobox
-                id="modelString"
-                name="modelString"
-                value={active.modelString}
-                options={modelOptions}
-                placeholder="Choose a model"
-                emptyHint="Could not reach OpenRouter, so this is a plain text field. The value you type is saved as-is."
-                data-testid="model-combobox"
-              />
-            </div>
+            <ModelCallFields
+              models={modelChoices}
+              modelValue={active.modelString}
+              reasoningEffort={leverToFormValue(active.reasoningEffort)}
+              providerSort={leverToFormValue(active.providerSort)}
+              reasoningNote="Turning this down is the biggest lever on how long a run takes — and on a crew prompt it also changes the hours, because thinking is where the decomposition happens. Compare two runs before keeping it. There is deliberately no “off”."
+            />
 
             <div>
               <FieldLabel htmlFor="body">Prompt body</FieldLabel>
@@ -248,6 +239,7 @@ export default async function PromptEditorPage({
                 <tr className="border-b border-line bg-surface-2 text-left">
                   <th className="eyebrow px-4 py-2.5 font-bold">Version</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Model</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Called with</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Status</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Created</th>
                 </tr>
@@ -269,6 +261,9 @@ export default async function PromptEditorPage({
                       </Link>
                     </td>
                     <td className="num px-4 py-3 text-[12px] text-ink-2">{v.modelString}</td>
+                    <td className="px-4 py-3 text-[12px] text-ink-3">
+                      {describeLevers(v.reasoningEffort, v.providerSort)}
+                    </td>
                     <td className="px-4 py-3">
                       {v.active ? (
                         <Pill tone="green">active</Pill>
@@ -290,6 +285,26 @@ export default async function PromptEditorPage({
       </section>
     </div>
   );
+}
+
+/**
+ * The two levers, as one short phrase for the history table.
+ *
+ * Both unset is the overwhelmingly common case and reads as "defaults" rather
+ * than as two words saying nothing. The point of the column is that a version
+ * carrying a non-default call setting is visible AS a version — otherwise an
+ * admin comparing v5 with v6 sees the same model and the same body diff and no
+ * sign that one of them was told to think less.
+ */
+function describeLevers(
+  reasoningEffort: string | null,
+  providerSort: string | null,
+): string {
+  const parts = [
+    reasoningEffort ? `thinking ${reasoningEffort.toLowerCase()}` : null,
+    providerSort ? `route ${providerSort.toLowerCase()}` : null,
+  ].filter(Boolean);
+  return parts.length === 0 ? 'defaults' : parts.join(' · ');
 }
 
 /** What saving a prompt on each track actually changes. */

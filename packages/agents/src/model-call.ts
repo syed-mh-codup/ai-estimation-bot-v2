@@ -151,10 +151,29 @@ export function callTuning(
   levers: ModelCallLevers | undefined,
   timeoutMs: number,
 ): Pick<ChatOptions, 'reasoning' | 'provider' | 'timeoutMs'> {
+  return { timeoutMs, ...leverOptions(levers) };
+}
+
+/**
+ * The same two levers with NO deadline attached.
+ *
+ * For the calls that do not run inside an Inngest step and so have no 300s
+ * budget to divide up: Oracle and the Cartographer, both of which are plain
+ * route handlers. Oracle is the reason this is a separate function rather than
+ * `callTuning(levers, undefined)` — it STREAMS its answer, and the abort signal
+ * a timeout installs covers the whole request including the body, so a deadline
+ * there would not fail a stalled call so much as truncate a working answer
+ * somebody is already reading.
+ *
+ * A person watching an answer arrive is also their own timeout, in a way that a
+ * background step is not: they can see it has stopped, and they can stop it.
+ */
+export function leverOptions(
+  levers: ModelCallLevers | undefined,
+): Pick<ChatOptions, 'reasoning' | 'provider'> {
   const effort = levers?.reasoningEffort ?? null;
   const sort = levers?.providerSort ?? null;
   return {
-    timeoutMs,
     ...(effort ? { reasoning: { effort } } : {}),
     ...(sort ? { provider: { sort } } : {}),
   };

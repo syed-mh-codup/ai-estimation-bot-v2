@@ -17,7 +17,12 @@ import type {
 } from '@repo/shared';
 import { RequirementSchema } from '@repo/shared';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
-import { CREW_DEFAULT_LEVERS, type ModelCallLevers } from './model-call';
+import {
+  CREW_DEFAULT_LEVERS,
+  toProviderSort,
+  toReasoningEffort,
+  type ModelCallLevers,
+} from './model-call';
 import { createUsageRecorder } from './usage-recorder';
 import { runDetective } from './detective';
 import { runArchivist } from './archivist';
@@ -544,17 +549,28 @@ async function loadActivePrompt(
   const pv = await db.promptVersion.findFirst({
     where: { kind, active: true },
     orderBy: { version: 'desc' },
-    select: { body: true, modelString: true },
+    select: { body: true, modelString: true, reasoningEffort: true, providerSort: true },
   });
   if (!pv) {
     throw new Error(`No active prompt version for agent kind: ${kind}`);
   }
-  // The levers are the crew-wide defaults for now, and the same for every
-  // agent kind. They are returned from HERE, alongside the model string they
-  // are coupled to, because that is where the per-agent values will come from
-  // once they are columns on this row — the call sites and the plumbing above
-  // do not change again when they do. AEH-322.
-  return { ...pv, levers: CREW_DEFAULT_LEVERS };
+  // Each lever falls back INDEPENDENTLY, which is the whole behaviour of this
+  // function. A row that has never been edited carries null in both columns and
+  // gets the crew defaults; a row where somebody set thinking to low but left
+  // routing alone gets their thinking and the default routing. Falling back as
+  // a pair would mean touching one lever silently reset the other.
+  return {
+    body: pv.body,
+    modelString: pv.modelString,
+    levers: {
+      reasoningEffort:
+        toReasoningEffort(pv.reasoningEffort?.toLowerCase()) ??
+        CREW_DEFAULT_LEVERS.reasoningEffort ??
+        null,
+      providerSort:
+        toProviderSort(pv.providerSort?.toLowerCase()) ?? CREW_DEFAULT_LEVERS.providerSort ?? null,
+    },
+  };
 }
 
 /**
