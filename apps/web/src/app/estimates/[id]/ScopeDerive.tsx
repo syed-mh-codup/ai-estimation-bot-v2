@@ -166,7 +166,12 @@ export function ScopeDerive({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11.5px] text-ink-4">
+        {/* The hook is what `scope.spec.ts` reads to check that deriving twice
+            does not double the graph. It asserted this testid from the day it
+            was written and the attribute was never added, so the assertion was
+            waiting on an element that did not exist — which nothing noticed,
+            because an assertion earlier in the same spec failed first. */}
+        <p className="text-[11.5px] text-ink-4" data-testid="scope-graph-count">
           {edgeCount === 0
             ? 'None recorded yet — the cascade has nothing to act on.'
             : `${edgeCount} recorded on this estimate${
