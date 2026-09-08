@@ -34,17 +34,24 @@ Order of work, ticked as it lands:
 11. [x] Committed on `worktree-aeh-335-per-estimate-tax` (5 commits) and merged
         `--ff-only` into local master.
 
-### The one thing still outstanding — for a human
+### Migration state
 
-**Neon has NOT had this migration.** Applying it there was deliberately left
-alone, and it must happen before or with the next deploy, because the estimate
-page now reads the new columns and Vercel deploys from master:
+Applied to local docker `ai_estimation` and `ai_estimation_test`, and to **Neon
+dev/main** (`ep-polished-credit`) by hand on 2026-09-08. All three are at 35.
 
-    DATABASE_URL=<neon> DIRECT_URL=<neon> pnpm --filter db exec prisma migrate deploy --schema prisma/schema.prisma
+**Neon test (`ep-wild-heart`) has NOT been checked** — worth confirming before
+anything CI-facing runs against it.
 
-Master was merged locally and **not pushed** — pushing it is what would trigger
-a deploy against a Neon that lacks the columns. Local docker `ai_estimation` and
-`ai_estimation_test` are both migrated already.
+The `MenuItem.overhead` backfill was verified against real data on Neon
+dev/main, which is the only place it had any to act on: 276 menu items, 34
+injected, all 34 carrying a `process.*` key, and all 34 marked. Zero injected
+cards fall outside the predicate, so nothing was missed and nothing was wrongly
+marked. Local docker had no overhead cards at all, so the local run proved
+nothing about it.
+
+Master is merged locally and **still not pushed** — that is a deliberate hand-off,
+not a blocker: Neon dev/main now has the columns, so a push is safe whenever the
+deploy is wanted.
 
 ### How it was verified
 
@@ -535,10 +542,10 @@ can be deleted.
 
 ## Databases
 
-    local docker  ai_estimation        31 migrations
-    local docker  ai_estimation_test   31 migrations
-    Neon test     (ep-wild-heart)      31 migrations
-    Neon dev/main (ep-polished-credit) 31 migrations
+    local docker  ai_estimation        35 migrations
+    local docker  ai_estimation_test   35 migrations
+    Neon test     (ep-wild-heart)      31 migrations  <- BEHIND, unverified
+    Neon dev/main (ep-polished-credit) 35 migrations
 
 All four went to 31 on 2026-09-03 with `20260903103535_aeh_239_artifact_types`,
 applied by `prisma migrate deploy` (never `migrate dev`, which can offer to
