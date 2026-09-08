@@ -48,8 +48,28 @@ describe('AEH-228: prisma schema parser', () => {
     // 30 -> 31 is SheetExport (AEH-317): the Sheets export overwrites the
     // spreadsheet wholesale, so who did that and when is a fact only a table
     // can hold. Not an artifact type, so it does not bear on the rule above.
+    //
+    // 16 -> 18 enums with the model count UNCHANGED is AEH-322: ReasoningEffort
+    // and ProviderSort, the two model-call levers that moved out of agent code
+    // onto PromptVersion and ArtifactTypeVersion as nullable columns. Two enums
+    // and no table, because they are settings ON an already-versioned row
+    // rather than things with their own identity or history — that row already
+    // carries the model string they are coupled to, and already has the
+    // versioning that makes "what was this called with" answerable.
+    //
+    // Enums rather than String columns, for a reason worth keeping: an
+    // unsupported reasoning value is silently IGNORED by OpenRouter rather than
+    // rejected, so a typo in a free-text column would be invisible at every
+    // layer — it would save, display, and quietly do nothing. The database
+    // refusing it is the only place that mistake can surface.
+    //
+    // Note there is deliberately no OFF value on ReasoningEffort. Null already
+    // means "send no reasoning field at all"; explicitly DISABLING reasoning is
+    // a different message, and was measured during AEH-321 hanging for over
+    // nine minutes and never returning. Down, never off — so if a fourth value
+    // ever appears here, that is the thing to check it is not.
     expect(schema.models.size).toBe(31);
-    expect(schema.enums.size).toBe(16);
+    expect(schema.enums.size).toBe(18);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {
