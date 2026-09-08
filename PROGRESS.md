@@ -31,7 +31,35 @@ Order of work, ticked as it lands:
 8. [x] Client: taxPercents becomes state, RollupCard is the edit surface.
 9. [x] run-estimate: honour overrides, write configVersion back, clear stale.
 10. [x] Tests (900 pass) + `next build` green.
-11. [ ] Commit, push branch, exit worktree, `--ff-only` merge in main checkout.
+11. [x] Committed on `worktree-aeh-335-per-estimate-tax` (5 commits) and merged
+        `--ff-only` into local master.
+
+### The one thing still outstanding — for a human
+
+**Neon has NOT had this migration.** Applying it there was deliberately left
+alone, and it must happen before or with the next deploy, because the estimate
+page now reads the new columns and Vercel deploys from master:
+
+    DATABASE_URL=<neon> DIRECT_URL=<neon> pnpm --filter db exec prisma migrate deploy --schema prisma/schema.prisma
+
+Master was merged locally and **not pushed** — pushing it is what would trigger
+a deploy against a Neon that lacks the columns. Local docker `ai_estimation` and
+`ai_estimation_test` are both migrated already.
+
+### How it was verified
+
+917 tests over 82 files, typecheck and lint clean, all three audit gates clean,
+`next build` compiles. Beyond that: a DB-backed test drives the real action
+against local Postgres (the mock tests cannot fail the way Prisma can), and the
+rollup was rendered in a real browser — no hydration warning, and the finalised
+state exposes zero interactive elements, so read-only holds at the
+accessibility level and not just visually.
+
+One gap worth knowing about: the Chrome extension's synthetic typing never
+reached React's onChange on that page, so the click-and-type path was not
+exercised end to end. The claim it would have checked — that the headline total
+moves — is instead asserted directly by `retax-role.test.ts` (29.25 -> 30 at a
+40% QA buffer, overhead card untouched), which is the better test anyway.
 
 Migration applied to local docker `ai_estimation` and `ai_estimation_test` only,
 by `migrate deploy` with an explicit URL. **Neon has NOT been touched** — that is
