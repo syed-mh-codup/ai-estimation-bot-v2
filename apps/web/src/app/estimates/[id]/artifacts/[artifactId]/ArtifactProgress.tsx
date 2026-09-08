@@ -31,7 +31,6 @@ type Snapshot = {
   stage: string | null;
   pct: number;
   error: string | null;
-  title: string | null;
   sections: { id: string; title: string }[];
   written: string[];
 };
@@ -158,9 +157,9 @@ export function ArtifactProgress({
           </p>
         ) : (
           <>
-            {snap.title && (
-              <p className="mt-3 text-[13px] font-semibold text-ink">{snap.title}</p>
-            )}
+            {/* No document title here. The outline suggests one, but the name
+                shown in the masthead above is the artifact's own — a second,
+                different name three lines below it reads as a bug. */}
             <ol className="mt-2 space-y-1.5" data-testid="artifact-progress-sections">
               {snap.sections.map((s, i) => {
                 const state =

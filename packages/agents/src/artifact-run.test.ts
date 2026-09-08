@@ -339,7 +339,14 @@ describe('runArtifact', () => {
     const row = await db.estimateArtifact.findUniqueOrThrow({ where: { id: artifactId } });
     expect(row.status).toBe('DONE');
     expect(row.pct).toBe(100);
-    expect(row.title).toBe('Stub document');
+    // The run must NOT rename the artifact. Its name is the type's, written
+    // when the row was created (here the fixture's 'pending'), and only a
+    // person changes it — the outline's own suggested title is ignored.
+    expect(row.title).toBe('pending');
+    // ...and the assembled document goes out under that name, not the
+    // outline's.
+    expect(row.content).toContain('pending');
+    expect(row.content).not.toContain('Stub document');
     expect(row.finishedAt).not.toBeNull();
     expect(row.content!.startsWith('<!doctype html>')).toBe(true);
     expect(row.content).toContain('id="panel-sec-1"');

@@ -4,10 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
 import type { ArtifactOutline } from '@repo/shared';
 import { auth } from '@/lib/auth';
-import { Card, CardBody, Eyebrow, Heading } from '@/components/ui/card';
+import { Card, CardBody, Eyebrow } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { ArtifactFrame } from './ArtifactFrame';
 import { ArtifactProgress } from './ArtifactProgress';
+import { ArtifactTitle } from './ArtifactTitle';
 import { ResumeButton } from './ResumeButton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { deleteArtifact } from './actions';
@@ -93,9 +94,10 @@ export default async function ArtifactPage({
       </Link>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Heading level={1} className="min-w-0 break-words">
-          {artifact.title}
-        </Heading>
+        {/* The name, not a heading: an artifact is created under its type's
+            name and renamed by whoever is going to send it. Nothing about it is
+            model-supplied. */}
+        <ArtifactTitle artifactId={artifact.id} initialTitle={artifact.title} />
         {artifact.status === 'DONE' && (
           <Pill tone="green" data-testid="artifact-status">
             ready
@@ -173,7 +175,6 @@ export default async function ArtifactPage({
           stage: artifact.stage,
           pct: artifact.pct,
           error: artifact.error,
-          title: outline?.title ?? null,
           sections: (outline?.sections ?? []).map((s) => ({ id: s.id, title: s.title })),
           written: artifact.sections.map((s) => s.sectionId),
         }}
