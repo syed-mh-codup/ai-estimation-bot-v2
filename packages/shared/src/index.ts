@@ -5,3 +5,4 @@ export * from './preset-graph.js';
 export * from './scope-selection.js';
 export * from './cartographer-stages.js';
 export * from './artifact-schemas.js';
+export * from './tax-rates.js';
