@@ -22,15 +22,27 @@ import {
   updateLineItem,
   setLineItemSide,
   deleteLineItem,
+  setEstimateTaxPct,
 } from './actions';
+import {
+  HOUSE_FIELD,
+  isTaxableRole,
+  OVERRIDE_FIELD,
+  snapToQuarterHour,
+  taxedHoursFor,
+  type HouseRates,
+  type RateOverrides,
+  type TaxableRole,
+  type TaxPercents,
+} from '@repo/shared';
+import type { TaxChangeNote } from '@/lib/estimate-tax';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
 
 export const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
 export type Role = (typeof ROLES)[number];
 export const UNGROUPED = '__ungrouped__';
-export type TaxPercents = Record<Role, number>;
+export type { TaxPercents };
 
-const snap = (h: number) => Math.max(0, Math.round(h * 4) / 4);
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
 
 export const round = (n: number): number => Math.round(n * 100) / 100;
@@ -48,7 +60,22 @@ export function byRole(it: ItemDTO): Record<Role, number> {
 type Ledger = {
   sections: SectionDTO[];
   items: ItemDTO[];
+  /** Buffers in force: this estimate's override where set, house default otherwise. */
   taxPercents: TaxPercents;
+  /** The house defaults, so "reset" can name the figure it reverts to. */
+  houseRates: HouseRates | null;
+  /** Which roles this estimate sets for itself. Null means inherit. */
+  overrides: RateOverrides;
+  /**
+   * True once a buffer moved after the delivery-overhead cards were generated,
+   * so those cards hold hours computed at superseded rates. They are badged
+   * rather than regenerated — see setEstimateTaxPct for why.
+   */
+  overheadStale: boolean;
+  /** The last change to each role's buffer, for the "why is this 35%" question. */
+  taxChanges: Partial<Record<TaxableRole, TaxChangeNote>>;
+  /** Set a role's buffer, or pass null to go back to inheriting the house rate. */
+  onEditTaxPct: (role: TaxableRole, pct: number | null) => void;
   isFinalised: boolean;
   error: string | null;
   /** Enabled-only roll-up, recomputed live as items are edited or toggled. */
@@ -113,7 +140,11 @@ export function useLedger(): Ledger {
 export function LedgerProvider({
   initialSections,
   initialItems,
-  taxPercents,
+  taxPercents: initialTaxPercents,
+  houseRates,
+  initialOverrides,
+  initialOverheadStale,
+  taxChanges: initialTaxChanges,
   isFinalised,
   estimateId,
   children,
@@ -121,6 +152,10 @@ export function LedgerProvider({
   initialSections: SectionDTO[];
   initialItems: ItemDTO[];
   taxPercents: TaxPercents;
+  houseRates: HouseRates | null;
+  initialOverrides: RateOverrides;
+  initialOverheadStale: boolean;
+  taxChanges: Partial<Record<TaxableRole, TaxChangeNote>>;
   isFinalised: boolean;
   estimateId: string;
   children: ReactNode;
@@ -128,6 +163,14 @@ export function LedgerProvider({
   const [sections, setSections] = useState<SectionDTO[]>(initialSections);
   const [items, setItems] = useState<ItemDTO[]>(initialItems);
   const [error, setError] = useState<string | null>(null);
+  // The buffers are state, not a prop read straight through, because editing
+  // one has to move the roll-up in the same paint as the input. The server
+  // returns the authoritative figures and they are reconciled on arrival.
+  const [taxPercents, setTaxPercents] = useState<TaxPercents>(initialTaxPercents);
+  const [overrides, setOverrides] = useState<RateOverrides>(initialOverrides);
+  const [overheadStale, setOverheadStale] = useState<boolean>(initialOverheadStale);
+  const [taxChanges, setTaxChanges] =
+    useState<Partial<Record<TaxableRole, TaxChangeNote>>>(initialTaxChanges);
 
   const errTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashError = useCallback((e: unknown) => {
@@ -334,9 +377,9 @@ export function LedgerProvider({
     );
   };
   const onEditLineHours = (menuItemId: string, li: LineItemDTO, raw: number) => {
-    const base = snap(Number.isFinite(raw) ? raw : 0);
+    const base = snapToQuarterHour(Number.isFinite(raw) ? raw : 0);
     if (base === li.baseHours) return;
-    const taxed = snap(base * (1 + (taxPercents[li.role as Role] ?? 0) / 100));
+    const taxed = taxedHoursFor(base, taxPercents[li.role as Role] ?? 0);
     const snap0 = snapshot();
     void optimistic(
       () => patchLineItem(menuItemId, { ...li, baseHours: base, taxedHours: taxed, edited: true }),
@@ -379,10 +422,101 @@ export function LedgerProvider({
     });
   };
 
+  // ── Buffers ──
+  /**
+   * Move one role's buffer and re-tax that role's work in the same paint.
+   *
+   * The optimistic pass mirrors the server exactly: same `taxedHoursFor`, same
+   * role-only scope, same exclusion of overhead cards — whose hours are already
+   * a percentage OF taxed hours, so re-taxing one would compound. The server
+   * then returns the figures it actually stored and those are applied over the
+   * top, so a disagreement corrects itself instead of persisting as a total
+   * that does not match the database.
+   */
+  const onEditTaxPct = (role: TaxableRole, pct: number | null) => {
+    if (isFinalised) return;
+    if (!isTaxableRole(role)) return;
+    if ((overrides[OVERRIDE_FIELD[role]] ?? null) === pct) return;
+
+    const before = {
+      s: sections,
+      i: items,
+      pcts: taxPercents,
+      ovr: overrides,
+      stale: overheadStale,
+      changes: taxChanges,
+    };
+    const nextPct = pct ?? (houseRates ? houseRates[HOUSE_FIELD[role]] : 0);
+
+    setTaxPercents((prev) => ({ ...prev, [role]: nextPct }));
+    setOverrides((prev) => ({ ...prev, [OVERRIDE_FIELD[role]]: pct }));
+    setItems((prev) =>
+      prev.map((it) =>
+        it.overhead
+          ? it
+          : {
+              ...it,
+              lineItems: it.lineItems.map((li) =>
+                li.role === role
+                  ? { ...li, taxedHours: taxedHoursFor(li.baseHours, nextPct) }
+                  : li,
+              ),
+            },
+      ),
+    );
+
+    void (async () => {
+      try {
+        const res = await setEstimateTaxPct(estimateId, role, pct);
+        setTaxPercents(res.effective);
+        setOverrides(res.overrides);
+        setOverheadStale(res.overheadRatesStale);
+        // Reconcile against what was actually stored.
+        if (res.lineItems.length > 0) {
+          const stored = new Map(res.lineItems.map((l) => [l.id, l.taxedHours]));
+          setItems((prev) =>
+            prev.map((it) => ({
+              ...it,
+              lineItems: it.lineItems.map((li) => {
+                const taxed = stored.get(li.id);
+                return taxed === undefined ? li : { ...li, taxedHours: taxed };
+              }),
+            })),
+          );
+        }
+        // Optimistic provenance: the row is written, but the viewer's own email
+        // is the server's to know. "just now" with no name is honest until the
+        // next load fills both in.
+        setTaxChanges((prev) => ({
+          ...prev,
+          [role]: {
+            fromPct: before.ovr[OVERRIDE_FIELD[role]],
+            toPct: pct,
+            atLabel: 'just now',
+            by: null,
+          },
+        }));
+      } catch (e) {
+        setSections(before.s);
+        setItems(before.i);
+        setTaxPercents(before.pcts);
+        setOverrides(before.ovr);
+        setOverheadStale(before.stale);
+        setTaxChanges(before.changes);
+        flashError(e);
+      }
+    })();
+  };
+
   const value: Ledger = {
     sections,
     items,
     taxPercents,
+    houseRates,
+    overrides,
+    overheadStale,
+    taxChanges,
+    onEditTaxPct,
     isFinalised,
     error,
     rollup,

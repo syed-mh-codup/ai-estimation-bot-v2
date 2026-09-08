@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   isValidBufferPct,
-  overriddenRoles,
   resolveTaxPercents,
   snapToQuarterHour,
   taxedHoursFor,
@@ -75,27 +74,6 @@ describe('resolveTaxPercents', () => {
       qaRegressionBufferPctOverride: 30,
     });
     expect(rates).toEqual({ DEV: 0, QA: 30, PM: 0, BA: 0 });
-  });
-});
-
-describe('overriddenRoles', () => {
-  it('is empty when the estimate inherits everything', () => {
-    expect(overriddenRoles(NO_OVERRIDES)).toEqual([]);
-  });
-
-  it('lists a role overridden to zero', () => {
-    expect(
-      overriddenRoles({ ...NO_OVERRIDES, baCommunicationTaxPctOverride: 0 }),
-    ).toEqual(['BA']);
-  });
-
-  it('lists every overridden role', () => {
-    const roles = overriddenRoles({
-      pmCommunicationTaxPctOverride: 5,
-      baCommunicationTaxPctOverride: null,
-      qaRegressionBufferPctOverride: 25,
-    });
-    expect(roles.sort()).toEqual(['PM', 'QA']);
   });
 });
 

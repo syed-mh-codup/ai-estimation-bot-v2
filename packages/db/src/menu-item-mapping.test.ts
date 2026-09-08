@@ -160,6 +160,7 @@ describe('AEH-227: row <-> domain round trip', () => {
       injected: false,
       sectionId: null,
       foundation: false,
+      overhead: false,
       order: 0,
       meta: null,
       lineItems: [
@@ -203,6 +204,7 @@ describe('AEH-227: row <-> domain round trip', () => {
       injected: true,
       sectionId: null,
       foundation: false,
+      overhead: false,
       order: 0,
       meta: { title: 'stale title from meta', enabled: false, injected: false, requirementIds: ['REQ9'] },
       lineItems: [],

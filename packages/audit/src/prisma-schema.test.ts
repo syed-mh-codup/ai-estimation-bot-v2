@@ -68,7 +68,7 @@ describe('AEH-228: prisma schema parser', () => {
     // a different message, and was measured during AEH-321 hanging for over
     // nine minutes and never returning. Down, never off — so if a fourth value
     // ever appears here, that is the thing to check it is not.
-    expect(schema.models.size).toBe(31);
+    expect(schema.models.size).toBe(32);
     expect(schema.enums.size).toBe(18);
   });
 

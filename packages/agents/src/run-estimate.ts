@@ -15,7 +15,7 @@ import type {
   RiskFinding,
   SpecialistOutput,
 } from '@repo/shared';
-import { RequirementSchema } from '@repo/shared';
+import { RequirementSchema, resolveTaxPercents } from '@repo/shared';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
 import {
   CREW_DEFAULT_LEVERS,
@@ -394,10 +394,16 @@ export async function runEstimate(
   }
 
   // ── 6. Taxation (stored %s → fractions, matching the config-admin UI) ───────
+  //
+  // The estimate's own buffer overrides where it has set any, this config's
+  // house rates otherwise. A re-run HONOURS an override rather than clearing
+  // it: an override is a commercial decision about this one estimate, and a
+  // re-run re-derives the work, not the posture. AEH-335.
+  const rates = resolveTaxPercents(config, est);
   const taxed = applyTaxationToMenuItems([...arch.menuItems, ...injected], {
-    pmCommunicationTaxPct: config.pmCommunicationTaxPct / 100,
-    baCommunicationTaxPct: config.baCommunicationTaxPct / 100,
-    qaRegressionBufferPct: config.qaRegressionBufferPct / 100,
+    pmCommunicationTaxPct: rates.PM / 100,
+    baCommunicationTaxPct: rates.BA / 100,
+    qaRegressionBufferPct: rates.QA / 100,
   });
 
   // ── 6b. Delivery overhead: the work every project carries and no SOW names ──
@@ -420,6 +426,15 @@ export async function runEstimate(
   const withOverhead = overheadParsed.success
     ? injectProcessOverhead(taxed, overheadParsed.data)
     : taxed;
+
+  // Which of the cards below are delivery overhead, so persistence can mark
+  // them. They must be recognisable as data: their hours are a percentage OF
+  // taxed hours, so a later buffer tweak that re-taxed them would compound a
+  // percentage on a percentage. Taken from the config's own spec rather than a
+  // `process.` prefix test, because those keys are admin-editable. AEH-335.
+  const overheadKeys = new Set(
+    overheadParsed.success ? overheadParsed.data.items.map((i) => i.taxonomyKey) : [],
+  );
 
   // ── 7. Rollup (totals; computed for completeness/return value) ──────────────
   computeRollup(withOverhead);
@@ -466,7 +481,12 @@ export async function runEstimate(
           await tx.menuItem.deleteMany({ where: { id: { in: ids } } });
         }
         for (const item of withOverhead) {
-          await tx.menuItem.create({ data: toMenuItemCreateData(item, estimateId) });
+          await tx.menuItem.create({
+            data: {
+              ...toMenuItemCreateData(item, estimateId),
+              overhead: item.injected && overheadKeys.has(item.taxonomyKey),
+            },
+          });
         }
         // What the audit found, and what became of it. Upserted rather than
         // recreated: a re-run must not duplicate a finding or overwrite a
@@ -508,6 +528,15 @@ export async function runEstimate(
           data: {
             status: 'REVIEW',
             complexityScore: complexity.score,
+            // The pin has to name the config this run actually costed against.
+            // It used to be written once, at creation, and never again — so a
+            // re-run after a config bump priced the work at the new rates while
+            // this column, and the Config row on the estimate page, still named
+            // the old version. AEH-335.
+            configVersion: config.version,
+            // The overhead cards were just rebuilt at the rates in force, so
+            // whatever staleness a buffer tweak recorded is now discharged.
+            overheadRatesStale: false,
             narrative: arch.narrative,
             assumptions: arch.assumptions,
             agentState: {

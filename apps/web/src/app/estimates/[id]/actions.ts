@@ -1,11 +1,23 @@
 'use server';
 
 import { prisma, type RoleKind } from '@repo/db';
+import {
+  isTaxableRole,
+  isValidBufferPct,
+  MAX_BUFFER_PCT,
+  MIN_BUFFER_PCT,
+  OVERRIDE_FIELD,
+  snapToQuarterHour,
+  taxedHoursFor,
+  type RateOverrides,
+  type TaxPercents,
+} from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { requireUser } from '@/lib/rbac';
 import { after } from 'next/server';
 import { fromDateInputValue } from '@/lib/due-date';
 import { sendCustodyAssignedEmail } from '@/lib/email';
+import { RATE_SELECT, taxContextFor, taxContextForEstimate } from '@/lib/estimate-tax';
 import { cardFlags, lineEnvelope, EMPTY_ENVELOPE } from './dto';
 import type { ItemDTO, LineItemDTO, SectionDTO } from './dto';
 
@@ -20,7 +32,6 @@ import type { ItemDTO, LineItemDTO, SectionDTO } from './dto';
  * independently).
  */
 
-type Role = 'DEV' | 'QA' | 'PM' | 'BA';
 
 
 async function requireSession(): Promise<void> {
@@ -54,25 +65,6 @@ async function estimateIdForLineItem(lineItemId: string): Promise<{ estimateId: 
   });
   if (!li) throw new Error('Line item not found');
   return { estimateId: li.menuItem.estimateId, menuItemId: li.menuItem.id };
-}
-
-/** Snap to 0.25h — line items are atomic <=4h units at 0.25h granularity. */
-function snapToQuarterHour(hours: number): number {
-  return Math.max(0, Math.round(hours * 4) / 4);
-}
-
-/** Tax % per role from the active config (DEV is untaxed). Mirrors the page. */
-async function taxPercents(): Promise<Record<Role, number>> {
-  const cfg = await prisma.estimationConfig.findFirst({
-    where: { active: true },
-    orderBy: { version: 'desc' },
-  });
-  return {
-    DEV: 0,
-    QA: cfg?.qaRegressionBufferPct ?? 0,
-    PM: cfg?.pmCommunicationTaxPct ?? 0,
-    BA: cfg?.baCommunicationTaxPct ?? 0,
-  };
 }
 
 // ─── Sections ─────────────────────────────────────────────────────────────────
@@ -138,6 +130,7 @@ export async function createMenuItem(estimateId: string, sectionId: string | nul
       sectionId: true,
       order: true,
       injected: true,
+      overhead: true,
       category: true,
       phase: true,
       sourcePresetId: true,
@@ -248,12 +241,14 @@ export async function updateLineItem(
   };
   if (patch.title !== undefined) data.title = patch.title;
   if (patch.baseHours !== undefined) {
-    const pct = await taxPercents();
+    // The estimate's own buffers, from the config version it is pinned to —
+    // not whichever config is active now. Editing one line used to re-tax it at
+    // the current house rate, which is how an estimate's stored hours ended up
+    // a mix of two config versions. AEH-335.
+    const { effective } = await taxContextForEstimate(estimateId);
     const baseHours = snapToQuarterHour(patch.baseHours);
     data.baseHours = baseHours;
-    data.taxedHours = snapToQuarterHour(
-      baseHours * (1 + (pct[existing.role as Role] ?? 0) / 100),
-    );
+    data.taxedHours = taxedHoursFor(baseHours, effective[existing.role] ?? 0);
   }
 
   const li = await prisma.roleLineItem.update({
@@ -292,6 +287,142 @@ export async function deleteLineItem(id: string): Promise<void> {
   const { estimateId } = await estimateIdForLineItem(id);
   await assertEditable(estimateId);
   await prisma.roleLineItem.delete({ where: { id } });
+}
+
+// ─── Per-estimate buffers ─────────────────────────────────────────────────────
+
+export type TaxPctResult = {
+  /** The buffers in force after the change. */
+  effective: TaxPercents;
+  /** Which roles the estimate now sets for itself. Null means inherit. */
+  overrides: RateOverrides;
+  /** True once the overhead cards hold hours computed at superseded rates. */
+  overheadRatesStale: boolean;
+  /**
+   * Every line item whose hours actually moved, so the client reconciles
+   * against what was stored rather than trusting its own prediction. The two
+   * use the same `taxedHoursFor`, so they should agree — this is what makes
+   * that a checkable claim instead of a hopeful one.
+   */
+  lineItems: { id: string; taxedHours: number }[];
+};
+
+/**
+ * Set or clear one role's buffer for one estimate, and re-tax that role's work.
+ *
+ * `pct` is whole percent, or null to go back to inheriting the house default.
+ * Null is the only thing that inherits: zero is a real buffer, and "this client
+ * needs no BA time" is the case the lever was asked for.
+ *
+ * Three things here are deliberate and load-bearing.
+ *
+ * The recompute is ROLE-SCOPED. Re-taxing the whole estimate would quietly
+ * "heal" PM and BA lines still carrying mixed-version hours from the bug this
+ * ticket fixes, so nudging QA would move numbers nobody touched. A buffer
+ * change means what it says: only that role's hours move.
+ *
+ * Overhead cards are excluded. Their hours are already a percentage OF taxed
+ * hours (injectProcessOverhead), so re-taxing one compounds a percentage on a
+ * percentage. They are marked stale instead — never regenerated, because
+ * nothing on them separates a generated figure from an estimator's edit, and a
+ * rewrite would discard real decisions and resurrect deleted cards.
+ *
+ * `edited` is NOT set. It marks a line a human touched, and a buffer change is
+ * not a touch of any individual line.
+ */
+export async function setEstimateTaxPct(
+  estimateId: string,
+  role: string,
+  pct: number | null,
+): Promise<TaxPctResult> {
+  const actor = await requireUser();
+  await assertEditable(estimateId);
+
+  if (!isTaxableRole(role)) {
+    throw new Error(`${role} has no buffer to set`);
+  }
+  if (pct !== null && !isValidBufferPct(pct)) {
+    throw new Error(`A buffer must be between ${MIN_BUFFER_PCT} and ${MAX_BUFFER_PCT} percent`);
+  }
+  const field = OVERRIDE_FIELD[role];
+
+  return prisma.$transaction(
+    async (tx) => {
+      const before = await tx.estimate.findUniqueOrThrow({
+        where: { id: estimateId },
+        select: RATE_SELECT,
+      });
+
+      const est = await tx.estimate.update({
+        where: { id: estimateId },
+        data: { [field]: pct },
+        select: { ...RATE_SELECT, overheadRatesStale: true },
+      });
+      const { effective, overrides } = await taxContextFor(est, tx);
+
+      // Only this role's own work, and never an overhead card.
+      const lines = await tx.roleLineItem.findMany({
+        where: { role, menuItem: { estimateId, overhead: false } },
+        select: { id: true, baseHours: true, taxedHours: true },
+      });
+
+      // Grouped by resulting figure rather than issued per row: a line item is
+      // an atomic unit of at most four hours at quarter-hour granularity, so a
+      // whole estimate's worth of them collapses into a handful of distinct
+      // values. Over a remote database that is the difference between a dozen
+      // round trips and hundreds. Rows already holding the right figure are
+      // skipped entirely, which makes a repeated call free.
+      const moved = new Map<number, string[]>();
+      for (const line of lines) {
+        const taxed = taxedHoursFor(line.baseHours, effective[role]);
+        if (taxed === line.taxedHours) continue;
+        const ids = moved.get(taxed);
+        if (ids) ids.push(line.id);
+        else moved.set(taxed, [line.id]);
+      }
+      for (const [taxedHours, ids] of moved) {
+        await tx.roleLineItem.updateMany({ where: { id: { in: ids } }, data: { taxedHours } });
+      }
+
+      // Only claim staleness if there is actually an overhead card to be stale,
+      // and only when something moved — a no-op call must not raise the flag.
+      const overheadCards = await tx.menuItem.count({ where: { estimateId, overhead: true } });
+      const overheadRatesStale =
+        est.overheadRatesStale || (overheadCards > 0 && moved.size > 0);
+      if (overheadRatesStale !== est.overheadRatesStale) {
+        await tx.estimate.update({ where: { id: estimateId }, data: { overheadRatesStale } });
+      }
+
+      // Provenance. No change reason is asked for: this is meant to be a
+      // routine, exploratory nudge, and a mandatory reason on every one of them
+      // collects nothing but the word "adjusting". Recorded even when no hours
+      // moved, because the decision was still made.
+      if (before[field] !== pct) {
+        await tx.estimateTaxChange.create({
+          data: {
+            estimateId,
+            role,
+            fromPct: before[field],
+            toPct: pct,
+            changedBy: actor.id,
+          },
+        });
+      }
+
+      return {
+        effective,
+        overrides,
+        overheadRatesStale,
+        lineItems: [...moved].flatMap(([taxedHours, ids]) =>
+          ids.map((id) => ({ id, taxedHours })),
+        ),
+      };
+    },
+    // Many small writes over a remote database (Neon); the default 5s
+    // interactive-transaction budget is not enough for a large estimate. Same
+    // reasoning as the pipeline's persist step.
+    { timeout: 30_000 },
+  );
 }
 
 // ─── Estimate header / body ─────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
+import { latestTaxChanges, taxContextFor } from '@/lib/estimate-tax';
 import { inngest, EVENT_PROMOTE } from '@/lib/inngest';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { SowText } from './SowText';
@@ -37,26 +38,10 @@ import { lastExportLine, overwriteWarning, type ExportOutcome } from './export-i
 import { cardFlags, lineEnvelope } from './dto';
 import type { ItemDTO, SectionDTO } from './dto';
 
-type Role = 'DEV' | 'QA' | 'PM' | 'BA';
-
 async function requireSession() {
   const session = await auth();
   if (!session?.user) redirect('/login');
   return session.user;
-}
-
-/** Tax % per role from the active config (DEV is untaxed). */
-async function taxPercents(): Promise<Record<Role, number>> {
-  const cfg = await prisma.estimationConfig.findFirst({
-    where: { active: true },
-    orderBy: { version: 'desc' },
-  });
-  return {
-    DEV: 0,
-    QA: cfg?.qaRegressionBufferPct ?? 0,
-    PM: cfg?.pmCommunicationTaxPct ?? 0,
-    BA: cfg?.baCommunicationTaxPct ?? 0,
-  };
 }
 
 /**
@@ -253,7 +238,13 @@ export default async function EstimateDetailPage({
     }),
   ]);
   const finaliseBlocked = (gateConfig?.hiddenWorkBlocksFinalise ?? false) && openHiddenWork > 0;
-  const pct = await taxPercents();
+  // The buffers in force for THIS estimate — its own overrides where it has
+  // them, and the house defaults from the config version it is pinned to
+  // otherwise. Not the active config: see lib/estimate-tax.ts. AEH-335.
+  const [tax, taxChanges] = await Promise.all([
+    taxContextFor(estimate),
+    latestTaxChanges(estimate.id),
+  ]);
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
   const canDelete = viewer.role === 'ADMIN' || viewer.id === estimate.ownerId;
@@ -298,6 +289,7 @@ export default async function EstimateDetailPage({
     title: m.title,
     enabled: m.enabled,
     injected: m.injected,
+    overhead: m.overhead,
     taxonomyKey: m.taxonomyKey,
     sectionId: m.sectionId,
     order: m.order,
@@ -381,7 +373,11 @@ export default async function EstimateDetailPage({
         estimateId={estimate.id}
         initialSections={sectionDTOs}
         initialItems={itemDTOs}
-        taxPercents={pct}
+        taxPercents={tax.effective}
+        houseRates={tax.house}
+        initialOverrides={tax.overrides}
+        initialOverheadStale={estimate.overheadRatesStale}
+        taxChanges={taxChanges}
         isFinalised={isFinalised}
       >
         <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">

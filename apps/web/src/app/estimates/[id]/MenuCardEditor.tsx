@@ -493,7 +493,8 @@ function ItemRow({
   collapsed: Set<string>;
   onToggleCollapse: (key: string) => void;
 }) {
-  const { isFinalised, onRenameItem, onToggleItem, onDeleteItem, onAddLineItem } = useLedger();
+  const { isFinalised, overheadStale, onRenameItem, onToggleItem, onDeleteItem, onAddLineItem } =
+    useLedger();
   const sortable = useSortable({ id: item.id, disabled: isFinalised });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -593,6 +594,20 @@ function ItemRow({
                 data-testid={`item-inferred-${item.id}`}
               >
                 Inferred
+              </span>
+            )}
+            {item.overhead && overheadStale && (
+              // This card's hours are a percentage OF other cards' taxed hours,
+              // and a buffer has moved since it was generated. Labelled rather
+              // than silently rewritten: nothing here separates a generated
+              // figure from an estimator's edit, so recomputing would discard
+              // real decisions. A re-run rebuilds it. AEH-335.
+              <span
+                className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
+                title="Costed against buffers that have since changed — re-run to rebuild this card"
+                data-testid={`item-overhead-stale-${item.id}`}
+              >
+                Stale
               </span>
             )}
             {item.flags.thinSlice && (

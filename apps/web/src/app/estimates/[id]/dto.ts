@@ -80,6 +80,7 @@ export type ItemDTO = Pick<
   | 'sectionId'
   | 'order'
   | 'injected'
+  | 'overhead'
   | 'category'
   | 'phase'
   | 'sourcePresetId'

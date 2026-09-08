@@ -109,14 +109,17 @@ export function resolveTaxPercents(
   house: HouseRates | null,
   overrides: RateOverrides,
 ): TaxPercents {
-  const of = (role: TaxableRole): number =>
-    overrides[OVERRIDE_FIELD[role]] ?? (house ? house[HOUSE_FIELD[role]] : 0);
-  return { DEV: 0, QA: of('QA'), PM: of('PM'), BA: of('BA') };
-}
-
-/** The roles whose buffer this estimate sets for itself. */
-export function overriddenRoles(overrides: RateOverrides): TaxableRole[] {
-  return TAXABLE_ROLES.filter((r) => overrides[OVERRIDE_FIELD[r]] !== null);
+  // Written out per role rather than looped over OVERRIDE_FIELD/HOUSE_FIELD.
+  // Three lines of `??` are plainer than two lookup tables and an inner
+  // closure, and the field audit can only see a column as consumed when it is
+  // read by name — a dynamic index reads to it as nothing at all, which is how
+  // three live columns would have been reported as orphans.
+  return {
+    DEV: 0,
+    QA: overrides.qaRegressionBufferPctOverride ?? house?.qaRegressionBufferPct ?? 0,
+    PM: overrides.pmCommunicationTaxPctOverride ?? house?.pmCommunicationTaxPct ?? 0,
+    BA: overrides.baCommunicationTaxPctOverride ?? house?.baCommunicationTaxPct ?? 0,
+  };
 }
 
 /**
