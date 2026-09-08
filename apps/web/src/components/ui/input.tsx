@@ -66,20 +66,54 @@ export function FieldLabel({
   );
 }
 
+/** Newlines can only reach a ledger title by paste, and are never wanted. */
+const NEWLINES = /[\r\n]+/g;
+
 /**
  * Inline-editable text that reads as text until you touch it. Used for every
  * title in the ledger — the estimate reads like a document, and editing is a
  * detail you discover, not chrome you look at.
+ *
+ * A `<textarea>` rather than an `<input>`, because ledger titles are routinely
+ * longer than the column they sit in. In an input that overflow is only
+ * reachable by tracking sideways with the arrow keys, and a card whose name you
+ * cannot read is a card you cannot check. Here the text wraps and the field
+ * grows to hold it.
+ *
+ * `field-sizing: content` does the growing, in CSS, which is why there is no
+ * measurement code, no resize observer, and no height that can go stale — not
+ * when a collapsed section reopens, not when the container narrows, and not
+ * when the value is assigned imperatively, which is exactly what the
+ * Escape-to-revert handlers do. A browser without it falls back to `rows` worth
+ * of scrollable text: the behaviour this replaces, never worse than it.
+ *
+ * The value is still one line. `Enter` belongs to the caller — every ledger
+ * title commits and blurs on it — and newlines are flattened on the way out,
+ * because an input dropped pasted ones silently and a line break smuggled into
+ * a title would travel as far as the sheet export.
+ *
+ * Flattened on blur rather than as you type, and that is not laziness: doing it
+ * on input means writing `value` back mid-edit, and React restores the caret it
+ * recorded before the handler ran, so a pasted CRLF left the cursor a character
+ * adrift for every line break in it. Blur is the moment the text becomes data,
+ * the caret no longer matters, and the caller's own `onBlur` — which is what
+ * persists the value — reads the flattened text because this runs first.
  */
 export const InlineText = React.forwardRef<
-  HTMLInputElement,
-  React.InputHTMLAttributes<HTMLInputElement>
->(({ className, ...props }, ref) => (
-  <input
+  HTMLTextAreaElement,
+  React.TextareaHTMLAttributes<HTMLTextAreaElement>
+>(({ className, rows = 1, onBlur, ...props }, ref) => (
+  <textarea
     ref={ref}
-    type="text"
+    rows={rows}
+    onBlur={(e) => {
+      const el = e.currentTarget;
+      const flat = el.value.replace(NEWLINES, ' ');
+      if (flat !== el.value) el.value = flat;
+      onBlur?.(e);
+    }}
     className={cn(
-      'w-full min-w-0 rounded border border-transparent bg-transparent px-1.5 py-0.5',
+      'field-sizing-content w-full min-w-0 resize-none rounded border border-transparent bg-transparent px-1.5 py-0.5',
       'hover:border-line hover:bg-surface focus:border-green focus:bg-surface focus:outline-none',
       'placeholder:text-ink-4',
       className,

@@ -61,7 +61,11 @@ export function EditableList({
         {items.map((t, i) => (
           <li key={i} className="group flex items-start gap-2.5">
             <span className="mt-[9px] h-[5px] w-[5px] shrink-0 rounded-full bg-green-line" aria-hidden />
-            <span className="flex-1 text-[13.5px] leading-relaxed text-ink-2">{t}</span>
+            {/* An assumption may well have its own line breaks in it, and this
+                read-only view has to show the same shape the editor did. */}
+            <span className="flex-1 text-[13.5px] leading-relaxed whitespace-pre-wrap text-ink-2">
+              {t}
+            </span>
             <AskOracleButton
               className="mt-1.5"
               label={`Ask Oracle where this ${askSubject} came from`}
@@ -83,12 +87,17 @@ export function EditableList({
               className="mt-[9px] h-[5px] w-[5px] shrink-0 rounded-full bg-green-line group-hover:bg-green"
               aria-hidden
             />
+            {/* `field-sizing: content` is what makes a long or multi-line entry
+                readable: the box is as tall as what's in it, so nothing has to
+                be scrolled inside a one-row window to be read. `rows={1}` is
+                the floor an empty entry sits at, and the fallback in a browser
+                that doesn't do content sizing yet. */}
             <textarea
               value={t}
               rows={1}
               onChange={(e) => editAt(i, e.target.value)}
               onBlur={commit}
-              className="-mx-1.5 -my-0.5 min-w-0 flex-1 resize-none rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[13.5px] leading-relaxed text-ink-2 hover:border-line hover:bg-surface focus:border-green focus:bg-surface focus:outline-none"
+              className="field-sizing-content -mx-1.5 -my-0.5 min-w-0 flex-1 resize-none rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[13.5px] leading-relaxed text-ink-2 hover:border-line hover:bg-surface focus:border-green focus:bg-surface focus:outline-none"
               data-testid={`${testid}-item-${i}`}
             />
             <AskOracleButton

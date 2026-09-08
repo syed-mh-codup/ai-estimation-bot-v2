@@ -52,6 +52,21 @@ const COLS =
 /** Role cells hide with their column below `sm`. */
 const ROLE_CELL = 'hidden sm:block';
 /**
+ * The title half of a row: the name, and the chips and provenance that qualify
+ * it.
+ *
+ * It wraps, and the name below claims a floor of 16rem, because those two
+ * facts together decide which of them gives way when the row runs out of
+ * width. Without them the chips keep their size and the name — the only thing
+ * on the row you cannot do without — is what gets squeezed, down to a column
+ * of single words several lines tall. With them the name keeps a readable
+ * measure and the chips step down onto a second line instead. A short title
+ * reaches neither limit and its row is unchanged.
+ */
+const TITLE_CELL = 'flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1';
+/** The floor referred to above. `min-w-0` in `InlineText` keeps it shrinkable. */
+const TITLE_FIELD = 'flex-[1_1_16rem]';
+/**
  * The 9.5px chip already used for "Off" and "Inferred". Neutral on purpose:
  * these say what a card IS, not that anything is wrong with it, and the colour
  * contract reserves tone for state (green settles, bronze is in flight).
@@ -364,44 +379,56 @@ function SectionGroup({ section, items, collapsed, onToggleCollapse, isUngrouped
               aria-hidden
             />
           </button>
-          {isUngrouped ? (
-            <span className="font-serif text-[15.5px] font-semibold text-ink-3">Ungrouped</span>
-          ) : (
-            <InlineText
-              defaultValue={section.title}
-              onBlur={(e) => {
-                const v = e.currentTarget.value.trim();
-                if (v && v !== section.title) onRenameSection(section.id, v);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-                if (e.key === 'Escape') {
-                  e.currentTarget.value = section.title;
-                  e.currentTarget.blur();
-                }
-              }}
-              disabled={isFinalised}
-              aria-label="Section title"
-              className="-ml-1.5 font-serif text-[15.5px] font-semibold disabled:opacity-100"
-              data-testid={`section-title-${section.id}`}
-            />
-          )}
-          <span className="num shrink-0 text-[10.5px] whitespace-nowrap text-ink-4">
-            {items.length} item{items.length === 1 ? '' : 's'}
-            {offCount > 0 && ` · ${offCount} off`}
-          </span>
-          {!isFinalised && !isUngrouped && (
-            <button
-              type="button"
-              onClick={() => onDeleteSection(section.id)}
-              title="Delete section (items move to Ungrouped)"
-              aria-label="Delete section"
-              className="ml-1 shrink-0 rounded border border-line bg-surface p-1 text-ink-4 hover:border-brick-line hover:text-brick"
-              data-testid={`delete-section-${section.id}`}
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
-          )}
+          {/* Same shape as the item rows below: the chevron sits outside, and
+              the title keeps its measure while the count steps aside. */}
+          <div className={cn(TITLE_CELL, 'gap-x-2')}>
+            {isUngrouped ? (
+              <span className="font-serif text-[15.5px] font-semibold text-ink-3">Ungrouped</span>
+            ) : (
+              <InlineText
+                defaultValue={section.title}
+                onBlur={(e) => {
+                  const v = e.currentTarget.value.trim();
+                  if (v && v !== section.title) onRenameSection(section.id, v);
+                }}
+                onKeyDown={(e) => {
+                  // The field wraps, so Enter has to be claimed: left to the
+                  // browser it would put a line break in the title instead.
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                  if (e.key === 'Escape') {
+                    e.currentTarget.value = section.title;
+                    e.currentTarget.blur();
+                  }
+                }}
+                disabled={isFinalised}
+                aria-label="Section title"
+                className={cn(
+                  TITLE_FIELD,
+                  '-ml-1.5 font-serif text-[15.5px] font-semibold disabled:opacity-100',
+                )}
+                data-testid={`section-title-${section.id}`}
+              />
+            )}
+            <span className="num shrink-0 text-[10.5px] whitespace-nowrap text-ink-4">
+              {items.length} item{items.length === 1 ? '' : 's'}
+              {offCount > 0 && ` · ${offCount} off`}
+            </span>
+            {!isFinalised && !isUngrouped && (
+              <button
+                type="button"
+                onClick={() => onDeleteSection(section.id)}
+                title="Delete section (items move to Ungrouped)"
+                aria-label="Delete section"
+                className="ml-1 shrink-0 rounded border border-line bg-surface p-1 text-ink-4 hover:border-brick-line hover:text-brick"
+                data-testid={`delete-section-${section.id}`}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
 
         {ROLES.map((r) => (
@@ -521,70 +548,81 @@ function ItemRow({
               aria-hidden
             />
           </button>
-          <InlineText
-            defaultValue={item.title}
-            onBlur={(e) => {
-              const v = e.currentTarget.value.trim();
-              if (v && v !== item.title) onRenameItem(item.id, v);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
-              if (e.key === 'Escape') {
-                e.currentTarget.value = item.title;
-                e.currentTarget.blur();
-              }
-            }}
-            disabled={isFinalised}
-            aria-label="Item title"
-            className={cn(
-              '-ml-1.5 text-[13.5px] font-medium disabled:opacity-100',
-              !item.enabled && 'text-ink-4 line-through decoration-line',
+          {/* The grip and the chevron stay outside the wrapping cell, so a
+              second line of chips starts under the title rather than under
+              them. */}
+          <div className={TITLE_CELL}>
+            <InlineText
+              defaultValue={item.title}
+              onBlur={(e) => {
+                const v = e.currentTarget.value.trim();
+                if (v && v !== item.title) onRenameItem(item.id, v);
+              }}
+              onKeyDown={(e) => {
+                // The field wraps, so Enter has to be claimed: left to the
+                // browser it would put a line break in the title instead.
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+                if (e.key === 'Escape') {
+                  e.currentTarget.value = item.title;
+                  e.currentTarget.blur();
+                }
+              }}
+              disabled={isFinalised}
+              aria-label="Item title"
+              className={cn(
+                TITLE_FIELD,
+                '-ml-1.5 text-[13.5px] font-medium disabled:opacity-100',
+                !item.enabled && 'text-ink-4 line-through decoration-line',
+              )}
+              data-testid={`item-title-${item.id}`}
+            />
+            {!item.enabled && (
+              <span className="shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
+                Off
+              </span>
             )}
-            data-testid={`item-title-${item.id}`}
-          />
-          {!item.enabled && (
-            <span className="shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
-              Off
-            </span>
-          )}
-          {item.injected && (
-            // Colour never travels alone here, so the label does the work and
-            // the tone only reinforces it.
-            <span
-              className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
-              title="Implied by the source material, not stated in it — costed by the estimator council"
-              data-testid={`item-inferred-${item.id}`}
-            >
-              Inferred
-            </span>
-          )}
-          {item.flags.thinSlice && (
-            <span
-              className={MICRO_CHIP}
-              title="On the thin slice — the earliest path to something demoable"
-              data-testid={`item-thin-slice-${item.id}`}
-            >
-              Slice
-            </span>
-          )}
-          {item.flags.notSafelyRemovable && (
-            <span
-              className={MICRO_CHIP}
-              title="Other scope in this estimate depends on this card, so it can't be switched off"
-              data-testid={`item-locked-${item.id}`}
-            >
-              Load bearing
-            </span>
-          )}
-          <ItemProvenance item={item} />
-          {/* Deliberately NOT in the hover cluster below: that whole cluster is
+            {item.injected && (
+              // Colour never travels alone here, so the label does the work and
+              // the tone only reinforces it.
+              <span
+                className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
+                title="Implied by the source material, not stated in it — costed by the estimator council"
+                data-testid={`item-inferred-${item.id}`}
+              >
+                Inferred
+              </span>
+            )}
+            {item.flags.thinSlice && (
+              <span
+                className={MICRO_CHIP}
+                title="On the thin slice — the earliest path to something demoable"
+                data-testid={`item-thin-slice-${item.id}`}
+              >
+                Slice
+              </span>
+            )}
+            {item.flags.notSafelyRemovable && (
+              <span
+                className={MICRO_CHIP}
+                title="Other scope in this estimate depends on this card, so it can't be switched off"
+                data-testid={`item-locked-${item.id}`}
+              >
+                Load bearing
+              </span>
+            )}
+            <ItemProvenance item={item} />
+            {/* Deliberately NOT in the hover cluster below: that whole cluster is
               gated on !isFinalised, and asking what drove a number is exactly
               what you want to do on an estimate that has been signed off. */}
-          <AskOracleButton
-            label={`Ask Oracle about ${item.title}`}
-            question={`Explain the menu card "${item.title}" (${item.taxonomyKey}). What in the source material drove it, and where did its hours come from?`}
-            testid={`ask-oracle-item-${item.id}`}
-          />
+            <AskOracleButton
+              label={`Ask Oracle about ${item.title}`}
+              question={`Explain the menu card "${item.title}" (${item.taxonomyKey}). What in the source material drove it, and where did its hours come from?`}
+              testid={`ask-oracle-item-${item.id}`}
+            />
+          </div>
         </div>
 
         {ROLES.map((r) => (
@@ -760,48 +798,59 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
 
   return (
     <div className="group/line flex items-center gap-2 px-3.5 py-1 pl-10 hover:bg-line-soft">
-      <span className="num shrink-0 rounded border border-line bg-surface px-1 text-[10px] font-semibold text-ink-3">
-        {role}
-      </span>
-
-      {/* Only DEV work has a frontend/backend side; QA, PM and BA don't. */}
-      {role === 'DEV' && (
-        <SideTag
-          li={li}
-          disabled={isFinalised}
-          onChange={(side) => onSetLineSide(item.id, li, side)}
-        />
-      )}
-
-      <InlineText
-        defaultValue={li.title ?? ''}
-        placeholder="Describe this work…"
-        onBlur={(e) => onEditLineTitle(item.id, li, e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-          if (e.key === 'Escape') {
-            e.currentTarget.value = li.title ?? '';
-            e.currentTarget.blur();
-          }
-        }}
-        disabled={isFinalised}
-        aria-label={`${role} line item title`}
-        className="min-w-0 flex-1 text-[12.5px] text-ink-2 disabled:opacity-100"
-        data-testid={`line-title-${li.id}`}
-      />
-
-      {/* What the council priced against, before a human touched it. */}
-      <LineEnvelopeTag li={li} />
-
-      {/* A human overrode the crew's number here. */}
-      {li.edited && (
-        <span
-          title="Edited by hand"
-          className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 uppercase"
-        >
-          edited
+      {/* The role tag, the description and its envelope wrap together as one
+          cell; the hours and the taxed figure stay out of it, because that
+          figure is pinned to the Total column's width and a wrap would take it
+          out from under Total. */}
+      <div className={cn(TITLE_CELL, 'gap-x-2')}>
+        <span className="num shrink-0 rounded border border-line bg-surface px-1 text-[10px] font-semibold text-ink-3">
+          {role}
         </span>
-      )}
+
+        {/* Only DEV work has a frontend/backend side; QA, PM and BA don't. */}
+        {role === 'DEV' && (
+          <SideTag
+            li={li}
+            disabled={isFinalised}
+            onChange={(side) => onSetLineSide(item.id, li, side)}
+          />
+        )}
+
+        <InlineText
+          defaultValue={li.title ?? ''}
+          placeholder="Describe this work…"
+          onBlur={(e) => onEditLineTitle(item.id, li, e.currentTarget.value)}
+          onKeyDown={(e) => {
+            // The field wraps, so Enter has to be claimed: left to the browser it
+            // would put a line break in the title instead.
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+            if (e.key === 'Escape') {
+              e.currentTarget.value = li.title ?? '';
+              e.currentTarget.blur();
+            }
+          }}
+          disabled={isFinalised}
+          aria-label={`${role} line item title`}
+          className={cn(TITLE_FIELD, 'text-[12.5px] text-ink-2 disabled:opacity-100')}
+          data-testid={`line-title-${li.id}`}
+        />
+
+        {/* What the council priced against, before a human touched it. */}
+        <LineEnvelopeTag li={li} />
+
+        {/* A human overrode the crew's number here. */}
+        {li.edited && (
+          <span
+            title="Edited by hand"
+            className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 uppercase"
+          >
+            edited
+          </span>
+        )}
+      </div>
 
       {!isFinalised && (
         <button
