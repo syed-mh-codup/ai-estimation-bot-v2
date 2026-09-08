@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Eyebrow } from '@/components/ui/card';
+import { ArtifactPartialPreview } from './ArtifactPartialPreview';
 
 /**
  * What a generating artifact is actually doing. AEH-239.
@@ -24,6 +25,13 @@ import { Card, CardBody, Eyebrow } from '@/components/ui/card';
  * finishes, the number of sections and each of their titles are facts on the
  * row, so this shows real names ticking off rather than a percentage nobody can
  * check. Before that there is genuinely nothing to name, and it says so.
+ *
+ * ## What it does not answer
+ *
+ * Whether the document is any good. `ArtifactPartialPreview` below it does
+ * that, and is rendered from here because this component owns the live count —
+ * the number of sections written is the one fact both views need, and two polls
+ * for it would be able to disagree. AEH-326.
  */
 
 type Snapshot = {
@@ -114,108 +122,122 @@ export function ArtifactProgress({
   const activeIndex = snap.sections.findIndex((s) => !done.has(s.id));
 
   return (
-    <Card className="mt-5 max-w-[720px]" data-testid="artifact-progress">
-      <CardBody>
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <Eyebrow>{snap.stage ?? 'Working'}</Eyebrow>
-          <div className="flex items-center gap-3">
-            {planned > 0 && (
-              <span className="num text-[11.5px] text-ink-3" data-testid="artifact-progress-count">
-                {writtenCount} of {planned} written
-              </span>
-            )}
-            <Button
-              variant="danger"
-              size="xs"
-              onClick={() => void stop()}
-              disabled={stopping}
-              data-testid="stop-artifact"
-            >
-              <X size={12} strokeWidth={2.5} />
-              {stopping ? 'Stopping' : 'Stop'}
-            </Button>
+    <>
+      <Card className="mt-5 max-w-[720px]" data-testid="artifact-progress">
+        <CardBody>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <Eyebrow>{snap.stage ?? 'Working'}</Eyebrow>
+            <div className="flex items-center gap-3">
+              {planned > 0 && (
+                <span className="num text-[11.5px] text-ink-3" data-testid="artifact-progress-count">
+                  {writtenCount} of {planned} written
+                </span>
+              )}
+              <Button
+                variant="danger"
+                size="xs"
+                onClick={() => void stop()}
+                disabled={stopping}
+                data-testid="stop-artifact"
+              >
+                <X size={12} strokeWidth={2.5} />
+                {stopping ? 'Stopping' : 'Stop'}
+              </Button>
+            </div>
           </div>
-        </div>
 
-        <div
-          className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line-soft"
-          role="progressbar"
-          aria-valuenow={snap.pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
           <div
-            className="h-full rounded-full bg-green transition-[width] duration-500"
-            style={{ width: `${Math.max(2, Math.min(100, snap.pct))}%` }}
-          />
-        </div>
+            className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line-soft"
+            role="progressbar"
+            aria-valuenow={snap.pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className="h-full rounded-full bg-green transition-[width] duration-500"
+              style={{ width: `${Math.max(2, Math.min(100, snap.pct))}%` }}
+            />
+          </div>
 
-        {planned === 0 ? (
-          <p className="mt-3 text-[12.5px] leading-relaxed text-ink-3">
-            Planning the document. Until that finishes there is genuinely nothing to name — the
-            sections, and how many there are, are decided by this step.
-          </p>
-        ) : (
-          <>
-            {/* No document title here. The outline suggests one, but the name
-                shown in the masthead above is the artifact's own — a second,
-                different name three lines below it reads as a bug. */}
-            <ol className="mt-2 space-y-1.5" data-testid="artifact-progress-sections">
-              {snap.sections.map((s, i) => {
-                const state =
-                  done.has(s.id) ? 'done' : i === activeIndex ? 'active' : 'todo';
-                return (
-                  <li
-                    key={s.id}
-                    className="flex items-center gap-2 text-[12.5px]"
-                    data-state={state}
-                    data-testid={`artifact-section-${s.id}`}
-                  >
-                    <span
-                      aria-hidden
-                      className={
-                        state === 'done'
-                          ? 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green text-surface'
-                          : state === 'active'
-                            ? 'h-4 w-4 shrink-0 animate-pulse rounded-full border-2 border-bronze bg-bronze-tint'
-                            : 'h-4 w-4 shrink-0 rounded-full border border-line bg-surface-2'
-                      }
-                    >
-                      {state === 'done' && <Check size={10} strokeWidth={3} />}
-                    </span>
-                    <span
-                      className={
-                        state === 'todo'
-                          ? 'text-ink-4'
-                          : state === 'active'
-                            ? 'text-ink'
-                            : 'text-ink-2'
-                      }
-                    >
-                      {s.title}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-            <p className="mt-2.5 text-[11.5px] text-ink-4">
-              Each section is written by its own model call, so they land one at a time. Anything
-              already ticked is saved — a failure part-way keeps it, and so does stopping.
+          {planned === 0 ? (
+            <p className="mt-3 text-[12.5px] leading-relaxed text-ink-3">
+              Planning the document. Until that finishes there is genuinely nothing to name — the
+              sections, and how many there are, are decided by this step.
             </p>
-          </>
-        )}
-        {stopping && (
-          <p className="mt-2.5 text-[11.5px] text-ink-3" data-testid="stopping-notice">
-            Stopping. The section being written right now will finish first — it is paid for
-            either way, so it is kept rather than thrown away.
-          </p>
-        )}
-        {stopError && (
-          <p className="mt-2.5 text-[11.5px] text-brick" data-testid="stop-error">
-            {stopError}
-          </p>
-        )}
-      </CardBody>
-    </Card>
+          ) : (
+            <>
+              {/* No document title here. The outline suggests one, but the name
+                  shown in the masthead above is the artifact's own — a second,
+                  different name three lines below it reads as a bug. */}
+              <ol className="mt-2 space-y-1.5" data-testid="artifact-progress-sections">
+                {snap.sections.map((s, i) => {
+                  const state =
+                    done.has(s.id) ? 'done' : i === activeIndex ? 'active' : 'todo';
+                  return (
+                    <li
+                      key={s.id}
+                      className="flex items-center gap-2 text-[12.5px]"
+                      data-state={state}
+                      data-testid={`artifact-section-${s.id}`}
+                    >
+                      <span
+                        aria-hidden
+                        className={
+                          state === 'done'
+                            ? 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green text-surface'
+                            : state === 'active'
+                              ? 'h-4 w-4 shrink-0 animate-pulse rounded-full border-2 border-bronze bg-bronze-tint'
+                              : 'h-4 w-4 shrink-0 rounded-full border border-line bg-surface-2'
+                        }
+                      >
+                        {state === 'done' && <Check size={10} strokeWidth={3} />}
+                      </span>
+                      <span
+                        className={
+                          state === 'todo'
+                            ? 'text-ink-4'
+                            : state === 'active'
+                              ? 'text-ink'
+                              : 'text-ink-2'
+                        }
+                      >
+                        {s.title}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+              <p className="mt-2.5 text-[11.5px] text-ink-4">
+                Each section is written by its own model call, so they land one at a time. Anything
+                already ticked is saved — a failure part-way keeps it, and so does stopping.
+              </p>
+            </>
+          )}
+          {stopping && (
+            <p className="mt-2.5 text-[11.5px] text-ink-3" data-testid="stopping-notice">
+              Stopping. The section being written right now will finish first — it is paid for
+              either way, so it is kept rather than thrown away.
+            </p>
+          )}
+          {stopError && (
+            <p className="mt-2.5 text-[11.5px] text-brick" data-testid="stop-error">
+              {stopError}
+            </p>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Beside the checklist, not instead of it, and only once there is
+          something to read. The checklist says how far along; this says whether
+          it is any good — and the Stop button is in the card above, which is
+          the whole reason reading it early is worth an endpoint. */}
+      {writtenCount > 0 && (
+        <ArtifactPartialPreview
+          estimateId={estimateId}
+          artifactId={artifactId}
+          writtenCount={writtenCount}
+        />
+      )}
+    </>
   );
 }

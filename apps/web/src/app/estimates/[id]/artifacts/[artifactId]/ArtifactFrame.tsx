@@ -29,9 +29,25 @@ import { Button } from '@/components/ui/button';
 export function ArtifactFrame({
   html,
   filename,
+  partial = false,
 }: {
   html: string;
-  filename: string;
+  /**
+   * Optional only because a partial has nothing to name: the download it would
+   * label is not offered, and the caller that renders one is inside the
+   * progress view, which does not carry the estimate title or the type key the
+   * finished filename is built from.
+   */
+  filename?: string;
+  /**
+   * This is a document that is still being written. AEH-326.
+   *
+   * Download is withheld rather than styled differently: a half-written file
+   * saved to somebody's desktop is precisely the mistake this mode exists to
+   * prevent, and it would be indistinguishable from the finished one an hour
+   * later. Reading it is the whole point; keeping it is not.
+   */
+  partial?: boolean;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -40,7 +56,7 @@ export function ArtifactFrame({
     const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = filename ?? 'artifact.html';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -48,9 +64,11 @@ export function ArtifactFrame({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button type="button" onClick={download} data-testid="download-artifact">
-          Download
-        </Button>
+        {!partial && (
+          <Button type="button" onClick={download} data-testid="download-artifact">
+            Download
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -60,7 +78,9 @@ export function ArtifactFrame({
           {expanded ? 'Shrink' : 'Full height'}
         </Button>
         <p className="text-[12px] text-ink-4">
-          Runs isolated — it cannot reach this app or the network.
+          {partial
+            ? 'Still being written — no download until it finishes.'
+            : 'Runs isolated — it cannot reach this app or the network.'}
         </p>
       </div>
 
@@ -83,8 +103,11 @@ export function ArtifactFrame({
         // dependency.
         allow="fullscreen"
         srcDoc={html}
-        title="Generated artifact"
-        data-testid="artifact-frame"
+        title={partial ? 'Partial artifact, still generating' : 'Generated artifact'}
+        // A different id on purpose. `artifact-frame` appearing is the natural
+        // thing for a test to wait on to mean "generation finished", and a
+        // preview of three of nine sections must not satisfy it.
+        data-testid={partial ? 'artifact-frame-partial' : 'artifact-frame'}
         className="w-full rounded-lg border border-line bg-surface"
         style={{ height: expanded ? '85vh' : '600px' }}
       />
