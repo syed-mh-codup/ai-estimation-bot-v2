@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation';
 import { createArtifactType, prisma } from '@repo/db';
 import { requireAdmin } from '@/lib/rbac';
 import { Heading } from '@/components/ui/card';
-import { fetchModelOptions } from '@/lib/openrouter-models';
+import { fetchModelOptions, toModelChoices } from '@/lib/openrouter-models';
 import { readModelCallLevers } from '@/lib/model-call-levers';
-import { toModelChoices } from '@/components/ui/model-call-fields';
+
 import { CorpusPicker, readCorpusSections } from '../CorpusPicker';
 import { NewArtifactTypeForm, type NewArtifactTypeState } from './NewArtifactTypeForm';
 

@@ -4,7 +4,8 @@ import type React from 'react';
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
-import { ModelCallFields, type ModelChoice } from '@/components/ui/model-call-fields';
+import { ModelCallFields } from '@/components/ui/model-call-fields';
+import type { ModelChoice } from '@/lib/openrouter-models';
 import { Input, Textarea, FieldLabel } from '@/components/ui/input';
 
 export type NewArtifactTypeState = { error?: string };

@@ -136,3 +136,48 @@ const STUB_MODELS: ModelOption[] = [
     supportsReasoning: true,
   },
 ];
+
+/**
+ * What the model picker needs to render one option.
+ *
+ * Lives here rather than beside the component that consumes it, and that is
+ * load-bearing: `model-call-fields.tsx` is a `'use client'` module, and EVERY
+ * export of a client module becomes a client reference. A plain function
+ * exported from there cannot be called during a server render — it throws
+ * "Attempted to call toModelChoices() from the server but toModelChoices is on
+ * the client" — and neither `tsc` nor `next build` can see it coming, because
+ * it is a runtime boundary violation rather than a type error. It only shows up
+ * as a 500 on the page.
+ *
+ * So the shape and its builder live on the server side of the boundary, next to
+ * the `ModelOption` they are derived from, and the client component imports the
+ * TYPE alone — types are erased, so that import crosses nothing.
+ */
+export type ModelChoice = {
+  id: string;
+  label: string;
+  hint: string;
+  supportsReasoning: boolean;
+};
+
+/**
+ * Build the picker's options from the catalogue.
+ *
+ * Shared by all three editors, which each want the same hint line — it used to
+ * be copied per page.
+ */
+export function toModelChoices(models: ModelOption[]): ModelChoice[] {
+  return models.map((m) => ({
+    id: m.id,
+    label: m.name,
+    supportsReasoning: m.supportsReasoning,
+    hint: [
+      m.contextLength ? `${Math.round(m.contextLength / 1000)}k context` : null,
+      m.promptPrice !== null ? `$${(m.promptPrice * 1_000_000).toFixed(2)}/M in` : null,
+      m.completionPrice !== null ? `$${(m.completionPrice * 1_000_000).toFixed(2)}/M out` : null,
+      m.supportsReasoning ? 'thinking' : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
+}

@@ -3,6 +3,10 @@
 import { useState } from 'react';
 import { Combobox, type ComboboxOption } from '@/components/ui/combobox';
 import { FieldLabel, Select } from '@/components/ui/input';
+// Type-only, deliberately: `ModelChoice` and `toModelChoices` live on the
+// server side of the boundary because a plain function exported from THIS
+// module could not be called during a server render. See openrouter-models.ts.
+import type { ModelChoice } from '@/lib/openrouter-models';
 
 /**
  * The model picker and the two levers that decide whether the picked model can
@@ -17,13 +21,6 @@ import { FieldLabel, Select } from '@/components/ui/input';
  * the whole point: an admin who can pick a model should be able to pick how it
  * is called, in the same place, without a deploy. AEH-322.
  */
-export type ModelChoice = {
-  id: string;
-  label: string;
-  hint: string;
-  supportsReasoning: boolean;
-};
-
 const EFFORTS = ['low', 'medium', 'high'] as const;
 const SORTS = ['throughput', 'latency', 'price'] as const;
 
@@ -159,35 +156,4 @@ export function ModelCallFields({
       </div>
     </div>
   );
-}
-
-/**
- * Build the picker's options from the model catalogue.
- *
- * Here rather than in each page because all three editors want the same hint
- * line, and it used to be copied per page.
- */
-export function toModelChoices(
-  models: {
-    id: string;
-    name: string;
-    contextLength: number | null;
-    promptPrice: number | null;
-    completionPrice: number | null;
-    supportsReasoning: boolean;
-  }[],
-): ModelChoice[] {
-  return models.map((m) => ({
-    id: m.id,
-    label: m.name,
-    supportsReasoning: m.supportsReasoning,
-    hint: [
-      m.contextLength ? `${Math.round(m.contextLength / 1000)}k context` : null,
-      m.promptPrice !== null ? `$${(m.promptPrice * 1_000_000).toFixed(2)}/M in` : null,
-      m.completionPrice !== null ? `$${(m.completionPrice * 1_000_000).toFixed(2)}/M out` : null,
-      m.supportsReasoning ? 'thinking' : null,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  }));
 }
