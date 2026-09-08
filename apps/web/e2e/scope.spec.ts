@@ -173,6 +173,45 @@ test.describe('scope configurator', () => {
 });
 
 /**
+ * Press Derive and see the confirmation through.
+ *
+ * Re-deriving REPLACES the graph, so it asks first whenever there is something
+ * to lose — and it asks INLINE, as a two-step panel in the page
+ * (`ScopeDerive.tsx`), not as a `confirm()` dialog. That distinction is the
+ * whole reason this helper exists. An earlier version of this file registered
+ * `page.on('dialog', accept)` instead, which was correct when the component
+ * used `confirm()` and became a no-op 48 minutes later when the component moved
+ * to the inline panel and the spec was not updated with it. Nothing failed
+ * loudly: the click opened a panel nobody answered, `derive()` was never
+ * called, and the assertion sat waiting for a summary that was never coming.
+ * CI has been red on exactly these two specs ever since.
+ *
+ * So: click, give the panel a bounded moment to appear, and answer it if it
+ * does. `setConfirming` runs inside the click handler, so the panel is one
+ * React render away or it is never coming — two seconds is around twenty times
+ * the margin that needs, and it is only ever spent on a first derivation, in a
+ * `test.slow()` block.
+ *
+ * Deliberately NOT written as a race against the finished summary. On a second
+ * pass that summary is still on screen from the first one, so whichever
+ * appeared first would resolve immediately, the panel would go unanswered, and
+ * the assertions afterwards would pass against the OLD result — a green test
+ * proving nothing, which is worse than the red one this replaces. Returns
+ * whether it actually confirmed so a caller that knows a graph exists can insist
+ * on it.
+ */
+async function derive(page: Page): Promise<boolean> {
+  await page.getByTestId('scope-graph-derive').click();
+
+  const askedToConfirm = page.getByTestId('scope-derive-confirm-yes');
+  await askedToConfirm.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+  if (!(await askedToConfirm.isVisible())) return false;
+
+  await askedToConfirm.click();
+  return true;
+}
+
+/**
  * Deliberately last in the file.
  *
  * Playwright runs describes in declaration order, these specs share one
@@ -187,16 +226,6 @@ test.describe('scope configurator', () => {
 test.describe('deriving the graph with the Cartographer', () => {
   test.slow();
 
-  // Deriving REPLACES the graph, so it asks first whenever there is something
-  // to lose — and by this point in the file there always is. Playwright
-  // auto-DISMISSES dialogs, which would make every click below a silent no-op,
-  // so the accept has to be registered for the whole block rather than per
-  // spec. Registered on every navigation because `router.refresh()` and
-  // `page.reload()` both re-arm it.
-  test.beforeEach(async ({ page }) => {
-    page.on('dialog', (d) => void d.accept());
-  });
-
   test('works out the dependencies, then the configurator cascades on them', async ({ page }) => {
     await login(page);
     await openScope(page);
@@ -205,13 +234,40 @@ test.describe('deriving the graph with the Cartographer', () => {
     // card numbers out of the rendered list and chains them — so this exercises
     // the real number-to-id mapping. A canned payload would pass even if that
     // mapping were broken, which is the whole reason the stub works this way.
-    await page.getByTestId('scope-graph-derive').click();
+    //
+    // A graph already exists by now, because the specs above type one, so this
+    // MUST be asked to confirm before it replaces anything. Checked rather than
+    // assumed: an unanswered confirmation is exactly how this spec broke.
+    expect(await derive(page)).toBe(true);
     await expect(page.getByTestId('scope-graph-derived')).toBeVisible({ timeout: COLD_COMPILE });
-    await expect(page.getByTestId('scope-graph-derived')).toContainText('Found 1 dependency');
+
+    // Nought found, and that is the correct answer.
+    //
+    // The stub chains card 2 onto card 1, which is precisely the pair a person
+    // typed above, and `MenuItemDependency` is unique per ordered pair. Because
+    // preserved edges are seeded first, the proposal collides with the very edge
+    // it agrees with and is refused — so a re-derive over a hand-typed graph
+    // writes nothing and keeps what was typed. That preservation IS the feature
+    // (`replaceEstimateGraph(..., { preserve: ['MANUAL'] })`), so it is worth
+    // stating outright rather than reading as a disappointment.
+    //
+    // This spec asserted `Found 1 dependency` until now, which was right while a
+    // re-derive wiped hand-typed edges too and stopped being right the moment it
+    // stopped doing that — see the note on `derive` above for the other half of
+    // the same unupdated commit.
+    await expect(page.getByTestId('scope-graph-derived')).toContainText(
+      'Found 0 dependencies · kept 1 you typed',
+    );
 
     // With a graph, the configurator appears and cascades over it. The stub
     // chains card 2 onto card 1 and marks card 1 as always-included, so card 1
     // renders as foundation and its toggle does nothing.
+    //
+    // This foundation assertion is also what still proves the number-to-id
+    // mapping, now that the refused edge cannot: card 1 only becomes FIRST's
+    // flag if the number resolved to the right card, and the summary above
+    // reports a refusal identically whether the cause was this deliberate
+    // collision or the model inventing a card number.
     await expect(page.getByTestId('scope-totals')).toBeVisible({ timeout: COLD_COMPILE });
     await expect(page.getByTestId(`scope-foundation-${FIRST}`)).toBeVisible();
 
@@ -242,24 +298,34 @@ test.describe('deriving the graph with the Cartographer', () => {
     await login(page);
     await openScope(page);
 
-    // Derive twice in a row. The claim is that the second pass REPLACES — so
+    // Derive twice in a row. The claim is that a second pass does not STACK —
     // the recorded count has to be the same afterwards, not double. That is
     // asserted on the count itself rather than on the page still rendering,
     // which an earlier version of this spec did and which proved nothing.
-    await page.getByTestId('scope-graph-derive').click();
-    await expect(page.getByTestId('scope-graph-derived')).toContainText('Found 1 dependency', {
-      timeout: COLD_COMPILE,
-    });
-    await expect(page.getByTestId('scope-graph-count')).toContainText('1 recorded', {
-      timeout: COLD_COMPILE,
-    });
-
-    await page.getByTestId('scope-graph-derive').click();
-    await expect(page.getByTestId('scope-graph-derived')).toContainText('Found 1 dependency', {
-      timeout: COLD_COMPILE,
-    });
-    await expect(page.getByTestId('scope-graph-count')).toContainText('1 recorded', {
-      timeout: COLD_COMPILE,
-    });
+    //
+    // Both passes have a graph to lose by the time they run — the specs above
+    // leave one — so both MUST have been asked to confirm. Asserting that is
+    // what stops a skipped confirmation from turning this into a test that
+    // measures the first pass twice.
+    //
+    // Worth being straight about what this can and cannot show now. The fixture
+    // has two cards, so the only edge the stub can ever chain is 2 onto 1 — the
+    // same pair a person typed — and a hand-typed edge is preserved rather than
+    // replaced. So what these two passes demonstrate is idempotence and
+    // preservation: deriving repeatedly neither doubles the graph nor erodes the
+    // typed edge. They do NOT exercise replacing a previously DERIVED edge,
+    // which would need either a third card or a block that starts from a graph
+    // nobody typed. Left as it stands rather than redesigned here, because that
+    // is a decision about what the suite should cover, not a CI repair.
+    for (const pass of ['first', 'second'] as const) {
+      expect(await derive(page), `${pass} pass should be asked to confirm`).toBe(true);
+      await expect(page.getByTestId('scope-graph-derived')).toContainText(
+        'Found 0 dependencies · kept 1 you typed',
+        { timeout: COLD_COMPILE },
+      );
+      await expect(page.getByTestId('scope-graph-count')).toContainText('1 recorded', {
+        timeout: COLD_COMPILE,
+      });
+    }
   });
 });
