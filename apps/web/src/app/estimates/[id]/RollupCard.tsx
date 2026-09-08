@@ -104,7 +104,16 @@ function BufferField({ role }: { role: TaxableRole }) {
             e.currentTarget.blur();
           }
         }}
-        className={`num w-[34px] rounded-[4px] border bg-transparent px-1 py-px text-right text-[10.5px] tabular-nums outline-none focus:border-green ${
+        // A number input reserves room for the native stepper even where the
+        // stepper is never shown, and this field is far too narrow to give any
+        // away: at 34px it clipped from TWO digits up, and because the text is
+        // right-aligned what got cut was the LEADING digit — "100" read as
+        // "00", and "20" lost part of its 2. Suppressing the stepper in both
+        // engines reclaims that space, and the width then fits three digits
+        // with room to spare. Verified by asserting scrollWidth <= clientWidth
+        // at 8, 20 and 100 rather than by eye, since a 4px clip is exactly the
+        // kind of thing that looks fine in a screenshot.
+        className={`num w-[46px] rounded-[4px] border bg-transparent px-1 py-px text-right text-[10.5px] tabular-nums outline-none [appearance:textfield] focus:border-green [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:[appearance:none] [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:[appearance:none] ${
           isOverridden ? 'border-bronze-line text-bronze-ink' : 'border-line-soft text-ink-4'
         }`}
       />
