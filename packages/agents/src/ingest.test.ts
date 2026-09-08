@@ -131,4 +131,53 @@ describe('ingest: error capture + batch', () => {
     expect(res.text).toContain('---');
     expect(progress.length).toBe(2);
   });
+
+  it('assembles the SOW in the order it was given the files', async () => {
+    // The contract the whole ordering chain rests on. The uploader arranges the
+    // documents, the form appends them in that arrangement, the route stores
+    // the index as `UploadedFile.order`, and the ingest reads them back by it —
+    // and all of that is pointless if this function does not concatenate in the
+    // order of its argument. Asserted by POSITION rather than with `toContain`,
+    // which the test above uses and which passes for any order at all.
+    const provider = stubProvider(() => 'unused');
+    const named = (n: string): IngestFile => ({
+      filename: `${n}.txt`,
+      mimeType: 'text/plain',
+      bytes: enc(`body of ${n}`),
+    });
+
+    const forward = await ingestFiles([named('one'), named('two'), named('three')], {
+      modelProvider: provider,
+      recorder: recorder(),
+    });
+    expect(forward.text.indexOf('# one.txt')).toBeLessThan(forward.text.indexOf('# two.txt'));
+    expect(forward.text.indexOf('# two.txt')).toBeLessThan(forward.text.indexOf('# three.txt'));
+
+    // Reversed input, reversed SOW. Same three files, so nothing but the
+    // argument order can account for the difference.
+    const reversed = await ingestFiles([named('three'), named('two'), named('one')], {
+      modelProvider: provider,
+      recorder: recorder(),
+    });
+    expect(reversed.text.indexOf('# three.txt')).toBeLessThan(reversed.text.indexOf('# two.txt'));
+    expect(reversed.text.indexOf('# two.txt')).toBeLessThan(reversed.text.indexOf('# one.txt'));
+    expect(reversed.text).not.toEqual(forward.text);
+  });
+
+  it('keeps a file that produced no text out of the SOW without shifting the rest', async () => {
+    // An empty file is dropped from the text (it has nothing to contribute) but
+    // must not reorder what remains.
+    const provider = stubProvider(() => 'unused');
+    const files: IngestFile[] = [
+      { filename: 'first.txt', mimeType: 'text/plain', bytes: enc('alpha') },
+      { filename: 'blank.txt', mimeType: 'text/plain', bytes: enc('   ') },
+      { filename: 'last.txt', mimeType: 'text/plain', bytes: enc('omega') },
+    ];
+    const res = await ingestFiles(files, { modelProvider: provider, recorder: recorder() });
+
+    expect(res.text).not.toContain('# blank.txt');
+    expect(res.text.indexOf('# first.txt')).toBeLessThan(res.text.indexOf('# last.txt'));
+    // Still reported as a file that was read, so the count in the UI is honest.
+    expect(res.files).toHaveLength(3);
+  });
 });

@@ -689,6 +689,15 @@ model UploadedFile {
   filename   String
   mimeType   String
   bytes      Bytes
+  /// Position in the SOW the ingest assembles, 0-based, as the uploader arranged
+  /// them.
+  ///
+  /// This exists because the ingest read had no `orderBy` at all, so the order
+  /// the documents were concatenated in — which is the order the model reads
+  /// them in, and the only thing that decides what its context sees first — was
+  /// whatever Postgres happened to return. Insertion order in practice, but
+  /// nothing promised it, and nothing let anyone choose it.
+  order      Int      @default(0)
   createdAt  DateTime @default(now())
 
   @@index([estimateId])

@@ -145,7 +145,16 @@ const ingestFn = inngest.createFunction(
         where: { id: estimateId },
         select: { sowText: true },
       });
-      const rows = await prisma.uploadedFile.findMany({ where: { estimateId } });
+      // Ordered, deliberately. The SOW is assembled by concatenating these in
+      // sequence, so this `orderBy` is the only thing deciding what the model
+      // reads first — and without it the read was unordered and the answer was
+      // whatever Postgres felt like. `filename` breaks a tie so that rows
+      // sharing a position (every row predating the column) still assemble the
+      // same way twice rather than differing between attempts of one ingest.
+      const rows = await prisma.uploadedFile.findMany({
+        where: { estimateId },
+        orderBy: [{ order: 'asc' }, { filename: 'asc' }],
+      });
       const files: IngestFile[] = rows.map((r) => ({
         filename: r.filename,
         mimeType: r.mimeType,

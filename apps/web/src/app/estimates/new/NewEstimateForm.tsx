@@ -2,8 +2,9 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck } from 'lucide-react';
+import { ChevronDown, ChevronUp, ShieldCheck, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { moveInList } from '@/lib/reorder';
 import { FieldLabel, Input, Textarea } from '@/components/ui/input';
 
 type Phase = 'idle' | 'submitting' | 'ingesting' | 'error';
@@ -33,6 +34,32 @@ export function NewEstimateForm() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
+
+  /**
+   * Move one document earlier or later in the reading order.
+   *
+   * The order matters because the SOW is these documents concatenated, so this
+   * list is what the Librarian reads first, and a contract read after three
+   * decks of background is read differently from one read before them.
+   *
+   * The `<input type="file">` is deliberately not kept in sync — it cannot be,
+   * since a FileList is read-only. `files` is already the source of truth for
+   * what gets submitted (the handler clears the field and re-appends from this
+   * state), so reordering here is enough, and the input keeps showing its own
+   * unhelpful "3 files" either way.
+   */
+  const moveFile = useCallback((from: number, delta: number) => {
+    setFiles((prev) => moveInList(prev, from, delta) as File[]);
+  }, []);
+
+  /**
+   * Drop one document. Needed by reordering rather than incidental to it: once
+   * the list is something a person arranges, re-picking every file through the
+   * native dialog to remove one is the wrong way to do it.
+   */
+  const removeFile = useCallback((at: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== at));
+  }, []);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<{ stage: string; pct: number }>({ stage: '', pct: 0 });
   const [error, setError] = useState<string | null>(null);
@@ -142,22 +169,68 @@ export function NewEstimateForm() {
           />
 
           {files.length > 0 && (
-            <ul
-              className="mt-2.5 divide-y divide-line-soft rounded-md border border-line-soft bg-surface-2"
-              data-testid="file-list"
-            >
-              {files.map((f) => (
-                <li
-                  key={f.name}
-                  className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-[12.5px]"
-                >
-                  <span className="truncate text-ink-2">{f.name}</span>
-                  <span className="num shrink-0 text-[11.5px] text-ink-3">
-                    {Math.ceil(f.size / 1024)} KB
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul
+                className="mt-2.5 divide-y divide-line-soft rounded-md border border-line-soft bg-surface-2"
+                data-testid="file-list"
+              >
+                {files.map((f, i) => (
+                  <li
+                    key={`${f.name}-${f.size}-${f.lastModified}`}
+                    className="flex items-center gap-3 px-3 py-1.5 text-[12.5px]"
+                    data-testid={`file-row-${i}`}
+                  >
+                    {/* The position, shown as a number, because it is the
+                        thing being arranged. The crew reads the documents in
+                        this order and the SOW is assembled in it. */}
+                    <span className="num w-4 shrink-0 text-[11.5px] text-ink-4">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-ink-2">{f.name}</span>
+                    <span className="num shrink-0 text-[11.5px] text-ink-3">
+                      {Math.ceil(f.size / 1024)} KB
+                    </span>
+                    {/* Up and down rather than drag. Drag needs a pointer, and
+                        the list is short; two buttons work from a keyboard, on
+                        a phone, and under an e2e run. */}
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => moveFile(i, -1)}
+                        disabled={busy || i === 0}
+                        aria-label={`Move ${f.name} earlier`}
+                        data-testid={`file-up-${i}`}
+                        className="rounded p-0.5 text-ink-4 hover:bg-surface hover:text-ink disabled:pointer-events-none disabled:opacity-25"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveFile(i, 1)}
+                        disabled={busy || i === files.length - 1}
+                        aria-label={`Move ${f.name} later`}
+                        data-testid={`file-down-${i}`}
+                        className="rounded p-0.5 text-ink-4 hover:bg-surface hover:text-ink disabled:pointer-events-none disabled:opacity-25"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(i)}
+                        disabled={busy}
+                        aria-label={`Remove ${f.name}`}
+                        data-testid={`file-remove-${i}`}
+                        className="ml-0.5 rounded p-0.5 text-ink-4 hover:bg-surface hover:text-bronze-ink disabled:pointer-events-none disabled:opacity-25"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-3">
+                Read top to bottom. The crew sees these in this order, so put the document that
+                defines the scope first and put background material after it.
+              </p>
+            </>
           )}
         </div>
 

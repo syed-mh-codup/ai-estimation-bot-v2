@@ -28,11 +28,19 @@ export async function POST(req: Request) {
   }
 
   // Read bytes now — the File objects are only valid during this request.
+  //
+  // `order` is the index in this list, and this list is `form.getAll('files')`,
+  // which preserves the order the client appended them in. That is the whole
+  // chain: the uploader arranges the documents, the form appends them in that
+  // arrangement, and the ingest reads them back by this column. Before it
+  // existed the ingest had no `orderBy`, so the sequence the model saw was
+  // whatever Postgres returned.
   const files = await Promise.all(
-    uploads.map(async (f) => ({
+    uploads.map(async (f, order) => ({
       filename: f.name,
       mimeType: f.type || 'application/octet-stream',
       bytes: Buffer.from(await f.arrayBuffer()),
+      order,
     })),
   );
 
@@ -55,7 +63,14 @@ export async function POST(req: Request) {
       ingestStage: hasFiles ? 'Queued' : null,
       ingestPct: 0,
       uploadedFiles: hasFiles
-        ? { create: files.map((f) => ({ filename: f.filename, mimeType: f.mimeType, bytes: f.bytes })) }
+        ? {
+            create: files.map((f) => ({
+              filename: f.filename,
+              mimeType: f.mimeType,
+              bytes: f.bytes,
+              order: f.order,
+            })),
+          }
         : undefined,
     },
     select: { id: true },
