@@ -17,6 +17,7 @@ import type {
 } from '@repo/shared';
 import { RequirementSchema } from '@repo/shared';
 import { runLibrarian, type TaxonomyEntry } from './librarian';
+import { CREW_DEFAULT_LEVERS, type ModelCallLevers } from './model-call';
 import { createUsageRecorder } from './usage-recorder';
 import { runDetective } from './detective';
 import { runArchivist } from './archivist';
@@ -220,6 +221,7 @@ export async function runEstimate(
       modelString: libP.modelString,
       instructions: libP.body,
       recorder,
+      levers: libP.levers,
     }),
   );
 
@@ -234,6 +236,7 @@ export async function runEstimate(
         searchProvider,
         mcpProvider,
         recorder,
+        levers: detP.levers,
       }),
     ),
     deps.embeddingProvider
@@ -244,6 +247,7 @@ export async function runEstimate(
             modelProvider,
             modelString: archP.modelString,
             recorder,
+            levers: archP.levers,
           }),
         )
       : Promise.resolve({ matches: [] as ArchivistMatch[] }),
@@ -261,6 +265,11 @@ export async function runEstimate(
     modelString: devP.modelString,
     instructions: { DEV: devP.body, QA: qaP.body, PM: pmP.body, BA: baP.body },
     recorder,
+    // One context serves all four roles, and each role is its own prompt row,
+    // so the levers are keyed by role exactly like `instructions` — otherwise
+    // turning thinking down on the DEV prompt would silently turn it down on
+    // QA, PM and BA as well.
+    levers: { DEV: devP.levers, QA: qaP.levers, PM: pmP.levers, BA: baP.levers },
   };
 
   const allSpecialistOutputs: SpecialistOutput[] = [];
@@ -304,7 +313,13 @@ export async function runEstimate(
   await report('Writing narrative (Architect)', 87);
   const arch = await step('architect', () =>
     runArchitect({
-      ctx: { modelProvider, modelString: architectP.modelString, instructions: architectP.body, recorder },
+      ctx: {
+        modelProvider,
+        modelString: architectP.modelString,
+        instructions: architectP.body,
+        recorder,
+        levers: architectP.levers,
+      },
       requirements: lib.requirements,
       archivistMatches: matches,
       specialistOutputs: allSpecialistOutputs,
@@ -525,7 +540,7 @@ export async function runEstimate(
 async function loadActivePrompt(
   db: PrismaClient,
   kind: AgentKind,
-): Promise<{ body: string; modelString: string }> {
+): Promise<{ body: string; modelString: string; levers: ModelCallLevers }> {
   const pv = await db.promptVersion.findFirst({
     where: { kind, active: true },
     orderBy: { version: 'desc' },
@@ -534,7 +549,12 @@ async function loadActivePrompt(
   if (!pv) {
     throw new Error(`No active prompt version for agent kind: ${kind}`);
   }
-  return pv;
+  // The levers are the crew-wide defaults for now, and the same for every
+  // agent kind. They are returned from HERE, alongside the model string they
+  // are coupled to, because that is where the per-agent values will come from
+  // once they are columns on this row — the call sites and the plumbing above
+  // do not change again when they do. AEH-322.
+  return { ...pv, levers: CREW_DEFAULT_LEVERS };
 }
 
 /**

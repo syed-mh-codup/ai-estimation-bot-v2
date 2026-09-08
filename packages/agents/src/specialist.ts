@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
 import type { UsageRecorder } from './usage-recorder';
+import { CALL_TIMEOUTS, callTuning, type ModelCallLevers } from './model-call';
 import type { SpecialistOutput, SpecialistInput, SpecialistLineItem } from '@repo/shared';
 import { SpecialistOutputSchema, ComplexityTierSchema, FOUR_HOUR_CAP } from '@repo/shared';
 import { chatJSON } from './llm-json';
@@ -11,6 +12,12 @@ export type SpecialistContext = {
   modelString: string;
   instructions: Record<'DEV' | 'QA' | 'PM' | 'BA', string>;
   recorder: UsageRecorder;
+  /**
+   * Reasoning effort and provider routing, per role. Keyed the same way as
+   * `instructions` because each role is its own prompt row: turning thinking
+   * down on DEV must not turn it down on QA, PM and BA. See model-call.ts.
+   */
+  levers?: Partial<Record<'DEV' | 'QA' | 'PM' | 'BA', ModelCallLevers | undefined>>;
 };
 
 /**
@@ -177,6 +184,8 @@ export async function runSpecialist(
           { role: 'user', content: buildUserMessage(role, input) },
         ],
         temperature: 0,
+        // Two attempts per step, so half the budget each. See CALL_TIMEOUTS.
+        ...callTuning(ctx.levers?.[role], CALL_TIMEOUTS.retried),
       },
       LLMSpecialistSchema,
       `Specialist(${role})`,

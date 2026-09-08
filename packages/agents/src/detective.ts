@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { IModelProvider, ISearchProvider, IMcpProvider } from '@repo/providers';
 import type { UsageRecorder } from './usage-recorder';
+import { CALL_TIMEOUTS, callTuning, type ModelCallLevers } from './model-call';
 import type {
   DetectiveInput,
   DetectiveOutput,
@@ -23,6 +24,8 @@ export type DetectiveContext = {
   searchProvider: ISearchProvider;
   mcpProvider: IMcpProvider;
   recorder: UsageRecorder;
+  /** Reasoning effort and provider routing for this agent's call. See model-call.ts. */
+  levers?: ModelCallLevers;
 };
 
 const LLMRiskSchema = z.object({
@@ -190,6 +193,7 @@ export async function runDetective(
         },
       ],
       temperature: 0,
+      ...callTuning(ctx.levers, CALL_TIMEOUTS.single),
     },
     LLMDetectiveSchema,
     'Detective',

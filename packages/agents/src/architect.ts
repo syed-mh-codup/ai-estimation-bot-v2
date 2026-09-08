@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
 import type { UsageRecorder } from './usage-recorder';
+import { CALL_TIMEOUTS, callTuning, type ModelCallLevers } from './model-call';
 import type {
   ArchitectOutput,
   MenuItem,
@@ -18,6 +19,8 @@ export type ArchitectContext = {
   modelString: string;
   instructions: string;
   recorder: UsageRecorder;
+  /** Reasoning effort and provider routing for this agent's call. See model-call.ts. */
+  levers?: ModelCallLevers;
 };
 
 /** MC-B2B-PRICING -> "B2B Pricing" (short all-caps segments are treated as acronyms). */
@@ -257,6 +260,7 @@ export async function runArchitect(deps: ArchitectDeps): Promise<ArchitectOutput
               { role: 'user', content: buildUserMessage(cards, requirements, openQuestions) },
             ],
             temperature: 0,
+            ...callTuning(ctx.levers, CALL_TIMEOUTS.single),
           },
           LLMArchitectSchema,
           'Architect',

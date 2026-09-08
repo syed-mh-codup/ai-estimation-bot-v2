@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { IModelProvider } from '@repo/providers';
 import type { UsageRecorder } from './usage-recorder';
+import { CALL_TIMEOUTS, callTuning, type ModelCallLevers } from './model-call';
 import type { LibrarianOutput, Requirement } from '@repo/shared';
 import {
   LibrarianOutputSchema,
@@ -20,6 +21,8 @@ export type LibrarianContext = {
   modelString: string;
   instructions: string;
   recorder: UsageRecorder;
+  /** Reasoning effort and provider routing for this agent's call. See model-call.ts. */
+  levers?: ModelCallLevers;
 };
 
 export type TaxonomyEntry = {
@@ -120,6 +123,7 @@ export async function runLibrarian(
         { role: 'user', content: buildUserMessage(sowText, taxonomy) },
       ],
       temperature: 0,
+      ...callTuning(ctx.levers, CALL_TIMEOUTS.single),
     },
     LLMResponseSchema,
     'Librarian',

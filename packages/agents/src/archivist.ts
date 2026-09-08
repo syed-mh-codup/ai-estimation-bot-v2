@@ -6,6 +6,7 @@ import type { ArchivistOutput, ArchivistMatch, Requirement, Coverage, ImpactLeve
 import { ArchivistOutputSchema } from '@repo/shared';
 import { queryPresetsByVector, type RankedPreset } from './rag-retriever';
 import type { UsageRecorder } from './usage-recorder';
+import { CALL_TIMEOUTS, callTuning, type ModelCallLevers } from './model-call';
 
 export type ArchivistContext = {
   db: PrismaClient;
@@ -15,6 +16,8 @@ export type ArchivistContext = {
   topK?: number;
   rerank?: boolean;
   recorder: UsageRecorder;
+  /** Reasoning effort and provider routing for this agent's call. See model-call.ts. */
+  levers?: ModelCallLevers;
 };
 
 const LLMRerankSchema = z.object({
@@ -148,6 +151,7 @@ export async function runArchivist(
         ctx.modelProvider,
         ctx.modelString,
         ctx.recorder,
+        ctx.levers,
       );
     }
 
@@ -253,6 +257,7 @@ async function rerankCandidatesForRequirement(
   modelProvider: IModelProvider,
   modelString: string,
   recorder: UsageRecorder,
+  levers: ModelCallLevers | undefined,
 ): Promise<RankedPreset[]> {
   try {
     const candidateList = candidates
@@ -275,6 +280,9 @@ Respond with JSON: {"reranked": ["indices in preferred order, e.g. 2,0,1"]}`,
         },
       ],
       temperature: 0,
+      // One call per requirement inside a single step, and the catch below
+      // falls back to vector order, so this budget is deliberately tight.
+      ...callTuning(levers, CALL_TIMEOUTS.bestEffort),
     });
     await recorder.record({ kind: 'ARCHIVIST', model: result.model, usage: result.usage });
     const rawResponse = result.text;
