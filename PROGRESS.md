@@ -39,8 +39,14 @@ Order of work, ticked as it lands:
 Applied to local docker `ai_estimation` and `ai_estimation_test`, and to **Neon
 dev/main** (`ep-polished-credit`) by hand on 2026-09-08. All three are at 35.
 
-**Neon test (`ep-wild-heart`) has NOT been checked** — worth confirming before
-anything CI-facing runs against it.
+**Neon test (`ep-wild-heart`) is one migration behind** — checked 2026-09-08 with
+`migrate status`: 34 applied, this ticket's is the only one pending.
+
+Its URL is `TEST_DATABASE_URL` in `apps/web/.env.local`, NOT anything in
+`packages/db/.env` — that file names dev/main, and Prisma auto-loads it, which is
+why a bare `migrate deploy` from `packages/db` silently targets dev/main instead.
+An exported `DATABASE_URL` does override it (verified), but confirm the host with
+`migrate status` before applying rather than trusting that.
 
 The `MenuItem.overhead` backfill was verified against real data on Neon
 dev/main, which is the only place it had any to act on: 276 menu items, 34
@@ -544,7 +550,7 @@ can be deleted.
 
     local docker  ai_estimation        35 migrations
     local docker  ai_estimation_test   35 migrations
-    Neon test     (ep-wild-heart)      31 migrations  <- BEHIND, unverified
+    Neon test     (ep-wild-heart)      34 migrations  <- one behind (AEH-335)
     Neon dev/main (ep-polished-credit) 35 migrations
 
 All four went to 31 on 2026-09-03 with `20260903103535_aeh_239_artifact_types`,
