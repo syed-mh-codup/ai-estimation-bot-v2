@@ -9,6 +9,46 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
+## In flight: AEH-335 — per-estimate PM/BA/QA buffer overrides
+
+Branch `worktree-aeh-335-per-estimate-tax`, off master `ce88455`. The ticket
+carries the full design; it was groomed from an undesigned stub on 2026-09-08
+before any code. Read the ticket first — every decision below is justified there.
+
+Order of work, ticked as it lands:
+
+1. [x] Schema: three nullable `*PctOverride` columns + `overheadRatesStale` on
+       Estimate, `overhead` on MenuItem, new `EstimateTaxChange`.
+2. [x] Migration `20260908170000_aeh_335_per_estimate_tax_overrides`, generated
+       with `prisma migrate diff --from-schema-datamodel` (pure, touches no DB)
+       and a hand-appended backfill for `MenuItem.overhead`.
+3. [x] `prisma generate`.
+4. [ ] Audit + schema-ledger test.
+5. [ ] `resolveTaxPercents` in `@repo/shared` — the lowest common dependency of
+       apps/web and packages/agents, so there is exactly one implementation.
+6. [ ] Collapse the two `taxPercents()` copies onto the PINNED configVersion.
+7. [ ] `setEstimateTaxPct` action: role-scoped recompute, skips overhead cards.
+8. [ ] Client: taxPercents becomes state, RollupCard is the edit surface.
+9. [ ] run-estimate: honour overrides, write configVersion back, clear stale.
+10. [ ] Tests + `next build`.
+11. [ ] Commit, push branch, exit worktree, `--ff-only` merge in main checkout.
+
+Non-obvious bits, so a fresh session does not undo them:
+
+- The recompute is ROLE-SCOPED on purpose. A whole-estimate rewrite would
+  silently "heal" PM/BA lines carrying mixed-version hours from the very bug
+  this ticket fixes, moving numbers the estimator never touched.
+- `MenuItem.overhead` exists because a delivery-overhead card is already a
+  percentage OF taxed hours. Re-taxing one compounds a percentage on a
+  percentage. The backfill predicate is exact, not heuristic: `process.*`
+  taxonomy nodes are all `classifiable = false`, so no asked-for or hidden-work
+  card can ever carry one of those keys.
+- Per-line 0.25h snapping stays, and the lumpiness it causes is documented in
+  the ticket as chosen. Line hours must sum to the displayed total.
+- ⚠️ Do NOT push master. Vercel deploys from it against Neon, which will not
+  have this migration; the estimate page reads the new columns, so a deploy
+  ahead of the migration breaks that page outright.
+
 ## Current: AEH-239 — artifact generation alongside the WBS (built, awaiting merge)
 
 Branch `feat/aeh-239-artifacts`. Plan approved 2026-09-03. The shape below is

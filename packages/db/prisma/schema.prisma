@@ -632,6 +632,68 @@ model Estimate {
   ingestStage  String?
   ingestPct    Int       @default(0)
   ingestError  String?
+
+  // ── Per-estimate buffer overrides (AEH-335) ─────────────────────────────────
+
+  /// Per-estimate override of the house PM communication tax, in whole percent
+  /// (20 means 20%), matching the convention EstimationConfig already uses.
+  ///
+  /// Null means inherit, and inherit resolves against `configVersion` — the
+  /// config this estimate was actually costed under — NOT whichever version is
+  /// active now. Before AEH-335 the read path took the active config, so an
+  /// estimate pinned to v3 picked up v4 rates on any line edited after v4 was
+  /// activated, and its stored hours became a mix of two config versions.
+  ///
+  /// Absolute, not a delta: a delta silently re-prices an estimate every time
+  /// the house default moves, which is the opposite of what a per-estimate
+  /// lever is for.
+  pmCommunicationTaxPctOverride Float?
+  /// Per-estimate override of the house BA communication tax. See
+  /// `pmCommunicationTaxPctOverride` for the convention and why it is absolute.
+  baCommunicationTaxPctOverride Float?
+  /// Per-estimate override of the house QA regression buffer. See
+  /// `pmCommunicationTaxPctOverride` for the convention and why it is absolute.
+  qaRegressionBufferPctOverride Float?
+  /// Set when a buffer moved after the delivery-overhead cards were generated,
+  /// so the estimate page can say those cards hold hours computed at the
+  /// earlier rates.
+  ///
+  /// Those cards are a percentage OF taxed hours (see injectProcessOverhead),
+  /// so a tweak invalidates them by construction. They are deliberately NOT
+  /// regenerated: an estimator may have edited or deleted one, and nothing on
+  /// them distinguishes a hand edit from a generated value, so a rewrite would
+  /// clobber real decisions and resurrect deleted cards. Cleared by a re-run,
+  /// which regenerates them at the rates then in force.
+  overheadRatesStale Boolean @default(false)
+  /// Who moved a buffer on this estimate, when, and from what to what.
+  taxChanges         EstimateTaxChange[]
+}
+
+/// One change to one of an estimate buffer overrides.
+///
+/// Provenance, deliberately lighter than the transactional version bump the
+/// config admin does: a per-estimate tweak is meant to be routine and
+/// exploratory, and a mandatory change reason on every nudge collects nothing
+/// but the word "adjusting". It is heavier than nothing, because "why is this
+/// estimate QA buffer 35%" has to stay answerable after whoever set it left.
+///
+/// Append-only. A row is the fact that a change happened, so nothing ever
+/// updates or deletes one.
+model EstimateTaxChange {
+  id         String   @id @default(cuid())
+  estimateId String
+  estimate   Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  /// Which buffer moved. DEV never appears — it is untaxed by construction.
+  role       RoleKind
+  /// Whole percent before the change, or null if it had been inheriting.
+  fromPct    Float?
+  /// Whole percent after the change, or null if it was reset to inherit.
+  toPct      Float?
+  /// Who made the change. Null for a change made by a job rather than a person.
+  changedBy  String?
+  createdAt  DateTime @default(now())
+
+  @@index([estimateId])
 }
 
 /// One deadline reminder already sent for one estimate.
@@ -775,6 +837,15 @@ model MenuItem {
   /// walking PresetDependency, and that table is empty, so it is false for
   /// every card in existence. See AEH-235.
   foundation     Boolean              @default(false)
+  /// A delivery-overhead card, whose hours are a percentage OF other cards
+  /// taxed hours rather than work priced in its own right.
+  ///
+  /// A real column rather than a `taxonomyKey` prefix test, for the same reason
+  /// `injected` is one: the overhead specs live in admin-editable config JSON,
+  /// so a `process.` prefix is a convention and not a contract. Behaviour
+  /// depends on reading this — a buffer tweak must not re-tax these cards,
+  /// because that would compound the percentage they already are. AEH-335.
+  overhead       Boolean              @default(false)
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
