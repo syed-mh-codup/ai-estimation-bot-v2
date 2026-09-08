@@ -44,12 +44,19 @@ export function ModelCallFields({
    * artifact's changes the prose — so the caller supplies it.
    */
   reasoningNote,
+  /**
+   * Test id for the model picker. Defaulted rather than fixed because each
+   * editor already had its own before these fields were one component, and
+   * silently renaming someone's selector is not this change's business.
+   */
+  modelTestId = 'model-combobox',
 }: {
   models: ModelChoice[];
   modelValue: string;
   reasoningEffort: string | null;
   providerSort: string | null;
   reasoningNote?: string;
+  modelTestId?: string;
 }) {
   const [model, setModel] = useState(modelValue);
 
@@ -76,7 +83,7 @@ export function ModelCallFields({
           )}
           placeholder="Choose a model"
           emptyHint="Could not reach OpenRouter, so this is a plain text field. The value you type is saved as-is."
-          data-testid="model-combobox"
+          data-testid={modelTestId}
         />
       </div>
 

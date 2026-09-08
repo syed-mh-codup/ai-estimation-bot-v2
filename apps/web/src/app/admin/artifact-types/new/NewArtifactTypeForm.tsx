@@ -81,6 +81,7 @@ export function NewArtifactTypeForm({
               modelValue=""
               reasoningEffort={null}
               providerSort={null}
+              modelTestId="new-artifact-model"
               reasoningNote="AEH-321 measured reasoning at roughly 80% of an artifact call's wall clock and 90% of its tokens, and OpenRouter bills thinking as completion — so this is the same lever for the deadline and for the cost. There is deliberately no “off”."
             />
             <p className="mt-2 text-[12px] text-ink-4">

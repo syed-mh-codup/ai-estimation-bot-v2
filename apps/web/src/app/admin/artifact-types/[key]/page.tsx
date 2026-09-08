@@ -213,6 +213,7 @@ export default async function ArtifactTypeEditorPage({
               modelValue={active.modelString}
               reasoningEffort={leverToFormValue(active.reasoningEffort)}
               providerSort={leverToFormValue(active.providerSort)}
+              modelTestId="artifact-model-combobox"
               reasoningNote="AEH-321 measured reasoning at roughly 80% of an artifact call's wall clock and 90% of its tokens, and OpenRouter bills thinking as completion — so this is the same lever for the deadline and for the cost. A document that thinks less reads slightly flatter. There is deliberately no “off”."
             />
           </CardBody>
