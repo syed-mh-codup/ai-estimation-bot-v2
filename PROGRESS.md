@@ -23,15 +23,41 @@ Order of work, ticked as it lands:
        with `prisma migrate diff --from-schema-datamodel` (pure, touches no DB)
        and a hand-appended backfill for `MenuItem.overhead`.
 3. [x] `prisma generate`.
-4. [ ] Audit + schema-ledger test.
-5. [ ] `resolveTaxPercents` in `@repo/shared` — the lowest common dependency of
+4. [x] Audit + schema-ledger test — all three gates clean.
+5. [x] `resolveTaxPercents` in `@repo/shared` — the lowest common dependency of
        apps/web and packages/agents, so there is exactly one implementation.
-6. [ ] Collapse the two `taxPercents()` copies onto the PINNED configVersion.
-7. [ ] `setEstimateTaxPct` action: role-scoped recompute, skips overhead cards.
-8. [ ] Client: taxPercents becomes state, RollupCard is the edit surface.
-9. [ ] run-estimate: honour overrides, write configVersion back, clear stale.
-10. [ ] Tests + `next build`.
+6. [x] Collapse the two `taxPercents()` copies onto the PINNED configVersion.
+7. [x] `setEstimateTaxPct` action: role-scoped recompute, skips overhead cards.
+8. [x] Client: taxPercents becomes state, RollupCard is the edit surface.
+9. [x] run-estimate: honour overrides, write configVersion back, clear stale.
+10. [x] Tests (900 pass) + `next build` green.
 11. [ ] Commit, push branch, exit worktree, `--ff-only` merge in main checkout.
+
+Migration applied to local docker `ai_estimation` and `ai_estimation_test` only,
+by `migrate deploy` with an explicit URL. **Neon has NOT been touched** — that is
+deliberately the user's call, and it must happen before or with the next deploy
+because the estimate page now reads the new columns.
+
+### A pre-existing flake this branch surfaced (NOT a regression)
+
+The full suite intermittently fails `writeback-graph-carry.test.ts` with
+`Inconsistent query result: Field preset is required to return data, got null`,
+thrown from `loadPresetGraph` in `preset-graph.ts`.
+
+It is memory trap 5 (`local-dev-env-traps`): seven test files call `deleteMany`
+on Preset/PresetVersion/PresetDependency, vitest runs files in parallel against
+one shared database, and a delete lands between the version read and its
+`preset` join. Adding this branch's two test files shifted vitest's worker
+layout, which is the documented trigger for it becoming visible.
+
+Proven pre-existing rather than assumed: running ONLY those seven preset files
+plus `writeback-graph-carry`, with none of this branch's code or test files in
+the run, reproduced it **5 times out of 5** (16 identical errors). It also passes
+when run alone. This branch touches no preset, writeback or preset-graph file.
+
+Worth its own ticket — the fix per memory is per-file fixture namespacing, across
+seven files. Do not "fix" it by rewinding a sequence in teardown; see
+[[shared-sequence-rewind-flake]].
 
 Non-obvious bits, so a fresh session does not undo them:
 
