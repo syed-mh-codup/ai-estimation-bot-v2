@@ -33,7 +33,7 @@ import { ContentsCard } from './ContentsCard';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { ExportSheets } from './ExportSheets';
-import type { ExportOutcome } from './export-interaction';
+import { lastExportLine, overwriteWarning, type ExportOutcome } from './export-interaction';
 import { cardFlags, lineEnvelope } from './dto';
 import type { ItemDTO, SectionDTO } from './dto';
 
@@ -64,31 +64,98 @@ async function taxPercents(): Promise<Record<Role, number>> {
  * action surfaces as a bare "Application error: a server-side exception has
  * occurred" page, which is how the AEH-232 quota failure managed to look like
  * a site outage rather than a failed button.
+ *
+ * AEH-317 added the confirmation step. The export rewrites Summary and every
+ * department tab from scratch, so an account executive's afternoon inside one
+ * of them is destroyed by a button press that used to give no warning at all.
+ * `confirmed` is how the second press says the user has seen what it costs.
  */
-async function exportSheetsAction(id: string): Promise<ExportOutcome> {
+async function exportSheetsAction(id: string, confirmed = false): Promise<ExportOutcome> {
   'use server';
-  await requireSession();
+  const viewer = await requireSession();
   const estimate = await prisma.estimate.findUnique({
     where: { id },
     include: { menuItems: { include: { lineItems: true } } },
   });
-  if (!estimate) return { ok: false, error: 'That estimate no longer exists.' };
+  if (!estimate) return { kind: 'failed', error: 'That estimate no longer exists.' };
 
   try {
     // toMenuItem parses strictly (AEH-227), so a bad row throws here rather
     // than inside Google's API — and that is worth telling the user apart.
     const items: MenuItemDTO[] = estimate.menuItems.map(toMenuItem);
+    const provider = createSheetsProvider();
 
-    const result = await exportToSheets(id, estimate.title, items, createSheetsProvider());
-    await prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } });
+    if (!confirmed) {
+      const warning = await overwriteWarningFor(id, provider);
+      if (warning) return { kind: 'needs-confirmation', warning };
+    }
+
+    const exportedAt = new Date();
+    const result = await exportToSheets(id, estimate.title, items, provider, exportedAt);
+
+    // One transaction: a sheetUrl with no audit row beside it would be a
+    // spreadsheet nobody can account for, and the audit log is the only record
+    // of the overwrite that just happened.
+    await prisma.$transaction([
+      prisma.estimate.update({ where: { id }, data: { sheetUrl: result.url } }),
+      prisma.sheetExport.create({
+        data: {
+          estimateId: id,
+          spreadsheetId: result.spreadsheetId,
+          url: result.url,
+          exportedById: viewer.id ?? null,
+          exportedAt,
+          sheetModifiedAt: result.modifiedAt,
+        },
+      }),
+    ]);
     revalidatePath(`/estimates/${id}`);
-    return { ok: true, url: result.url };
+    return {
+      kind: 'exported',
+      url: result.url,
+      lastExport: lastExportLine({ at: exportedAt, by: viewer.email ?? null }),
+    };
   } catch (err) {
     return {
-      ok: false,
+      kind: 'failed',
       error: err instanceof Error ? err.message : 'The export failed for an unknown reason.',
     };
   }
+}
+
+/**
+ * The sentence to put in front of the user, or null when there is nothing to
+ * warn about.
+ *
+ * The comparison is against the modifiedTime recorded straight AFTER the last
+ * export, never against when the export ran: writing the spreadsheet bumps
+ * Drive's modifiedTime by definition, so any other baseline reports an edit
+ * every single time and the warning becomes something people click through
+ * without reading — which is worse than not having one.
+ *
+ * Silent about everything it cannot establish. No previous export, no recorded
+ * modifiedTime, or Drive declining to answer all mean "unknown", and unknown
+ * must not manufacture a warning nobody can act on.
+ */
+async function overwriteWarningFor(
+  estimateId: string,
+  provider: ReturnType<typeof createSheetsProvider>,
+): Promise<string | null> {
+  const previous = await prisma.sheetExport.findFirst({
+    where: { estimateId },
+    orderBy: { exportedAt: 'desc' },
+    include: { exportedBy: { select: { email: true } } },
+  });
+  if (!previous?.sheetModifiedAt) return null;
+
+  const modifiedAt = await provider.getModifiedTime(previous.spreadsheetId);
+  if (!modifiedAt || modifiedAt <= previous.sheetModifiedAt) return null;
+
+  return overwriteWarning({
+    modifiedAt,
+    lastExportAt: previous.exportedAt,
+    lastExportBy: previous.exportedBy?.email ?? null,
+  });
 }
 
 async function finaliseAction(formData: FormData) {
@@ -157,6 +224,13 @@ export default async function EstimateDetailPage({
       // Newest first: the rail shows the last nudge that went out, which is the
       // one that answers "did anybody actually get told".
       reminders: { orderBy: { sentAt: 'desc' }, take: 1 },
+      // Same reading for the export: who last overwrote the spreadsheet, which
+      // is the provenance somebody needs before opening it. AEH-317.
+      sheetExports: {
+        orderBy: { exportedAt: 'desc' },
+        take: 1,
+        include: { exportedBy: { select: { email: true } } },
+      },
       sections: { orderBy: { order: 'asc' } },
       menuItems: {
         include: { lineItems: true },
@@ -448,6 +522,14 @@ export default async function EstimateDetailPage({
                   <ExportSheets
                     estimateId={estimate.id}
                     initialSheetUrl={estimate.sheetUrl}
+                    initialLastExport={
+                      estimate.sheetExports[0]
+                        ? lastExportLine({
+                            at: estimate.sheetExports[0].exportedAt,
+                            by: estimate.sheetExports[0].exportedBy?.email ?? null,
+                          })
+                        : null
+                    }
                     action={exportSheetsAction}
                   />
                 )}

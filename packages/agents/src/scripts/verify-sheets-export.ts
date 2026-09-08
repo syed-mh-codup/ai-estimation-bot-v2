@@ -22,13 +22,18 @@ import {
   LiveSheetsProvider,
   StubSheetsProvider,
 } from '@repo/providers';
-import type { MenuItem } from '@repo/shared';
+import type { MenuItem, RoleKind } from '@repo/shared';
+import { computeRollup } from '../rollup';
 import { buildExportTabs, exportToSheets } from '../sheets-export';
 import { loadEnvFiles } from './load-env';
 
-const EXPECTED_TABS = ['DEV', 'QA', 'PM', 'BA', 'Roll-Up'];
-const EXPECTED_ROLE_HEADERS = ['Item', 'Line Item', 'Taxonomy Key', 'Base Hours', 'Taxed Hours', 'Notes'];
-const EXPECTED_ROLLUP_HEADERS = ['Role', 'Total Base Hours', 'Total Taxed Hours'];
+// AEH-317 reshaped all of this: summary first, departments after it, and every
+// aggregate a formula. These assertions are the reason a layout change shows up
+// as a deliberate edit here rather than as a silent regression in Drive.
+const EXPECTED_TABS = ['Summary', 'Development', 'QA', 'PM', 'BA'];
+const EXPECTED_DEPT_HEADERS = ['Card ID', 'Deliverable / line item', 'Phase', 'Base', 'Taxed', 'Notes'];
+/** A tab somebody made themselves, which a re-export must not touch. */
+const INTRUDER_TAB = 'AE working notes';
 
 let failures = 0;
 const check = (ok: boolean, label: string, detail = ''): void => {
@@ -133,7 +138,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    const tabs = buildExportTabs(items);
+    const tabs = buildExportTabs(items, { estimateTitle: estimate.title, exportedAt: new Date() });
     const expectedRowCounts = new Map(tabs.map((t) => [t.title, Math.max(0, t.rows.length - 1)]));
     console.log(`  built ${tabs.length} tab(s): ${tabs.map((t) => `${t.title}(${expectedRowCounts.get(t.title)})`).join(' ')}`);
 
@@ -144,23 +149,82 @@ async function main(): Promise<void> {
     console.log(`  ${first.url}`);
 
     console.log('\nReading the spreadsheet back out of Drive');
-    const readback = await provider.describeTabs(first.spreadsheetId);
+    const readbackAll = await provider.describeTabs(first.spreadsheetId);
+    // The intruder tab is left behind on purpose by a previous run of this
+    // script — it survives re-exports, which is the whole point of it. So every
+    // assertion about what the EXPORT produced has to look past it.
+    const readback = readbackAll.filter((t) => t.title !== INTRUDER_TAB);
     check(
       JSON.stringify(readback.map((t) => t.title)) === JSON.stringify(EXPECTED_TABS),
-      `tabs are exactly ${EXPECTED_TABS.join(', ')}`,
-      readback.map((t) => t.title).join(', ') || '(none)',
+      `tabs are exactly ${EXPECTED_TABS.join(', ')}, in that order`,
+      readbackAll.map((t) => t.title).join(', ') || '(none)',
     );
     for (const tab of readback) {
-      const expectedHeaders = tab.title === 'Roll-Up' ? EXPECTED_ROLLUP_HEADERS : EXPECTED_ROLE_HEADERS;
       const expectedRows = expectedRowCounts.get(tab.title);
       // An empty tab carries no header row at all, which is correct, not a fault.
       if (tab.dataRows === 0 && tab.headers.length === 0) {
         check(expectedRows === 0, `${tab.title}: empty, as built`, `expected ${expectedRows} data row(s)`);
         continue;
       }
-      check(JSON.stringify(tab.headers) === JSON.stringify(expectedHeaders), `${tab.title}: header row`, tab.headers.join(' | '));
+      if (tab.title === 'Summary') {
+        // Joined, because the banner sits in column B — A is the hidden join key.
+        const banner = tab.headers.join(' ').trim();
+        check(/rebuilt from scratch/i.test(banner), 'Summary: opens with the disclaimer banner', banner.slice(0, 60));
+      } else {
+        check(JSON.stringify(tab.headers) === JSON.stringify(EXPECTED_DEPT_HEADERS), `${tab.title}: header row`, tab.headers.join(' | '));
+      }
       check(tab.dataRows === expectedRows, `${tab.title}: ${expectedRows} data row(s)`, `found ${tab.dataRows}`);
     }
+
+    // The single most important thing to prove live. These values come back
+    // rendered, so a cell still holding "=SUMIF(...)" means the write went out
+    // as RAW and not one number in the file is linked to any other.
+    const literalFormulas = readback.flatMap((tab) =>
+      tab.rows.flatMap((row, r) =>
+        row.flatMap((cell, c) =>
+          typeof cell === 'string' && cell.startsWith('=') ? [`${tab.title}!${String.fromCharCode(65 + c)}${r + 1}`] : [],
+        ),
+      ),
+    );
+    check(literalFormulas.length === 0, 'every formula evaluated (nothing stored as literal text)',
+      literalFormulas.length ? `${literalFormulas.length} literal: ${literalFormulas.slice(0, 3).join(', ')}` : 'checked every cell');
+
+    const summary = readback.find((t) => t.title === 'Summary');
+    const totalRow = summary?.rows[5] ?? [];
+    check(String(totalRow[1] ?? '') === 'ESTIMATE TOTAL', 'Summary: the estimate total is where the layout says', String(totalRow[1] ?? '(missing)'));
+
+    // "A number came out" is a much weaker claim than it looks. The formula
+    // chain runs card -> phase subtotal -> estimate total across five tabs, and
+    // a double-counted row or a card silently dropped from every phase block
+    // still produces a plausible number. So check it against the app's own
+    // rollup, which is what the estimate screen shows, department by
+    // department. One decimal, because that is the format the cells carry.
+    const rollup = computeRollup(items);
+    const taxedByRole = new Map(rollup.perRole.map((r) => [r.role, r.totalTaxedHours]));
+    const round1 = (n: number): number => Math.round(n * 10) / 10;
+    const departments: RoleKind[] = ['DEV', 'QA', 'PM', 'BA'];
+    const mismatches = departments.flatMap((role, i) => {
+      const inSheet = Number(totalRow[2 + i]);
+      const inApp = round1(taxedByRole.get(role) ?? 0);
+      return inSheet === inApp ? [] : [`${role}: sheet ${inSheet} vs app ${inApp}`];
+    });
+    const grandInSheet = Number(totalRow[2 + departments.length]);
+    const grandInApp = round1(rollup.grandTotalTaxedHours);
+    if (grandInSheet !== grandInApp) mismatches.push(`TOTAL: sheet ${grandInSheet} vs app ${grandInApp}`);
+    check(
+      mismatches.length === 0,
+      "Summary totals equal the app's own rollup, department by department",
+      mismatches.length > 0 ? mismatches.join(' | ') : `${grandInApp} taxed hours, matching across all ${departments.length}`,
+    );
+
+    console.log(`\nOwnership — a tab somebody else made must survive a re-export`);
+    // Idempotent: a previous run's intruder is still there precisely because
+    // the fix works, and Google rejects adding a sheet whose name is taken.
+    if (!readbackAll.some((t) => t.title === INTRUDER_TAB)) {
+      await provider.createBareTab(first.spreadsheetId, INTRUDER_TAB);
+    }
+    const withIntruder = await provider.describeTabs(first.spreadsheetId);
+    check(withIntruder.some((t) => t.title === INTRUDER_TAB), `${INTRUDER_TAB} is present before the re-export`, withIntruder.map((t) => t.title).join(', '));
 
     console.log('\nIdempotency — the tag must be findable, and a second export must not duplicate');
     const found = await provider.getSpreadsheetId(estimate.id);
@@ -171,11 +235,34 @@ async function main(): Promise<void> {
 
     const afterUpdate = await provider.describeTabs(second.spreadsheetId);
     check(
-      JSON.stringify(afterUpdate.map((t) => t.title)) === JSON.stringify(EXPECTED_TABS),
-      'tabs unchanged after the update path',
+      JSON.stringify(afterUpdate.filter((t) => t.title !== INTRUDER_TAB).map((t) => t.title)) === JSON.stringify(EXPECTED_TABS),
+      'generated tabs unchanged after the update path',
       afterUpdate.map((t) => t.title).join(', '),
     );
-    const rowsStable = afterUpdate.every((t) => t.dataRows === (expectedRowCounts.get(t.title) ?? 0));
+    // This is the AEH-317 defect, and it can only fail against the real API:
+    // syncTabs used to delete every tab it did not itself produce.
+    check(
+      afterUpdate.some((t) => t.title === INTRUDER_TAB),
+      `${INTRUDER_TAB} survived the re-export (a tab this exporter does not own is never deleted)`,
+      afterUpdate.map((t) => t.title).join(', '),
+    );
+    // The overwrite warning compares Drive's modifiedTime against the value read
+    // straight after our own write. If Drive's metadata lagged that write even
+    // slightly, the stored baseline would be a pre-write timestamp and every
+    // later export would warn — the precise failure the warning was designed to
+    // avoid, and one that would only show up in somebody's face a week later.
+    const modifiedNow = await provider.getModifiedTime(second.spreadsheetId);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const modifiedLater = await provider.getModifiedTime(second.spreadsheetId);
+    check(
+      modifiedNow !== null && modifiedLater !== null && modifiedNow.getTime() === modifiedLater.getTime(),
+      'Drive reports a settled modifiedTime straight after the write (the warning baseline is trustworthy)',
+      `${modifiedNow?.toISOString() ?? 'null'} then ${modifiedLater?.toISOString() ?? 'null'}`,
+    );
+
+    const rowsStable = afterUpdate
+      .filter((t) => t.title !== INTRUDER_TAB)
+      .every((t) => t.dataRows === (expectedRowCounts.get(t.title) ?? 0));
     check(rowsStable, 'row counts unchanged after the update path (no doubling, no stale rows)');
 
     console.log('');

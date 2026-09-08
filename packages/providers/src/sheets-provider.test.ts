@@ -127,7 +127,10 @@ describe('AEH-232: where the spreadsheet gets created', () => {
       requestBody: { data: Array<{ range: string }>; valueInputOption: string };
     };
     expect(body.requestBody.data.map((d) => d.range)).toEqual(["'DEV'!A1:B2", "'Roll-Up'!A1:B1"]);
-    expect(body.requestBody.valueInputOption).toBe('RAW');
+    // AEH-317: formulas are the export's reason for existing now. Under RAW a
+    // written "=SUMIF(...)" is stored as those characters and not one number in
+    // the file is linked to any other.
+    expect(body.requestBody.valueInputOption).toBe('USER_ENTERED');
   });
 });
 
@@ -231,5 +234,82 @@ describe('AEH-232: idempotency lookup', () => {
   it('returns null when nothing is tagged yet', async () => {
     const p = new LiveSheetsProvider(CREDS, FOLDER);
     expect(await p.getSpreadsheetId('est-none')).toBeNull();
+  });
+});
+
+describe('AEH-317: what a re-export is allowed to touch', () => {
+  const existing = (...tabs: Array<[string, number]>) => ({
+    data: { sheets: tabs.map(([title, sheetId]) => ({ properties: { title, sheetId } })) },
+  });
+
+  it('deletes a tab it used to produce, and never one it has not claimed', async () => {
+    h.spreadsheetsGet.mockResolvedValue(
+      existing(['Summary', 1], ['DEV', 2], ['AE pricing model', 3]),
+    );
+    const p = new LiveSheetsProvider(CREDS, FOLDER);
+    await p.updateSpreadsheet('sheet-1', [{ title: 'Summary', rows: [['x']] }], ['Summary', 'DEV', 'Roll-Up']);
+
+    const body = h.spreadsheetsBatchUpdate.mock.calls[0]?.[0] as {
+      requestBody: { requests: Array<Record<string, { sheetId?: number }>> };
+    };
+    const deleted = body.requestBody.requests.filter((r) => r['deleteSheet']).map((r) => r['deleteSheet']?.sheetId);
+    // DEV is the old layout's and goes. The pricing tab is somebody's own work:
+    // before AEH-317 it was deleted outright, formulas and all.
+    expect(deleted).toEqual([2]);
+  });
+
+  it('puts the tabs in the order the export declares, not the order Google left them', async () => {
+    // The shape a spreadsheet migrating off the per-role layout is actually in:
+    // QA already existed, Summary was appended after it.
+    h.spreadsheetsGet.mockResolvedValue(existing(['QA', 5], ['Summary', 6]));
+    const p = new LiveSheetsProvider(CREDS, FOLDER);
+    await p.updateSpreadsheet(
+      'sheet-1',
+      [{ title: 'Summary', rows: [['x']] }, { title: 'QA', rows: [['y']] }],
+      ['Summary', 'QA'],
+    );
+
+    const body = h.spreadsheetsBatchUpdate.mock.calls.at(-1)?.[0] as {
+      requestBody: { requests: Array<Record<string, { properties?: { sheetId?: number; index?: number } }>> };
+    };
+    const moves = body.requestBody.requests
+      .filter((r) => r['updateSheetProperties']?.properties?.index !== undefined)
+      .map((r) => r['updateSheetProperties']?.properties);
+    expect(moves).toEqual([
+      { sheetId: 6, index: 0 },
+      { sheetId: 5, index: 1 },
+    ]);
+  });
+
+  it('clears only the columns it writes, so a column added beside them survives', async () => {
+    const p = new LiveSheetsProvider(CREDS, FOLDER);
+    await p.createSpreadsheet('T', TABS, 'est-42');
+
+    const body = h.valuesBatchClear.mock.calls[0]?.[0] as { requestBody: { ranges: string[] } };
+    // It used to run to ZZ, which took out anything to the right of the export.
+    expect(body.requestBody.ranges).toEqual(["'DEV'!A1:B10000", "'Roll-Up'!A1:B10000"]);
+  });
+
+  it('marks text as text, so USER_ENTERED does not read a line item as a date', async () => {
+    const p = new LiveSheetsProvider(CREDS, FOLDER);
+    await p.createSpreadsheet('T', [{ title: 'DEV', rows: [['3-4 retries', '=SUM(D2:D5)', 4]] }], 'est-42');
+
+    const body = h.valuesBatchUpdate.mock.calls[0]?.[0] as {
+      requestBody: { data: Array<{ values: Array<Array<string | number>> }> };
+    };
+    // The apostrophe is consumed on entry and never shows in the cell.
+    expect(body.requestBody.data[0]?.values[0]).toEqual(["'3-4 retries", '=SUM(D2:D5)', 4]);
+  });
+
+  it('reports an unknown modified time rather than failing the export', async () => {
+    h.driveFilesGet.mockRejectedValue(new Error('nope'));
+    const p = new LiveSheetsProvider(CREDS, FOLDER);
+    await expect(p.getModifiedTime('sheet-1')).resolves.toBeNull();
+  });
+
+  it('reads back the modified time Drive reports', async () => {
+    h.driveFilesGet.mockResolvedValue({ data: { modifiedTime: '2026-09-04T14:22:00.000Z' } });
+    const p = new LiveSheetsProvider(CREDS, FOLDER);
+    await expect(p.getModifiedTime('sheet-1')).resolves.toEqual(new Date('2026-09-04T14:22:00.000Z'));
   });
 });

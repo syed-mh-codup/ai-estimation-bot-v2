@@ -213,6 +213,9 @@ model User {
   /// Configured scopes this user cut. Attribution, not ownership: a scenario is
   /// a record of a conversation somebody had.
   scopeScenarios    ScopeScenario[]
+  /// Sheets exports this user ran. Same attribution-not-ownership reading: it
+  /// says who overwrote the spreadsheet, which is what the warning needs.
+  sheetExports      SheetExport[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -574,6 +577,10 @@ model Estimate {
   artifacts       EstimateArtifact[]
   modelUsage      ModelUsage[]
   sheetUrl        String?
+  /// Every Sheets export of this estimate, newest last. The export overwrites
+  /// the spreadsheet wholesale, so this is the only record of who destroyed
+  /// what and when — recovery itself is Google's own version history. AEH-317.
+  sheetExports    SheetExport[]
   createdAt       DateTime             @default(now())
 
   // ── Run progress (background job + reload-safe polling) ──────────────────────
@@ -1150,4 +1157,35 @@ model ArtifactSection {
 
   @@unique([artifactId, sectionId])
   @@index([artifactId, order])
+}
+
+/// One Sheets export. AEH-317.
+///
+/// The export rewrites every generated tab wholesale, so anything a human typed
+/// into one is gone the moment somebody presses the button again. That is a
+/// deliberate choice (recovery is Google's own version history, which is better
+/// at it than we would be), but it is only a defensible one if the destruction
+/// is visible and attributable. This table is that visibility.
+model SheetExport {
+  id            String    @id @default(cuid())
+  estimateId    String
+  estimate      Estimate  @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  spreadsheetId String
+  url           String
+  /// Null when the exporting account has since been deleted. The export still
+  /// happened, so the row outlives the user rather than cascading away with it.
+  exportedById  String?
+  exportedBy    User?     @relation(fields: [exportedById], references: [id], onDelete: SetNull)
+  exportedAt    DateTime  @default(now())
+  /// Drive's modifiedTime read back immediately AFTER this export finished
+  /// writing. The comparison that detects human edits has to be against this,
+  /// not against exportedAt: our own write bumps modifiedTime, so anything else
+  /// reports "modified" on every single re-export.
+  ///
+  /// Null when Drive could not be asked (the stub provider, or a read that
+  /// failed). A null reads as "unknown", and unknown must not raise a warning
+  /// nobody can act on.
+  sheetModifiedAt DateTime?
+
+  @@index([estimateId, exportedAt])
 }
