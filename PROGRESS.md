@@ -9,6 +9,213 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
+## In flight: AEH-238 — AI-assisted WBS editing (SPEC AGREED, awaiting approval to build)
+
+No code written. No Jira writes made. Ticket left in Selected for Development.
+
+Spec settled by a grill-me interview on 2026-09-09. The reframe came from the
+user and it is NOT what the ticket says: this is not a propose-then-verify diff
+surface. **A human declares the blast radius up front, the system enforces it
+mechanically, and the AI works inside it.** Out-of-scope damage is impossible
+rather than something a reviewer has to catch.
+
+### The envelope
+
+Axes: `scope × role`, where scope is estimate / section / card / line and role
+is DEV/QA/PM/BA. Declared by SELECTING in the UI, then prompting — no NL parsing
+of scope, so the boundary is deterministic UI state.
+
+**The envelope never cascades.** `packages/shared/src/scope-selection.ts` has a
+selection model already, but it is the scope configurator's (AEH-235): card-only
+and it walks the dependency graph to pull in prerequisites. Reusing it would
+silently widen a boundary the human drew deliberately. Mirror its refusal shape
+(`SelectionChange.refused`), do not reuse the module.
+
+### Locks
+
+Same coordinate system as the selection — one addressing concept serves both the
+thing a human grants and the thing a human forbids. Row (`RoleLineItem`) is the
+finest unit, because a row is one description paired with its own hours for one
+role; freezing half of it would freeze half of one thought. No per-field locks.
+
+A lock freezes **hours, description, and existence**. Placement stays free
+(`sectionId`/`order` are presentational per the schema). So: no hour change, no
+rename, no delete, no merge; dragging between sections is fine.
+
+**Enforcement rule, and it is the whole mechanism:**
+
+    Refuse if (selection ∩ locks) ≠ ∅. Otherwise the write set is exactly the
+    selection, and nothing outside it is writable.
+
+So locking DEV on a card does not block re-costing QA on that same card — the
+sets do not intersect. A refusal names what is locked and who locked it.
+
+Locks bind USERS as well as the AI, so `updateLineItem`, `deleteLineItem`,
+`renameMenuItem`, `moveMenuItem` and friends all grow a lock check. This is a
+permission layer on the ledger that the AI happens to also respect.
+
+Override: the locker unlocks freely; anyone else must confirm they are
+overriding. **No reason required** — simple audit is the preventative measure,
+and the team is trying to remove steps, not add them. The lock's history
+(who, when, overrides) renders on hover.
+
+### One engine, not two
+
+The 0.5-hour case killed the arithmetic path: a 30% cut on a 0.5h row gives
+0.35h, which violates the quarter-hour snapping and the four-hour-rule
+decomposition the rows exist to express. The work must be re-thought for the
+hours to be honest.
+
+So **every edit is a re-assessment inside the envelope**, and the write is
+"replace the rows in this region with a new set" — not "patch these rows'
+numbers." Rows may appear, vanish and be rewritten. The envelope is a REGION
+THAT GETS REGENERATED.
+
+The human steers; the model re-assesses against the requirement. The model may
+set numbers because it went back to the requirement — the same licence the
+specialist council has. Abuse ("throw cards in the air and see what sticks") is
+knowingly deferred: "we will fix it when we get there."
+
+### Structure (split / merge)
+
+- The human normally states the seam. The AI MAY decide the seam, but only when
+  explicitly asked to.
+- A restructure **re-costs by default**; preserving the total is the opt-in.
+  Cutting a module in two re-conceives the work.
+- The AI decides `taxonomyKey`, `category`, `phase`, `requirementIds` — those
+  were the Librarian's and Architect's calls, not a human's.
+- **`matchScore` → null** on any structural change. It is an Archivist
+  embedding-similarity measurement, not a judgement; a model asked for one emits
+  fiction, and promotion/writeback read it.
+- Affected `ScopeScenarioPick` rows and `MenuItemDependency` edges are
+  invalidated by the existing re-run rule ("dependencies and the scopes cut from
+  them are properties of THIS set of cards"). `HiddenWorkFinding.menuItemId` is
+  cleared while the outcome survives — also an existing precedent.
+
+### Apply model — no gate in the happy path, a gate only when the world moved
+
+1. Pre-flight: warn if the region on screen is already stale vs the DB, before
+   spending a model call.
+2. Run.
+3. Apply: re-check the region. Unchanged -> the write lands immediately.
+   Changed -> warn and ask; approving overwrites the concurrent change,
+   rejecting discards the AI's work.
+4. After: the region is marked as this prompt's work, with a one-level revert
+   scoped to that region.
+
+**Gap this needs:** there is no cheap staleness signal today. Neither `MenuItem`
+nor `RoleLineItem` has `updatedAt` or a revision counter, so "has this card
+moved" currently requires refetching and comparing. Add a per-card revision
+marker — one column, and the same column the begin/end conflict check reads.
+
+The richer undo model, and how undo behaves under concurrent editing, is
+EARMARKED FOR LATER WORK. Not designed now.
+
+### Assumptions and narrative
+
+Their own tickable targets, outside the `scope × role` axes. Both get
+**promoted from `String[]` to real tables**: a bare string in an ordered array
+has no identity, so "lock assumption 4" locks an array index that breaks on the
+next insert, and the audit could only ever say "the assumptions changed."
+
+The Oracle's `{{suggested assumption}}` copy button becomes a one-click write
+once a write path exists — in scope, as QoL. Note that "Oracle has no write
+path" is currently asserted in four places
+(`packages/shared/src/citations.ts:110`, `Oracle.tsx:609`, the `OracleRole`
+schema comment, `oracle.test.ts`), so crossing it needs a sibling AgentKind, not
+a change to Oracle.
+
+### Provenance and the audit record
+
+`RoleLineItem.edited` becomes an enum: **CREW / HUMAN / STEERED**. Verified cheap
+— it is display-only: three write sites, two DTO mappings in
+`packages/db/src/menu-item-mapping.ts`, and exactly one behaviour-bearing read
+(a badge at `MenuCardEditor.tsx:860`). Nothing gates on it — not promotion, not
+writeback, not the Sheets export.
+
+One audit row per prompt, holding: the prompt verbatim, the resolved envelope
+(concrete card and row ids), the model's stated reasoning, who and when, the
+model and its cost via a new `UsageKind`, whether it was reverted, whether it
+overwrote a conflict, and a **JSON before/after snapshot which doubles as the
+revert payload**.
+
+Performance was raised and answered: a card × DEV envelope is ~16 rows (~6KB);
+the pathological whole-estimate case is ~170KB each way. Postgres TOASTs any
+JSON column over ~2KB — out-of-line, compressed, not read unless selected. Two
+conditions: (1) the payload column is NEVER selected by default, or a careless
+`findMany` drags every snapshot out of Neon; (2) the snapshot writes in the SAME
+TRANSACTION as the ledger change, because a ledger write whose revert payload
+did not land is worse than no audit. Retention deferred. Analysis path is
+download-and-take-it-elsewhere (Hex / chat), which suits a blob better than a
+normalised child table.
+
+### Neighbours — do NOT conflate
+
+- **AEH-366 stays exactly as it is.** It is a UX problem: how a user interfaces
+  with numbers manually and consciously. This ticket is a strategic problem.
+  I twice tried to merge them and was twice told not to. Its role-filtered view
+  and keyboard ergonomics are its own.
+- **AEH-241 stays separate.** It was always meant as a steer for the INITIAL run
+  and for re-runs, not for review-time editing. Do not present this ticket as
+  satisfying it.
+- **AEH-367** is still blocked by the corpus being deleted at
+  `apps/web/src/inngest/functions.ts:210` — untouched by this. But locks plus
+  region-replace are most of the answer to its "a re-run destroys every hand
+  edit" problem, and that is worth a comment on it once this lands.
+
+### Corrections owed to the ticket itself (on approval)
+
+- The "manual editing exists and is good" line must go — AEH-366 explicitly asks
+  whoever picks up first to fix it.
+- The claim that the partial-run mechanism "must now be designed" is too
+  pessimistic. `runSpecialistCouncil` is already invoked standalone for hidden
+  work at `packages/agents/src/run-estimate.ts:364` with a synthesised
+  requirement, and the Librarian's requirement set survives every run in
+  `Estimate.agentState.librarianOutput`. The real gap is the PERSIST — the
+  delete-and-recreate at `run-estimate.ts:460-481` — which region-replace fixes.
+- Use the `jira-text` skill for both; paired markup characters get eaten.
+
+### Constraints from the code the design obeys
+
+- `IModelProvider` has NO tool calling
+  (`packages/providers/src/model-provider.ts:158`). The grain is `chatJSON` +
+  zod with `responseFormat: 'json_object'`.
+- ONE chat turn is ONE model call, deliberately, because of Vercel Hobby's 300s:
+  `apps/web/src/app/api/estimates/[id]/oracle/route.ts:24`. No agentic loop.
+- Any applier MUST reuse `updateLineItem`'s tax recompute
+  (`apps/web/src/app/estimates/[id]/actions.ts:226`) — it taxes at the config
+  version the estimate is PINNED to, not the active one. AEH-335 exists because
+  that was got wrong once.
+- The model's re-decomposition must be validated deterministically against the
+  four-hour rule and `snapToQuarterHour`.
+- `MenuItem.requirementIds` lives in `meta` (JSON), and the schema warns `meta`
+  is write-only by convention (the AEH-227 lesson). Reading it needs a validated
+  helper or promotion to a column.
+
+### Build order — ONE review at the end
+
+The user will review all of it in one go. Build everything, then call it done.
+Commit checkpoints as it goes (terminal crashes), but no incremental review.
+
+1. **Locks** — no AI. Auditable, hover history, enforced in the existing manual
+   server actions. Standalone value on day one, and it establishes the
+   enforcement rule everything else depends on.
+2. **The engine, hours only** — selection UI, region-replace persist, the new
+   sibling agent + prompt row + catalogue entries, revision markers, provenance
+   enum, audit/revert table, conflict flow. Scoped to `card × role`.
+3. **Structure** — split, merge, and the metadata rules above.
+4. **Assumptions and narrative** — the tables, plus the Oracle copy-button write.
+
+### The one question still open
+
+A whole-estimate envelope (863 rows, all roles) re-assessed in ONE model call
+will not fit inside 300s. Narrow envelopes are fine and are the common case.
+Options: cap the envelope, or route wide envelopes through Inngest as a durable
+job with a step per card (the run pipeline already works that way). Needs an
+answer before stage 2.
+
+---
+
 ## In flight: AEH-335 — per-estimate PM/BA/QA buffer overrides
 
 Branch `worktree-aeh-335-per-estimate-tax`, off master `ce88455`. The ticket
