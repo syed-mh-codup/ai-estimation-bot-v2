@@ -192,6 +192,112 @@ describe('reconcileStatements', () => {
   });
 });
 
+describe('a list at a REAL size', () => {
+  /**
+   * 485 is not a made-up number: it is the assumption count on the estimate
+   * where this broke in production.
+   *
+   * Every other test in this file uses two or three lines, which is exactly
+   * why the bug shipped. `reconcileStatements` used to issue one round trip
+   * per KEPT row inside an interactive transaction on Prisma's default 5s
+   * timeout, so the cost was invisible at three rows and fatal at 485:
+   * deleting one line left 484 order updates, the transaction timed out,
+   * nothing committed, and the editor reverted to the list it had. From the
+   * outside that reads as the deleted lines coming back — and whatever
+   * somebody typed instead was never written.
+   */
+  const BIG = 485;
+  const many = Array.from({ length: BIG }, (_, i) => `Assumption number ${i + 1}.`);
+
+  it('deletes one line out of 485 and renumbers the rest', async () => {
+    await seed(many);
+    const before = await assumptions();
+    expect(before).toHaveLength(BIG);
+
+    // Drop the FIRST, which is the worst case: every remaining line's order
+    // changes, so nothing can be skipped as a no-op.
+    const after = await reconcileStatements(db, {
+      estimateId,
+      kind: 'ASSUMPTION',
+      texts: many.slice(1),
+    });
+
+    expect(after).toHaveLength(BIG - 1);
+    expect(after[0]?.text).toBe('Assumption number 2.');
+    // Renumbered densely from zero...
+    expect(after.map((a) => a.order)).toEqual([...Array(BIG - 1).keys()]);
+    // ...and every survivor kept its id, which is the whole point of
+    // reconciling rather than replacing.
+    const keptIds = new Set(before.slice(1).map((b) => b.id));
+    expect(after.every((a) => keptIds.has(a.id))).toBe(true);
+    // Still CREW: renumbering is not editing.
+    expect(after.every((a) => a.provenance === 'CREW')).toBe(true);
+  });
+
+  it('inserts at the top of 485 without restamping anything', async () => {
+    await seed(many);
+    const after = await reconcileStatements(db, {
+      estimateId,
+      kind: 'ASSUMPTION',
+      texts: ['Brand new, at the top.', ...many],
+    });
+    expect(after).toHaveLength(BIG + 1);
+    expect(after[0]?.provenance).toBe('HUMAN');
+    expect(after.slice(1).every((a) => a.provenance === 'CREW')).toBe(true);
+  });
+
+  it('does it in a HANDFUL of round trips, not one per row', async () => {
+    /**
+     * The assertion that actually pins the bug.
+     *
+     * Wall-clock cannot: against local docker 484 sequential round trips take
+     * a fraction of a second, so the size tests above pass with the old loop
+     * still in place. It is only against Neon, at real latency, that the same
+     * code blows a five-second transaction timeout. The invariant that holds
+     * everywhere is the COUNT — one statement for the reorder, not N.
+     */
+    await seed(many);
+
+    const logged = new PrismaClient({
+      datasources: { db: { url: DB_URL } },
+      log: [{ emit: 'event', level: 'query' }],
+    });
+    let queries = 0;
+    logged.$on('query', () => {
+      queries += 1;
+    });
+
+    try {
+      await reconcileStatements(logged, {
+        estimateId,
+        kind: 'ASSUMPTION',
+        texts: many.slice(1),
+      });
+    } finally {
+      await logged.$disconnect();
+    }
+
+    // BEGIN, the delete, the bulk reorder, COMMIT, plus the read either side.
+    // The old loop was this plus 484. Twenty is loose on purpose: it fails
+    // unmistakably on a regression without pinning an exact query plan.
+    expect(queries).toBeLessThan(20);
+  });
+
+  it('replaces all 485 with a handful', async () => {
+    // What the reporter was actually doing: clear the crew's list and type
+    // your own.
+    await seed(many);
+    const after = await reconcileStatements(db, {
+      estimateId,
+      kind: 'ASSUMPTION',
+      texts: ['Ours, not theirs.', 'And a second one.'],
+    });
+    expect(after.map((a) => a.text)).toEqual(['Ours, not theirs.', 'And a second one.']);
+    expect(after.every((a) => a.provenance === 'HUMAN')).toBe(true);
+    expect(await db.estimateStatement.count({ where: { estimateId } })).toBe(2);
+  });
+});
+
 describe('appendStatement', () => {
   it('adds to the end and stamps what it is told', async () => {
     await seed(['First.']);

@@ -1,7 +1,7 @@
+import { Prisma } from './generated/client/index.js';
 import type {
   EstimateStatement as EstimateStatementRow,
   LineProvenance,
-  Prisma,
   PrismaClient,
   StatementKind,
 } from './generated/client/index.js';
@@ -152,24 +152,53 @@ export async function reconcileStatements(
   const keptIds = new Set(keep.map((k) => k.id));
   const remove = existing.filter((e) => !keptIds.has(e.id)).map((e) => e.id);
 
-  await db.$transaction(async (tx) => {
-    if (remove.length > 0) {
-      await tx.estimateStatement.deleteMany({ where: { id: { in: remove } } });
-    }
-    for (const k of keep) {
-      // Order only. Touching `text` would bump `updatedAt` on a line nobody
-      // changed, and `updatedAt` is a staleness signal the edit engine reads.
-      await tx.estimateStatement.updateMany({
-        where: { id: k.id, order: { not: k.order } },
-        data: { order: k.order },
-      });
-    }
-    if (create.length > 0) {
-      await tx.estimateStatement.createMany({
-        data: create.map((c) => ({ estimateId, kind, text: c.text, order: c.order, provenance })),
-      });
-    }
-  });
+  await db.$transaction(
+    async (tx) => {
+      if (remove.length > 0) {
+        await tx.estimateStatement.deleteMany({ where: { id: { in: remove } } });
+      }
+      if (keep.length > 0) {
+        // ONE statement for the whole reorder, and this is not a micro
+        // optimisation — it is the difference between this function working and
+        // not.
+        //
+        // It was a loop of `updateMany`, one round trip per kept row, inside an
+        // interactive transaction whose Prisma default timeout is five seconds.
+        // On an estimate with 485 assumptions, deleting a single line leaves
+        // 484 order updates: at Neon's round-trip latency that blows straight
+        // through the timeout, nothing commits, the action throws, and the
+        // editor reverts to the list it had. Which reads, from the outside,
+        // exactly like "I deleted my assumptions and they came back" — and
+        // whatever somebody typed instead was never written at all.
+        //
+        // `updatedAt` is deliberately untouched: it is a staleness signal the
+        // edit engine reads, and a save that only renumbered must not make
+        // every line look freshly edited. Hence `WHERE s."order" <> v."order"`
+        // rather than an unconditional write.
+        //
+        // Both columns are cast in the VALUES list because Postgres cannot
+        // infer a bound parameter's type there and fails with "could not
+        // determine data type of column".
+        await tx.$executeRaw`
+          UPDATE "EstimateStatement" AS s
+          SET "order" = v."order"
+          FROM (VALUES ${Prisma.join(
+            keep.map((k) => Prisma.sql`(${k.id}::text, ${k.order}::int)`),
+          )}) AS v(id, "order")
+          WHERE s.id = v.id AND s."order" <> v."order"
+        `;
+      }
+      if (create.length > 0) {
+        await tx.estimateStatement.createMany({
+          data: create.map((c) => ({ estimateId, kind, text: c.text, order: c.order, provenance })),
+        });
+      }
+    },
+    // Generous even so. Three statements over a remote database is nothing
+    // like the old loop, but a 500-line list is a real size and the default
+    // 5s is not a budget worth being anywhere near.
+    { maxWait: 15_000, timeout: 60_000 },
+  );
 
   return (await loadStatements(db, estimateId))[
     kind === 'NARRATIVE' ? 'narrative' : 'assumptions'

@@ -176,6 +176,11 @@ export async function applyStatementRevision(
         }
       }
 
+      // One round trip per rewrite, which is safe HERE and would not be
+      // everywhere: `rewrites` is bounded by what a person ticked, so it is a
+      // handful. `reconcileStatements` had this shape over a whole list and
+      // 485 sequential writes blew a transaction timeout — if a future change
+      // lets this reach a whole list, it needs the same bulk treatment.
       for (const w of rewrites) {
         // STEERED, the same distinction the line items make: a person decided,
         // a model wrote the words.
@@ -273,6 +278,8 @@ export async function revertStatementRevision(
 
   await db.$transaction(
     async (tx) => {
+      // Bounded by the edit's own snapshot, so the same handful — see the
+      // note in `applyStatementRevision`.
       for (const row of rows) {
         // An upsert rather than an update, because a merge deleted one of these
         // and it has to come back. Same id: see the note above.
