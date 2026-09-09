@@ -526,11 +526,18 @@ export async function runLedgerEdit(
   /**
    * The region's fingerprint as the reshape left it.
    *
-   * Null when no reshape happened, which is also what a region with no rows
-   * fingerprints to — and null compares equal to null, so neither case reports
-   * a spurious conflict.
+   * `undefined` means NO RESHAPE HAPPENED, and that is a different thing from
+   * `null`, which is what a region with no rows legitimately fingerprints to.
+   *
+   * Conflating the two is not currently reachable — a reshape is skipped only
+   * when the Curator returns no cards, which only happens when the envelope
+   * has no lines on the pinned cards, and that case is refused as an empty
+   * proposal before any fingerprint is compared. The distinction is here
+   * because the fall-through it guards is one line away from being reachable
+   * again, and a null baseline against a live region parks every such edit as
+   * a conflict with nothing.
    */
-  let reshapeFingerprint: Date | null = null;
+  let reshapeFingerprint: Date | null | undefined = undefined;
   const restructureNotes: string[] = [];
 
   if (edit.mode !== 'REPRICE') {
@@ -778,10 +785,12 @@ export async function runLedgerEdit(
 
   // Which baseline the write is checked against.
   //
-  // A REPRICE compares the fingerprint the person's screen was drawn from, so
-  // anything that landed since parks for a decision. A reshape cannot use that
-  // one — it has written to these cards itself — so it compares the baseline
-  // captured immediately after the reshape, inside the memoized step above.
+  // A reshape that actually happened compares the baseline captured
+  // immediately after it, inside the memoized step above: it cannot use the
+  // dispatched fingerprint, having written to these cards itself. Everything
+  // else — a re-price, and a reshape the Curator declined — compares the
+  // fingerprint the person's screen was drawn from, so anything that landed
+  // since parks for a decision.
   //
   // Both stay CHECKED. An earlier version passed `overwriteConflict: true` for
   // a reshape to get past the stale value, which disabled the comparison
@@ -791,13 +800,13 @@ export async function runLedgerEdit(
   // built around. It also stamped `overwroteConflict` on every reshape, so the
   // audit claimed a conflict nobody had.
   const expectFingerprint =
-    edit.mode === 'REPRICE'
-      ? (edit.fingerprint ??
+    reshapeFingerprint !== undefined
+      ? reshapeFingerprint
+      : (edit.fingerprint ??
         (await regionFingerprint(db, {
           cardIds: cardIdsAfterRestructure,
           lineItemIds: edit.pinnedLineItemIds,
-        })))
-      : reshapeFingerprint;
+        })));
 
   const outcome = await applyRegionReplace(db, {
     editId,
