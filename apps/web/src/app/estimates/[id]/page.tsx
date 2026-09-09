@@ -386,6 +386,7 @@ export default async function EstimateDetailPage({
         isFinalised={isFinalised}
         initialLocks={lockState}
         viewerId={viewer.id}
+        renderedAt={new Date().toISOString()}
       >
         <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           {/* ── the document ─────────────────────────────────────────────── */}

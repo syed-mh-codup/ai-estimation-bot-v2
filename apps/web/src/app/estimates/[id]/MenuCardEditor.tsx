@@ -39,6 +39,8 @@ import {
 } from './ledger-context';
 import { SideTag } from './SideTag';
 import { CardLockButton, LineLockBadge } from './LockControls';
+import { EditBar } from './EditBar';
+import { EditActivity } from './EditActivity';
 
 /**
  * The ledger's column template, shared by every section head and item row. This
@@ -321,6 +323,12 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
               </DragOverlay>
             </DndContext>
           )}
+
+          {/* Both live with the ledger rather than in the rail. AEH-302 records
+              that the rail is a fixed stack which buries its own actions, and
+              the bar is the heaviest thing that would go in it. */}
+          <EditBar />
+          <EditActivity />
         </>
       )}
     </section>
@@ -494,8 +502,17 @@ function ItemRow({
   collapsed: Set<string>;
   onToggleCollapse: (key: string) => void;
 }) {
-  const { isFinalised, overheadStale, onRenameItem, onToggleItem, onDeleteItem, onAddLineItem } =
-    useLedger();
+  const {
+    isFinalised,
+    overheadStale,
+    onRenameItem,
+    onToggleItem,
+    onDeleteItem,
+    onAddLineItem,
+    selectedCardIds,
+    toggleCardSelected,
+  } = useLedger();
+  const selected = selectedCardIds.includes(item.id);
   const sortable = useSortable({ id: item.id, disabled: isFinalised });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -521,6 +538,10 @@ function ItemRow({
         // deliberately not a tint, so a run's inferred rows read as a group at a
         // glance without any of them shouting. AEH-263.
         item.injected && 'border-l-2 border-l-bronze-line',
+        // Declared as changeable. A ring rather than a tint: the hatch and the
+        // bronze rule above already carry meanings of their own, and a third
+        // background state would be unreadable against them.
+        selected && 'ring-1 ring-green/50 ring-inset',
       )}
       data-testid={`menu-item-${item.id}`}
     >
@@ -550,8 +571,19 @@ function ItemRow({
               aria-hidden
             />
           </button>
-          {/* Beside the grip rather than out by the total: freezing a card is an
-              act on the card, and the numbers column is for numbers. AEH-238. */}
+          {/* The two halves of the same coordinate system, side by side: the
+              tick declares what may change, the padlock declares what may not.
+              AEH-238. */}
+          {!isFinalised && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => toggleCardSelected(item.id)}
+              aria-label={`Include ${item.title} in the edit selection`}
+              className="h-3 w-3 shrink-0 accent-green"
+              data-testid={`select-card-${item.id}`}
+            />
+          )}
           <CardLockButton item={item} />
           {/* The grip and the chevron stay outside the wrapping cell, so a
               second line of chips starts under the title rather than under

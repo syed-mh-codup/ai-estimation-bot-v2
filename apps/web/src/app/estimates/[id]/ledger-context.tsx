@@ -39,6 +39,8 @@ import type { TaxChangeNote } from '@/lib/estimate-tax';
 import { retaxRole } from './dto';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
 import { lockRegion, unlockRegion } from './lock-actions';
+import { listLedgerEdits, startLedgerEdit } from './edit-actions';
+import { isEditInFlight, type LedgerEditDTO } from './edit-dto';
 import { EMPTY_LOCK_STATE, type LockStateDTO } from './lock-dto';
 import type { LockTarget } from '@repo/db';
 
@@ -153,6 +155,31 @@ type Ledger = {
   viewerId: string;
   /** The estimate these rows belong to, for the actions that need naming it. */
   estimateId: string;
+
+  // ── The edit envelope (AEH-238) ─────────────────────────────────────────────
+  /**
+   * What the person has declared may change: cards, and which of their roles.
+   *
+   * Two independent axes rather than a list of rows, which is what makes this
+   * two clicks instead of a multi-select over hundreds of lines. It is also the
+   * same coordinate system a lock uses, read in the opposite direction.
+   *
+   * Arrays rather than Sets because this crosses into server actions, and a Set
+   * does not survive that boundary.
+   */
+  selectedCardIds: string[];
+  selectedRoles: Role[];
+  toggleCardSelected: (cardId: string) => void;
+  toggleRoleSelected: (role: Role) => void;
+  clearSelection: () => void;
+  /** Every steered edit the ledger still cares about, newest first. */
+  edits: LedgerEditDTO[];
+  /** True while a dispatch is in flight, so the button can stop double-firing. */
+  editBusy: boolean;
+  /** Declare the current selection and say what should happen to it. */
+  onSteer: (prompt: string) => Promise<void>;
+  /** Replace the edit list — used by the decision and revert controls. */
+  setEdits: (next: LedgerEditDTO[]) => void;
 };
 
 const LedgerContext = createContext<Ledger | null>(null);
@@ -184,6 +211,8 @@ export function LedgerProvider({
   estimateId,
   initialLocks,
   viewerId,
+  renderedAt,
+  initialEdits,
   children,
 }: {
   initialSections: SectionDTO[];
@@ -197,6 +226,14 @@ export function LedgerProvider({
   estimateId: string;
   initialLocks?: LockStateDTO;
   viewerId: string;
+  /**
+   * When the server produced this screen. The pre-flight staleness check
+   * compares the region's last write against it, which is how "what you are
+   * looking at may not be what gets re-priced" is answerable without shipping
+   * an `updatedAt` for every one of hundreds of rows.
+   */
+  renderedAt: string;
+  initialEdits?: LedgerEditDTO[];
   children: ReactNode;
 }) {
   const [sections, setSections] = useState<SectionDTO[]>(initialSections);
@@ -212,6 +249,10 @@ export function LedgerProvider({
     useState<Partial<Record<TaxableRole, TaxChangeNote>>>(initialTaxChanges);
   const [locks, setLocks] = useState<LockStateDTO>(initialLocks ?? EMPTY_LOCK_STATE);
   const [lockBusy, setLockBusy] = useState(false);
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<Role[]>([]);
+  const [edits, setEdits] = useState<LedgerEditDTO[]>(initialEdits ?? []);
+  const [editBusy, setEditBusy] = useState(false);
 
   const errTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashError = useCallback((e: unknown) => {
@@ -600,6 +641,86 @@ export function LedgerProvider({
     [locks],
   );
 
+  // ── The edit envelope ──────────────────────────────────────────────────────
+  const toggleCardSelected = useCallback((cardId: string) => {
+    setSelectedCardIds((prev) =>
+      prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId],
+    );
+  }, []);
+
+  const toggleRoleSelected = useCallback((role: Role) => {
+    setSelectedRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedCardIds([]);
+    setSelectedRoles([]);
+  }, []);
+
+  /**
+   * Poll while anything is in flight, and stop as soon as nothing is.
+   *
+   * Recursive `setTimeout` rather than an interval, so a slow response cannot
+   * stack requests behind itself — the next poll is scheduled only once the
+   * previous one has answered.
+   */
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const poll = useCallback(() => {
+    if (pollTimer.current) clearTimeout(pollTimer.current);
+    pollTimer.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const next = await listLedgerEdits(estimateId);
+          setEdits(next);
+          if (next.some(isEditInFlight)) poll();
+        } catch {
+          // A dropped poll is not worth telling anybody about: the edit is
+          // durable, and the next poll or a reload will show where it got to.
+        }
+      })();
+    }, 2000);
+  }, [estimateId]);
+
+  const onSteer = useCallback(
+    async (prompt: string) => {
+      // One card and one role at the least. Resolved server-side too — this is
+      // the courtesy, not the guarantee.
+      if (selectedCardIds.length === 0 || selectedRoles.length === 0) {
+        flashError(new Error('Pick at least one card and one role first.'));
+        return;
+      }
+      setEditBusy(true);
+      try {
+        // One card is declared as CARD; several are declared per card and
+        // dispatched as one edit each, because the envelope's scope axis has no
+        // "these three cards" value and inventing one would mean a second
+        // addressing vocabulary for locks to disagree with.
+        for (const cardId of selectedCardIds) {
+          const res = await startLedgerEdit(
+            estimateId,
+            { scope: 'CARD', id: cardId },
+            [...selectedRoles],
+            prompt,
+            renderedAt,
+          );
+          if (!res.ok) {
+            flashError(new Error(res.reason));
+            continue;
+          }
+          if (res.staleWarning) flashError(new Error(res.staleWarning));
+          setEdits((prev) => [res.edit, ...prev.filter((e) => e.id !== res.edit.id)]);
+        }
+        clearSelection();
+        poll();
+      } catch (e) {
+        flashError(e);
+      } finally {
+        setEditBusy(false);
+      }
+    },
+    [estimateId, selectedCardIds, selectedRoles, renderedAt, flashError, clearSelection, poll],
+  );
+
   const value: Ledger = {
     sections,
     items,
@@ -638,6 +759,15 @@ export function LedgerProvider({
     isLineLocked,
     viewerId,
     estimateId,
+    selectedCardIds,
+    selectedRoles,
+    toggleCardSelected,
+    toggleRoleSelected,
+    clearSelection,
+    edits,
+    editBusy,
+    onSteer,
+    setEdits,
   };
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;
