@@ -722,6 +722,10 @@ function ItemRow({
               onClick={() => onToggleItem(item.id, !item.enabled)}
               // Switching a card back ON is never gated — the judgment is about
               // removing scope something else stands on, not about adding it.
+              //
+              // A ledger lock does NOT gate this, in either direction. It says
+              // a line's hours and description are settled; switching the card
+              // in or out of the estimate changes neither. See lock-guards.ts.
               disabled={item.enabled && lockedOff}
               title={
                 item.enabled && lockedOff

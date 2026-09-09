@@ -39,7 +39,7 @@ import {
 } from '@repo/shared';
 import type { TaxChangeNote } from '@/lib/estimate-tax';
 import { retaxRole } from './dto';
-import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
+import type { ItemDTO, SectionDTO, LineItemDTO, MutationOutcome } from './dto';
 import {
   lockRegion,
   lockStatementRegion,
@@ -62,7 +62,39 @@ export type Role = (typeof ROLES)[number];
 export const UNGROUPED = '__ungrouped__';
 export type { TaxPercents };
 
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
+/**
+ * What a failed mutation says out loud.
+ *
+ * The guard clause is not defensive noise. A server action that THROWS does not
+ * deliver its message in a production build: React's Flight client drops it and
+ * substitutes "An error occurred in the Server Components render. The specific
+ * message is omitted in production builds…", which this banner then showed to a
+ * reviewer verbatim. Every carefully worded refusal in `lib/lock-guards.ts`
+ * arrived as that paragraph once deployed — the message was only ever legible
+ * in `next dev`, which is why it survived review.
+ *
+ * So a redacted error is recognised and replaced with something true. A refusal
+ * a person is meant to ACT on travels as a return value instead of a throw —
+ * see `setItemEnabled` — and never reaches this fallback.
+ *
+ * Matched on the message rather than on the `digest` property React also
+ * attaches, deliberately. `next dev` forwards the real message AND a digest, so
+ * keying on the digest would throw away the only useful text exactly where a
+ * developer is reading it. Matching the boilerplate fails safe in the other
+ * direction: if React ever rewords it we show its wording, which is today's
+ * behaviour, not a wrong message.
+ */
+const errMsg = (e: unknown) => {
+  if (!(e instanceof Error)) return 'Something went wrong';
+  if (e.message.includes('An error occurred in the Server Components render')) {
+    // Deliberately not "refused". Everything redacted arrives here looking the
+    // same — a policy refusal, a dropped Neon connection, a row deleted in
+    // another tab — and claiming the server said no would be a guess about
+    // which. What is certainly true is that nothing was written.
+    return "That change didn't go through. Reload to see where the ledger actually stands.";
+  }
+  return e.message;
+};
 
 export const round = (n: number): number => Math.round(n * 100) / 100;
 export const itemTaxed = (it: ItemDTO) => it.lineItems.reduce((s, li) => s + li.taxedHours, 0);
@@ -399,18 +431,35 @@ export function LedgerProvider({
     };
   }, [items]);
 
+  /**
+   * Apply now, keep it if the server agrees, put it back if it does not.
+   *
+   * Two ways the server can disagree, and they are not the same thing. A THROW
+   * is a fault — the row is gone, the session lapsed — and its message is
+   * redacted in a production build, so `errMsg` substitutes something honest. A
+   * returned `refused` is policy: the ledger asked, the rule said no, and the
+   * sentence explaining which locks and whose survives the boundary intact.
+   * Both revert; only one can tell the reader what to do about it.
+   */
   const optimistic = useCallback(
     async (
       apply: () => void,
       revertTo: { s: SectionDTO[]; i: ItemDTO[] },
-      server: () => Promise<void>,
+      server: () => Promise<void | MutationOutcome>,
     ) => {
       apply();
-      try {
-        await server();
-      } catch (e) {
+      const revert = () => {
         setSections(revertTo.s);
         setItems(revertTo.i);
+      };
+      try {
+        const outcome = await server();
+        if (outcome && outcome.kind === 'refused') {
+          revert();
+          flashError(new Error(outcome.error));
+        }
+      } catch (e) {
+        revert();
         flashError(e);
       }
     },

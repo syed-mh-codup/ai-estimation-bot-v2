@@ -35,7 +35,16 @@ export type HeldLockDTO = {
 export type LockStateDTO = {
   /** Keyed by `RoleLineItem.id`. Absent means free. */
   lines: Record<string, HeldLockDTO>;
-  /** Cards with at least one frozen row: existence and enablement frozen. */
+  /**
+   * Cards carrying at least one frozen row, so the card cannot be deleted or
+   * merged — and so the card padlock can render a partial state.
+   *
+   * Enablement is deliberately NOT in that list. Switching a card in or out of
+   * the estimate leaves every line's hours and description exactly as they
+   * were; it edits what the estimate is made of, which is not something a row
+   * lock speaks to. This field said "existence and enablement frozen" and the
+   * toggle refused on any locked card as a result.
+   */
   cardsWithAnyLock: string[];
   /** Cards where every row is frozen: the title is frozen too. */
   cardsFullyLocked: string[];

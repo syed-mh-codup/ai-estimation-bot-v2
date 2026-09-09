@@ -27,8 +27,8 @@ import {
   assertRoleUnlockedForBuffer,
   assertStatementListEditable,
 } from '@/lib/lock-guards';
-import { cardFlags, lineEnvelope, EMPTY_ENVELOPE } from './dto';
-import type { ItemDTO, LineItemDTO, SectionDTO } from './dto';
+import { cardFlags, lineEnvelope, EMPTY_ENVELOPE, OK } from './dto';
+import type { ItemDTO, LineItemDTO, MutationOutcome, SectionDTO } from './dto';
 
 /**
  * Server actions backing the Menu Card editor. The client owns the optimistic
@@ -170,32 +170,46 @@ export async function renameMenuItem(id: string, title: string): Promise<void> {
  * computed and persisted on every run and then read by nothing, so the editor
  * happily let a BA switch off a foundation card the pipeline knew was load
  * bearing. This is the gate; the disabled button in the editor is the courtesy.
+ *
+ * Deliberately NOT gated by ledger locks, which is a reversal — this used to
+ * refuse any card carrying a locked line. A lock says a line's hours and
+ * description are settled, and switching a card in or out of the estimate edits
+ * neither: the line is untouched, and what changes is the estimate's
+ * composition. Freezing enablement was reading the lock as "these hours must
+ * keep counting", which is a claim about the estimate that nobody made when
+ * they locked a row. Deletion stays refused, because that destroys the line.
+ *
+ * Every refusal here is RETURNED, not thrown — see `MutationOutcome`. Thrown
+ * messages are redacted out of a production build, so the sentences below
+ * reached a deployed reviewer as React's "An error occurred in the Server
+ * Components render…" boilerplate, flashed in the ledger's error banner for four
+ * seconds, and told them nothing. A fault (no such card, nobody signed in) still
+ * throws: there is no message there worth carrying.
  */
-export async function setItemEnabled(id: string, enabled: boolean): Promise<void> {
-  const actor = await requireUser();
+export async function setItemEnabled(id: string, enabled: boolean): Promise<MutationOutcome> {
+  await requireUser();
   const item = await prisma.menuItem.findUnique({
     where: { id },
     select: { estimateId: true, title: true, meta: true },
   });
   if (!item) throw new Error('Menu item not found');
   await assertEditable(item.estimateId);
-  // Switching a card off does not touch a row, but it removes those hours from
-  // every total on the estimate — which is the number a lock protects. AEH-238.
-  await assertCardStructureUnlocked(id, actor.id);
 
   if (!enabled) {
     const flags = cardFlags(item.meta);
     if (flags.notSafelyRemovable) {
-      throw new Error(
-        `"${item.title}" can't be switched off — other scope in this estimate depends on it.`,
-      );
+      return {
+        kind: 'refused',
+        error: `"${item.title}" can't be switched off — other scope in this estimate depends on it.`,
+      };
     }
     if (!flags.toggleable) {
-      throw new Error(`"${item.title}" is not optional scope.`);
+      return { kind: 'refused', error: `"${item.title}" is not optional scope.` };
     }
   }
 
   await prisma.menuItem.update({ where: { id }, data: { enabled } });
+  return OK;
 }
 
 export async function deleteMenuItem(id: string): Promise<void> {

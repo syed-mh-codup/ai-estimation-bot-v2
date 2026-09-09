@@ -270,7 +270,12 @@ export async function lockStateFor(
   estimateId: string,
 ): Promise<{
   byLineItem: Map<string, LockInfo>;
-  /** Cards carrying at least one locked row: existence and enablement frozen. */
+  /**
+   * Cards carrying at least one locked row: deletion and merging frozen.
+   *
+   * NOT enablement — disabling a card does not edit any line's hours or
+   * description, only which of them the estimate counts.
+   */
   cardsWithAnyLock: Set<string>;
   /** Cards where every row is locked: the title is frozen too. */
   cardsFullyLocked: Set<string>;

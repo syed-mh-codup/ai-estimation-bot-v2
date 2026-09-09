@@ -126,6 +126,25 @@ export function cardFlags(meta: MenuItemRow['meta']): CardFlags {
     thinSlice: m.thinSlice === true,
   };
 }
+/**
+ * The result of a mutation a person is allowed to be REFUSED, as the editor
+ * hears it. Shaped like `ExportOutcome` next door, for the same reason.
+ *
+ * A returned refusal rather than a thrown one, and that distinction is the
+ * whole point of this type. React's Flight client discards the message of any
+ * error thrown inside a `'use server'` action in a production build and hands
+ * the caller "An error occurred in the Server Components render…" instead — so
+ * a refusal that travels as a throw is legible in `next dev` and nowhere a
+ * reviewer actually works. Refusals are a normal outcome of asking, not a
+ * fault, and they carry text somebody is meant to act on; they are returned.
+ *
+ * A genuine fault — the row is gone, nobody is signed in — still throws. There
+ * is nothing for the reader to do about those and no message worth protecting.
+ */
+export type MutationOutcome = { kind: 'ok' } | { kind: 'refused'; error: string };
+
+export const OK: MutationOutcome = { kind: 'ok' };
+
 export type SectionDTO = Pick<EstimateSectionRow, 'id' | 'title' | 'order'>;
 
 /**

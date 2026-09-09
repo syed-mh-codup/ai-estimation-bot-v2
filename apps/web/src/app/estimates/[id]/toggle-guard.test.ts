@@ -24,11 +24,13 @@ vi.mock('@repo/db', () => ({
       update: (...a: unknown[]) => menuItemUpdate(...a),
     },
     estimate: { findUnique: (...a: unknown[]) => estimateFindUnique(...a) },
-    // Switching a card off is lock-guarded since AEH-238: it removes those
-    // hours from every total, which is the figure a lock protects. Nothing is
-    // frozen in this file's scenarios, so it answers empty and the Architect's
-    // judgment stays the thing under test here.
-    ledgerLock: { findMany: async () => [] },
+    // No `ledgerLock` stub, and its absence is load-bearing: switching a card
+    // off is NOT lock-guarded. It briefly was, on the reasoning that removing
+    // the card removes its hours from every total — but a lock speaks about a
+    // line's hours and description, and disabling a card edits neither. If a
+    // ledger-lock query ever creeps back into this path, these tests fail on a
+    // missing mock rather than passing quietly. The Architect's judgment is
+    // what this file tests.
   },
 }));
 
@@ -53,25 +55,50 @@ function card(meta: unknown) {
 describe('setItemEnabled honours the Architect’s judgment', () => {
   it('switches off an ordinary card', async () => {
     card({ toggleable: true, notSafelyRemovable: false, thinSlice: false });
-    await setItemEnabled(ITEM, false);
+    expect(await setItemEnabled(ITEM, false)).toEqual({ kind: 'ok' });
     expect(menuItemUpdate).toHaveBeenCalledWith({ where: { id: ITEM }, data: { enabled: false } });
   });
 
   it('refuses to switch off a card other scope depends on, and writes nothing', async () => {
     card({ toggleable: false, notSafelyRemovable: true, thinSlice: false });
-    await expect(setItemEnabled(ITEM, false)).rejects.toThrow(/depends on it/);
+    expect(await setItemEnabled(ITEM, false)).toMatchObject({
+      kind: 'refused',
+      error: expect.stringMatching(/depends on it/),
+    });
     expect(menuItemUpdate).not.toHaveBeenCalled();
   });
 
   it('names the card in the refusal, so the banner is actionable', async () => {
     card({ notSafelyRemovable: true });
-    await expect(setItemEnabled(ITEM, false)).rejects.toThrow(/Auth & accounts/);
+    const out = await setItemEnabled(ITEM, false);
+    expect(out.kind === 'refused' && out.error).toMatch(/Auth & accounts/);
   });
 
   it('refuses a card the Architect marked non-optional even when it is removable', async () => {
     card({ toggleable: false, notSafelyRemovable: false, thinSlice: false });
-    await expect(setItemEnabled(ITEM, false)).rejects.toThrow(/not optional scope/);
+    expect(await setItemEnabled(ITEM, false)).toMatchObject({
+      kind: 'refused',
+      error: expect.stringMatching(/not optional scope/),
+    });
     expect(menuItemUpdate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The regression this whole shape exists for. A refusal used to be `throw new
+   * Error(sentence)`, and React's Flight client discards the message of an error
+   * thrown inside a `'use server'` action in a production build — so a deployed
+   * reviewer got "An error occurred in the Server Components render…" in the
+   * ledger's banner and no idea which card, which locks, or what to do. Asserted
+   * as "does not reject" rather than by matching text, because that is the
+   * property that breaks: the sentence is fine, the delivery was not.
+   */
+  it('RETURNS its refusals rather than throwing, so the text survives a prod build', async () => {
+    for (const meta of [{ notSafelyRemovable: true }, { toggleable: false }]) {
+      card(meta);
+      const out = await setItemEnabled(ITEM, false);
+      expect(out.kind).toBe('refused');
+      expect(out.kind === 'refused' && out.error).not.toMatch(/Server Components/);
+    }
   });
 
   /**
@@ -81,7 +108,7 @@ describe('setItemEnabled honours the Architect’s judgment', () => {
    */
   it('always allows switching a card back ON, load bearing or not', async () => {
     card({ toggleable: false, notSafelyRemovable: true, thinSlice: false });
-    await setItemEnabled(ITEM, true);
+    expect(await setItemEnabled(ITEM, true)).toEqual({ kind: 'ok' });
     expect(menuItemUpdate).toHaveBeenCalledWith({ where: { id: ITEM }, data: { enabled: true } });
   });
 
@@ -92,7 +119,7 @@ describe('setItemEnabled honours the Architect’s judgment', () => {
    */
   it('treats a card with no meta as freely toggleable', async () => {
     card(null);
-    await setItemEnabled(ITEM, false);
+    expect(await setItemEnabled(ITEM, false)).toEqual({ kind: 'ok' });
     expect(menuItemUpdate).toHaveBeenCalledWith({ where: { id: ITEM }, data: { enabled: false } });
   });
 

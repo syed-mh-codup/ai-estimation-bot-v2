@@ -216,12 +216,13 @@ describe('a role-scoped lock leaves the other roles alone', () => {
     await renameMenuItem(CARD, 'Checkout');
   });
 
-  it('still refuses the card structure, because one locked row is enough', async () => {
+  it('still refuses to DELETE the card, because one locked row is enough', async () => {
     await lockRegion(EST, { scope: 'CARD', id: CARD }, ['DEV']);
-    // Switching the card off removes those DEV hours from every total on the
-    // estimate, which is the number the lock was protecting.
-    await expect(setItemEnabled(CARD, false)).rejects.toThrow(/locked/i);
+    // Deletion would take the locked row with it, so one is enough to refuse.
     await expect(deleteMenuItem(CARD)).rejects.toThrow(/locked/i);
+    // Switching it off is a different question and is allowed — see below.
+    expect(await setItemEnabled(CARD, false)).toEqual({ kind: 'ok' });
+    await prisma.menuItem.update({ where: { id: CARD }, data: { enabled: true } });
   });
 });
 
@@ -278,11 +279,30 @@ describe('a frozen row constrains its card', () => {
     expect(await prisma.menuItem.count({ where: { id: CARD } })).toBe(1);
   });
 
-  it('refuses switching the card off, which removes those hours from every total', async () => {
+  /**
+   * ALLOWS switching the card off — and this one is worth stating as a rule
+   * rather than an omission, because it was the other way round and refusing
+   * was wrong. A lock says a line's hours and its description are settled.
+   * Disabling the card edits neither: the row keeps its hours, keeps its text,
+   * keeps its lock, and the estimate simply stops counting it. What changed is
+   * the estimate's composition, which is not a claim a row lock makes.
+   *
+   * Asserted in both directions, and asserted to leave the LOCK standing —
+   * "allowed" must not quietly mean "the lock was dropped to allow it".
+   */
+  it('allows switching the card off and back on, lock untouched', async () => {
     await lockDev();
-    await expect(setItemEnabled(CARD, false)).rejects.toThrow(/locked/i);
-    const card = await prisma.menuItem.findUniqueOrThrow({ where: { id: CARD } });
-    expect(card.enabled).toBe(true);
+    const locksBefore = await prisma.ledgerLock.count({ where: { estimateId: EST } });
+
+    expect(await setItemEnabled(CARD, false)).toEqual({ kind: 'ok' });
+    expect((await prisma.menuItem.findUniqueOrThrow({ where: { id: CARD } })).enabled).toBe(false);
+
+    expect(await setItemEnabled(CARD, true)).toEqual({ kind: 'ok' });
+    expect((await prisma.menuItem.findUniqueOrThrow({ where: { id: CARD } })).enabled).toBe(true);
+
+    // The row is still frozen, and still refuses the edits a lock is actually about.
+    expect(await prisma.ledgerLock.count({ where: { estimateId: EST } })).toBe(locksBefore);
+    await expect(updateLineItem(devLineId, { baseHours: 9 })).rejects.toThrow(/locked/i);
   });
 
   it('allows a rename while only one role is frozen, and refuses it once all are', async () => {

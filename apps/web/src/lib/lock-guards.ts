@@ -17,6 +17,21 @@ import {
  * no sends somebody hunting through seventy-seven rows for the one that stopped
  * them.
  *
+ * KNOWN GAP, and read this before writing another one. A guard that THROWS from
+ * inside a `'use server'` action does not deliver any of that wording in a
+ * production build — React's Flight client keeps only a digest and hands the
+ * browser "An error occurred in the Server Components render…". So these
+ * sentences are legible in `next dev` and in the server log, and nowhere a
+ * deployed reviewer can see them. The shape that fixes it is to return the
+ * reason rather than throw it, with the action returning a `MutationOutcome` —
+ * see `setItemEnabled`, which is where it was reported. Every guard in this
+ * file still throws: their refusals are reachable, and when one is reported it
+ * wants that same treatment, not a reworded message.
+ *
+ * Note that the e2e suite cannot catch this class of bug — it runs `pnpm dev`,
+ * where the real message comes through. Verifying a refusal's WORDING needs
+ * `next build && next start`.
+ *
  * These live outside `actions.ts` because that module is `'use server'`, where
  * every export must be an async function — a synchronous helper added there
  * breaks the build of every route importing anything from the file, which is
@@ -26,9 +41,18 @@ import {
  * What a lock freezes, and what it deliberately does not:
  *
  *   frozen   a row's hours, its description, its existence; a card's existence
- *            and its enablement; a card's title once every row on it is frozen
+ *            (deletion, merging); a card's title once every row on it is frozen
  *   free     placement — `sectionId` and `order` are presentational, and a
  *            reviewer tidying the board is not editing anybody's numbers
+ *   free     a card's ENABLEMENT — switching it in or out of the estimate
+ *
+ * That last line was the other way round until it was challenged, and the
+ * argument is worth keeping: a lock is a statement about a line, that its hours
+ * and its description are settled. Disabling a card leaves both exactly as they
+ * were; what it edits is the estimate's composition. Reading a lock as "these
+ * hours must keep counting toward the total" imports a claim about the estimate
+ * that nobody makes by locking a row — and it made the single most casual
+ * action in the editor refuse on nearly every card of a well-locked estimate.
  */
 
 /**
@@ -100,13 +124,15 @@ export async function assertCardRoleAcceptsNewLine(
 }
 
 /**
- * Throws when a card carries any locked row. Guards deletion, merging, and
- * switching the card off.
+ * Throws when a card carries any locked row. Guards deletion and merging, which
+ * would destroy locked rows through the back door.
  *
- * Deletion and merging would destroy locked rows through the back door.
- * Switching the card off is subtler and is included on purpose: it does not
- * touch a row, but it removes those hours from every total on the estimate,
- * which is the number the lock was protecting.
+ * Switching the card off is NOT guarded here, and that exclusion is the point.
+ * It once was, on the reasoning that removing the card removes those hours from
+ * the estimate's totals — but a lock is a statement about a LINE: its hours and
+ * its description are settled. Enabling or disabling a card edits neither. It
+ * changes what the estimate is made of, which is not a claim anybody made by
+ * locking a row. Deletion is different in kind: the row itself stops existing.
  */
 export async function assertCardStructureUnlocked(menuItemId: string, actorId?: string): Promise<void> {
   const locks = await prisma.ledgerLock.findMany({
@@ -122,7 +148,7 @@ export async function assertCardStructureUnlocked(menuItemId: string, actorId?: 
   if (locks.length === 0) return;
   const who = await describeHolders(locks, actorId);
   throw new Error(
-    `This card holds ${locks.length} locked line${locks.length === 1 ? '' : 's'} (${who}), so it cannot be removed, merged or switched off. Unlock them first.`,
+    `This card holds ${locks.length} locked line${locks.length === 1 ? '' : 's'} (${who}), so it cannot be deleted or merged. Unlock them first.`,
   );
 }
 
