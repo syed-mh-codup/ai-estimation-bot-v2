@@ -242,6 +242,9 @@ model User {
   /// Sheets exports this user ran. Same attribution-not-ownership reading: it
   /// says who overwrote the spreadsheet, which is what the warning needs.
   sheetExports      SheetExport[]
+  /// Ledger rows this user has frozen. Only they may unlock one without
+  /// confirming an override. AEH-238.
+  ledgerLocks       LedgerLock[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -667,6 +670,10 @@ model Estimate {
   overheadRatesStale Boolean @default(false)
   /// Who moved a buffer on this estimate, when, and from what to what.
   taxChanges         EstimateTaxChange[]
+  /// Rows on this estimate somebody has frozen. AEH-238.
+  ledgerLocks        LedgerLock[]
+  /// Every lock and unlock on this estimate, the overridden ones included.
+  lockEvents         LockEvent[]
 }
 
 /// One change to one of an estimate buffer overrides.
@@ -1000,8 +1007,111 @@ model RoleLineItem {
   /// Extra envelope structure: id (DEV-REQ003-04), requirementId, complexity
   /// tier, aiAssistApplied, dependsOn, anchorPresetIds.
   meta            Json?
+  /// Set when this row is frozen. See LedgerLock — hours, description and
+  /// existence, for people as well as for the edit engine.
+  lock            LedgerLock?
 
   @@index([menuItemId, role])
+}
+
+// ─── Ledger locks ─────────────────────────────────────────────────────────────
+
+/// The axis a lock was DECLARED on, kept for provenance only. AEH-238.
+///
+/// Enforcement never reads this — every lock is materialised down to
+/// `RoleLineItem` rows at lock time (see LedgerLock). What this records is what
+/// the human actually clicked, so the hover history can say "locked with the
+/// whole Checkout card" instead of naming one row out of seventy-seven.
+///
+/// It has to be stored rather than derived, because the declaration is not
+/// recoverable from the resulting row set: sixteen locked DEV rows look
+/// identical whether someone locked the card's DEV slice once or ticked all
+/// sixteen rows by hand, and those are different statements about intent.
+enum LockScope {
+  ESTIMATE
+  SECTION
+  CARD
+  LINE
+}
+
+/// What happened to a lock. Append-only; see LockEvent.
+enum LockEventKind {
+  LOCKED
+  /// Removed by the person who set it, which needs no ceremony.
+  UNLOCKED
+  /// Removed by somebody else, who had to confirm they were overriding it.
+  ///
+  /// Deliberately a separate value rather than an `override` flag on UNLOCKED:
+  /// this is the event anyone auditing the estimate is looking for, and it
+  /// should be findable by kind rather than by reading a column.
+  OVERRIDDEN
+}
+
+/// One frozen line item. The subtractive half of the edit envelope. AEH-238.
+///
+/// A lock says a row's hours, its description and its existence are settled.
+/// It binds PEOPLE as well as the AI — a permission layer on the ledger that
+/// the edit engine happens to also respect, not an AI-only guard. Placement is
+/// deliberately NOT frozen: `MenuItem.sectionId` and `order` are
+/// presentational, and freezing them would stop a reviewer tidying the board.
+///
+/// Row-level, and only row-level, because a `RoleLineItem` is one description
+/// paired with its own hours for one role — freezing half of that would freeze
+/// half of a single thought. Coarser declarations (a card, a section, the whole
+/// estimate) are MATERIALISED to one row each here as they are made.
+///
+/// Materialising rather than testing membership live is what stops a lock being
+/// escapable. A section-scoped lock evaluated live would evaporate the moment
+/// somebody dragged a card out of the section — and dragging is allowed,
+/// because placement is free. The two rules only coexist if a lock is pinned to
+/// the rows at the moment it is taken.
+model LedgerLock {
+  id               String       @id @default(cuid())
+  estimateId       String
+  estimate         Estimate     @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  /// One lock per row at most, which is what makes "is this frozen" a lookup
+  /// rather than an aggregate.
+  lineItemId       String       @unique
+  lineItem         RoleLineItem @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+  /// Provenance only — see LockScope.
+  declaredScope    LockScope
+  /// The id of what was selected: a section, a card, a line, or null for the
+  /// whole estimate.
+  declaredTargetId String?
+  /// Who set it. Only this person may remove it without confirming an override.
+  lockedById       String
+  lockedBy         User         @relation(fields: [lockedById], references: [id], onDelete: Cascade)
+  lockedAt         DateTime     @default(now())
+
+  @@index([estimateId])
+}
+
+/// The history of one row's locks, including the ones that are gone. AEH-238.
+///
+/// Append-only, and the reason LedgerLock can stay a simple current-state row:
+/// what a reviewer needs on hover is the story, and a story outlives its
+/// subject. Nothing here is ever updated or deleted.
+///
+/// `lineItemId` is deliberately NOT a relation. The point of this table is to
+/// outlive the lock, and a cascade from `RoleLineItem` would delete exactly the
+/// record of an override somebody later wants to ask about.
+model LockEvent {
+  id               String        @id @default(cuid())
+  estimateId       String
+  estimate         Estimate      @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  lineItemId       String
+  kind             LockEventKind
+  declaredScope    LockScope
+  declaredTargetId String?
+  /// Who performed this act.
+  actorId          String
+  /// Who had set the lock being removed. Null on LOCKED. An id rather than a
+  /// name so a rename stays correct — the rule HiddenWorkFinding already
+  /// follows for its dismisser.
+  priorHolderId    String?
+  createdAt        DateTime      @default(now())
+
+  @@index([estimateId, lineItemId, createdAt])
 }
 
 // ─── Oracle ───────────────────────────────────────────────────────────────────

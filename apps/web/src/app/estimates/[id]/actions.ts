@@ -18,6 +18,13 @@ import { after } from 'next/server';
 import { fromDateInputValue } from '@/lib/due-date';
 import { sendCustodyAssignedEmail } from '@/lib/email';
 import { RATE_SELECT, taxContextFor, taxContextForEstimate } from '@/lib/estimate-tax';
+import {
+  assertCardRoleAcceptsNewLine,
+  assertCardStructureUnlocked,
+  assertCardTitleUnlocked,
+  assertLineItemUnlocked,
+  assertRoleUnlockedForBuffer,
+} from '@/lib/lock-guards';
 import { cardFlags, lineEnvelope, EMPTY_ENVELOPE } from './dto';
 import type { ItemDTO, LineItemDTO, SectionDTO } from './dto';
 
@@ -144,8 +151,11 @@ export async function createMenuItem(estimateId: string, sectionId: string | nul
 }
 
 export async function renameMenuItem(id: string, title: string): Promise<void> {
-  await requireSession();
+  const actor = await requireUser();
   await assertEditable(await estimateIdForItem(id));
+  // Only refused once EVERY row on the card is locked — a title describes the
+  // whole card, so one frozen role slice says nothing about it. AEH-238.
+  await assertCardTitleUnlocked(id, actor.id);
   await prisma.menuItem.update({ where: { id }, data: { title: title.trim() || 'Untitled item' } });
 }
 
@@ -160,13 +170,16 @@ export async function renameMenuItem(id: string, title: string): Promise<void> {
  * bearing. This is the gate; the disabled button in the editor is the courtesy.
  */
 export async function setItemEnabled(id: string, enabled: boolean): Promise<void> {
-  await requireSession();
+  const actor = await requireUser();
   const item = await prisma.menuItem.findUnique({
     where: { id },
     select: { estimateId: true, title: true, meta: true },
   });
   if (!item) throw new Error('Menu item not found');
   await assertEditable(item.estimateId);
+  // Switching a card off does not touch a row, but it removes those hours from
+  // every total on the estimate — which is the number a lock protects. AEH-238.
+  await assertCardStructureUnlocked(id, actor.id);
 
   if (!enabled) {
     const flags = cardFlags(item.meta);
@@ -184,8 +197,11 @@ export async function setItemEnabled(id: string, enabled: boolean): Promise<void
 }
 
 export async function deleteMenuItem(id: string): Promise<void> {
-  await requireSession();
+  const actor = await requireUser();
   await assertEditable(await estimateIdForItem(id));
+  // The cascade below is exactly why this is guarded: deleting the card would
+  // take locked rows with it without ever touching a guarded row. AEH-238.
+  await assertCardStructureUnlocked(id, actor.id);
   // RoleLineItem rows cascade (onDelete: Cascade).
   await prisma.menuItem.delete({ where: { id } });
 }
@@ -194,6 +210,12 @@ export async function deleteMenuItem(id: string): Promise<void> {
  * Move an item to a (possibly different) section and persist the target
  * section's full ordering. `orderedIds` is every item id in the destination
  * section, in the order they should appear.
+ *
+ * Deliberately NOT lock-guarded. Placement is presentational — `sectionId` and
+ * `order` change nothing about anybody's hours — so a reviewer tidying the
+ * board is not editing settled work. This is also why locks are materialised to
+ * rows rather than tested against section membership: if a lock were evaluated
+ * live, this function would be a way to escape one. AEH-238.
  */
 export async function moveMenuItem(
   id: string,
@@ -213,8 +235,11 @@ export async function moveMenuItem(
 // ─── Line items ───────────────────────────────────────────────────────────────
 
 export async function createLineItem(menuItemId: string, role: RoleKind): Promise<LineItemDTO> {
-  await requireSession();
+  const actor = await requireUser();
   await assertEditable(await estimateIdForItem(menuItemId));
+  // Appending to a frozen slice moves that slice's total as surely as editing
+  // one of its rows would, so a locked card-role refuses new lines. AEH-238.
+  await assertCardRoleAcceptsNewLine(menuItemId, role, actor.id);
   const li = await prisma.roleLineItem.create({
     data: { menuItemId, role, title: '', baseHours: 0, taxedHours: 0, edited: true },
     select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
@@ -227,9 +252,10 @@ export async function updateLineItem(
   id: string,
   patch: { title?: string; baseHours?: number },
 ): Promise<LineItemDTO> {
-  await requireSession();
+  const actor = await requireUser();
   const { estimateId } = await estimateIdForLineItem(id);
   await assertEditable(estimateId);
+  await assertLineItemUnlocked(id, actor.id);
 
   const existing = await prisma.roleLineItem.findUniqueOrThrow({
     where: { id },
@@ -271,9 +297,12 @@ export async function setLineItemSide(
   id: string,
   side: { touchesFrontend: boolean; touchesBackend: boolean },
 ): Promise<LineItemDTO> {
-  await requireSession();
+  const actor = await requireUser();
   const { estimateId } = await estimateIdForLineItem(id);
   await assertEditable(estimateId);
+  // These flags carry no hours, but they say what the row's number covers, and
+  // that is part of the description a lock freezes. AEH-238.
+  await assertLineItemUnlocked(id, actor.id);
   const li = await prisma.roleLineItem.update({
     where: { id },
     data: { touchesFrontend: side.touchesFrontend, touchesBackend: side.touchesBackend, edited: true },
@@ -283,9 +312,10 @@ export async function setLineItemSide(
 }
 
 export async function deleteLineItem(id: string): Promise<void> {
-  await requireSession();
+  const actor = await requireUser();
   const { estimateId } = await estimateIdForLineItem(id);
   await assertEditable(estimateId);
+  await assertLineItemUnlocked(id, actor.id);
   await prisma.roleLineItem.delete({ where: { id } });
 }
 
@@ -344,6 +374,10 @@ export async function setEstimateTaxPct(
   if (pct !== null && !isValidBufferPct(pct)) {
     throw new Error(`A buffer must be between ${MIN_BUFFER_PCT} and ${MAX_BUFFER_PCT} percent`);
   }
+  // A buffer move recomputes taxedHours for every row of the role, so it is a
+  // bulk hour change wearing different clothes. Letting it through would rewrite
+  // frozen hours without ever touching a guarded action. AEH-238.
+  await assertRoleUnlockedForBuffer(estimateId, role, actor.id);
   const field = OVERRIDE_FIELD[role];
 
   return prisma.$transaction(

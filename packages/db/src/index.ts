@@ -14,6 +14,7 @@ export * from './preset-code';
 export * from './changelog';
 export * from './preset-graph';
 export * from './estimate-graph';
+export * from './ledger-locks';
 export * from './menu-item-mapping';
 export * from './agent-catalogue';
 export * from './usage-catalogue';
