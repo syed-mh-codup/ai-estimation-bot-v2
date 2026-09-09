@@ -328,6 +328,154 @@ export async function applyRegionReplace(
   return outcome;
 }
 
+/** One card the restructure should end up with. */
+export type RestructureCard = {
+  /** Reuse this existing card row, or null to create a new one. */
+  reuseMenuItemId: string | null;
+  title: string;
+  taxonomyKey: string;
+  category: string | null;
+  phase: string | null;
+  /** Existing line items that belong here after the move. */
+  lineItemIds: string[];
+};
+
+export type RestructureOutcome = {
+  /** The cards the region now consists of, in order. */
+  cardIds: string[];
+  /** Cards that ended up empty and were removed. */
+  removedCardIds: string[];
+};
+
+/**
+ * Reshape a set of cards: move the lines, create what is needed, remove what is
+ * left empty. AEH-238.
+ *
+ * Lines are MOVED — `menuItemId` reassigned — not deleted and recreated. That
+ * keeps their ids, their provenance, their envelope meta and anything pointing
+ * at them, which matters because a restructure is usually followed by a re-cost
+ * and the council needs to see the rows as they stand.
+ *
+ * Three cascades, and none of them is the model's judgement to make:
+ *
+ * `matchScore` goes null on every card this touches. It is the Archivist's
+ * measured similarity to past work, so half a card is no longer the thing that
+ * was matched — and promotion and writeback read it, so a plausible invented
+ * figure would quietly corrupt the preset library.
+ *
+ * Scope-scenario picks and dependency edges for the affected cards are dropped,
+ * by the rule the pipeline's own persist already states: dependencies, and the
+ * scopes cut from them, are properties of one particular set of cards. A split
+ * replaced that set.
+ *
+ * A hidden-work finding's card link is cleared while its outcome survives —
+ * also the existing precedent. What somebody decided about a risk is a fact;
+ * which card it landed in is not, once that card has been reshaped.
+ */
+export async function applyRestructure(
+  db: PrismaClient,
+  args: { estimateId: string; sourceCardIds: string[]; cards: RestructureCard[] },
+): Promise<RestructureOutcome> {
+  const { estimateId, sourceCardIds, cards } = args;
+
+  const sources = await db.menuItem.findMany({
+    where: { id: { in: sourceCardIds }, estimateId },
+    select: { id: true, sectionId: true, order: true, injected: true, overhead: true, meta: true },
+  });
+  if (sources.length === 0) return { cardIds: [], removedCardIds: [] };
+
+  // New cards join the first source's section, immediately after it, so a split
+  // appears where the person was looking rather than at the bottom of the board.
+  const anchor = sources.reduce((lowest, s) => (s.order < lowest.order ? s : lowest), sources[0]!);
+
+  return db.$transaction(
+    async (tx) => {
+      const cardIds: string[] = [];
+
+      for (const [index, card] of cards.entries()) {
+        let menuItemId = card.reuseMenuItemId;
+
+        if (menuItemId && sources.some((s) => s.id === menuItemId)) {
+          await tx.menuItem.update({
+            where: { id: menuItemId },
+            data: {
+              title: card.title,
+              taxonomyKey: card.taxonomyKey,
+              category: card.category,
+              phase: card.phase,
+              // Never carried, never invented. See the note above.
+              matchScore: null,
+            },
+          });
+        } else {
+          const created = await tx.menuItem.create({
+            data: {
+              estimateId,
+              title: card.title,
+              taxonomyKey: card.taxonomyKey,
+              category: card.category,
+              phase: card.phase,
+              sectionId: anchor.sectionId,
+              order: anchor.order + index,
+              // A card carved out of an injected one is still inferred work,
+              // and a card carved out of an overhead one is still overhead:
+              // both flags change behaviour elsewhere and must not be lost.
+              injected: anchor.injected,
+              overhead: anchor.overhead,
+              // The requirement ids come from the source, because that is what
+              // the work is still against — a split does not re-classify it.
+              meta: anchor.meta ?? undefined,
+              matchScore: null,
+            },
+            select: { id: true },
+          });
+          menuItemId = created.id;
+        }
+
+        if (card.lineItemIds.length > 0) {
+          await tx.roleLineItem.updateMany({
+            where: { id: { in: card.lineItemIds } },
+            data: { menuItemId },
+          });
+        }
+        cardIds.push(menuItemId);
+      }
+
+      // Anything left with no lines was emptied by the move. Removing it is the
+      // merge half of this operation: two cards become one, and the loser goes.
+      const emptied = await tx.menuItem.findMany({
+        where: { id: { in: sourceCardIds.filter((id) => !cardIds.includes(id)) } },
+        select: { id: true, _count: { select: { lineItems: true } } },
+      });
+      const removedCardIds = emptied.filter((e) => e._count.lineItems === 0).map((e) => e.id);
+
+      const touched = [...new Set([...cardIds, ...removedCardIds])];
+
+      // The scopes cut from this set of cards, and the graph over it, are no
+      // longer about the cards that exist. Same rule the run persist states.
+      await tx.scopeScenarioPick.deleteMany({ where: { menuItemId: { in: touched } } });
+      await tx.menuItemDependency.deleteMany({
+        where: {
+          estimateId,
+          OR: [{ dependentId: { in: touched } }, { prerequisiteId: { in: touched } }],
+        },
+      });
+      // The decision survives; the link does not.
+      await tx.hiddenWorkFinding.updateMany({
+        where: { estimateId, menuItemId: { in: touched } },
+        data: { menuItemId: null },
+      });
+
+      if (removedCardIds.length > 0) {
+        await tx.menuItem.deleteMany({ where: { id: { in: removedCardIds } } });
+      }
+
+      return { cardIds, removedCardIds };
+    },
+    { maxWait: 15_000, timeout: 60_000 },
+  );
+}
+
 /**
  * Put a region back to its snapshot.
  *
@@ -352,10 +500,21 @@ export async function revertRegion(
 ): Promise<{ rowsRestored: number }> {
   const edit = await db.ledgerEdit.findUniqueOrThrow({
     where: { id: args.editId },
-    select: { status: true, beforeSnapshot: true, afterSnapshot: true },
+    select: { status: true, mode: true, beforeSnapshot: true, afterSnapshot: true },
   });
   if (edit.status !== 'APPLIED') {
     throw new Error(`Only an applied edit can be put back; this one is ${edit.status}.`);
+  }
+  // A restructure is deliberately not revertible, and saying so is better than
+  // a revert that half-works. Putting the rows back where they came from would
+  // leave the cards the split CREATED sitting empty, and could not resurrect a
+  // card the merge deleted — so the ledger would end up in a state that is
+  // neither before nor after. Undoing a reshape properly belongs with the
+  // richer undo model, which is explicitly later work.
+  if (edit.mode !== 'REPRICE') {
+    throw new Error(
+      'A split or merge cannot be put back automatically — the cards it created would be left behind and the ones it removed cannot be restored. Reshape it by hand, or re-price from here.',
+    );
   }
 
   const snapshot = edit.beforeSnapshot as unknown as RegionSnapshot | null;

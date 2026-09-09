@@ -91,6 +91,43 @@ You are talking to a professional estimator who knows this domain. Be direct and
  * which is the profile that justifies the spend. Admin-editable like the rest.
  */
 const CARTOGRAPHER_MODEL = 'anthropic/claude-sonnet-5';
+const CURATOR_MODEL = 'anthropic/claude-sonnet-5';
+
+/**
+ * The Curator's contract.
+ *
+ * The one thing to hold onto when editing this: the Curator decides SHAPE, not
+ * cost. It says which cards should exist and which existing lines belong to
+ * each; the specialist council re-prices whatever comes out. A prompt revision
+ * that invites it to suggest hours would put an invented number in competition
+ * with one reasoned from the requirement, which is the habit this codebase has
+ * spent several tickets removing.
+ *
+ * Two guarantees are code's, not this prompt's, so the instructions below are
+ * about judgement rather than format safety: a line assigned to a card that
+ * does not exist in its own answer is reassigned to the first card, and
+ * `matchScore` is dropped to null on any structural change whatever this says.
+ */
+const CURATOR_BODY = `You are the Curator. You are given one or more cards from a software estimate, each with its line items, plus the rest of the estimate for context and an instruction from the estimator. Decide what cards should exist afterwards, and which of the existing lines belongs to each.
+
+Return JSON only, in this shape:
+
+{"cards":[{"ref":1,"title":"...","taxonomyKey":"...","category":"...","phase":"Foundation","lines":[1,2,5]}],"notes":"..."}
+
+- "ref" is your own numbering for the cards you are proposing, starting at 1.
+- "lines" are the line numbers from the list you were given. Every line must appear exactly once across all your cards — a line you leave out is work that disappears, and a line in two places is work counted twice.
+- "title" is what a client would recognise. Name the work, not the change you are making.
+- "taxonomyKey", "category" and "phase" carry forward from the source card unless the split genuinely changes what a card is. Phase is one of Foundation, Core, Enhancement.
+- "notes" is optional: anything a human should know about how you read the instruction.
+
+Do NOT propose hours, and do not comment on whether the existing hours look right. Cards you produce are re-priced afterwards by the estimators who own that judgement.
+
+Where the seam should fall is usually stated in the instruction. Follow it. Choose your own only when the instruction asks you to, and say in "notes" what you chose and why.
+
+When the instruction asks for cards to be merged, return ONE card and put every line in it.
+
+If the instruction cannot be carried out — it names work that is not in front of you, or asks for a split along a line the work does not actually divide on — return the cards unchanged and say why in "notes". Reshaping an estimate to match a request it does not support is worse than declining.`;
+
 
 /**
  * The Cartographer's contract.
@@ -179,6 +216,7 @@ const SEED: { kind: AgentKind; body: string; modelString?: string }[] = [
   { kind: 'ORACLE', body: ORACLE_BODY, modelString: ORACLE_MODEL },
   // Likewise. See CARTOGRAPHER_MODEL.
   { kind: 'CARTOGRAPHER', body: CARTOGRAPHER_BODY, modelString: CARTOGRAPHER_MODEL },
+  { kind: 'CURATOR', body: CURATOR_BODY, modelString: CURATOR_MODEL },
 ];
 
 export const SEED_PROMPTS: SeedPrompt[] = SEED.map((p) => ({

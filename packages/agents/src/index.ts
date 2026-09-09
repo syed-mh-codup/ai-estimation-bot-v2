@@ -24,4 +24,5 @@ export * from './cartographer';
 export * from './artifact-dossier';
 export * from './artifact-shell';
 export * from './artifacts';
+export * from './curator';
 export * from './ledger-edit';

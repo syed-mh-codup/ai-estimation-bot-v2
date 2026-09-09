@@ -92,6 +92,15 @@ enum AgentKind {
   /// on which, so the scope configurator has a graph to cascade over. On demand
   /// because it uses a heavy model and most estimates never need one. AEH-235.
   CARTOGRAPHER
+  /// Not part of a run either. Decides what belongs together on a card when a
+  /// person asks for one to be split or several merged. AEH-238.
+  ///
+  /// A separate kind rather than reuse, and the reason is what it does NOT do:
+  /// it never prices anything. It decides which cards should exist and which
+  /// existing lines belong to each, and the specialist council re-prices the
+  /// result afterwards. The Architect assembles cards from a whole run's
+  /// specialist output, which is a different job with a different input.
+  CURATOR
 }
 
 /// The attribution vocabulary for ModelUsage rows. Owned in code by
@@ -110,6 +119,7 @@ enum UsageKind {
   ARCHITECT
   ORACLE
   CARTOGRAPHER
+  CURATOR
   /// Supporting-document generation. ONE value for every artifact type, and
   /// deliberately so: artifact types are rows in ArtifactType, so a per-type
   /// usage kind would be a migration per type — the exact thing AEH-239 exists
@@ -1283,6 +1293,23 @@ enum LineProvenance {
   STEERED
 }
 
+/// What kind of change was asked for. AEH-238.
+///
+/// A column rather than something inferred from the instruction, because the
+/// two are genuinely different jobs — one re-prices a slice, the other reshapes
+/// the cards and then re-prices what comes out — and reading intent out of prose
+/// is exactly the guesswork the declared envelope exists to avoid.
+enum LedgerEditMode {
+  /// Re-price the declared slice. The cards are left alone.
+  REPRICE
+  /// Split or merge, then re-price the result. Cutting a module in two
+  /// re-conceives the work, so the hours move by default.
+  RESTRUCTURE
+  /// Split or merge and move the hours WITHOUT re-pricing. The opt-in, for when
+  /// somebody genuinely means "reorganise this, do not re-open the numbers".
+  RESTRUCTURE_KEEP_HOURS
+}
+
 /// How far a steered edit has got. Polled by the ledger while a job runs.
 enum LedgerEditStatus {
   /// Dispatched, not picked up yet.
@@ -1351,6 +1378,8 @@ model LedgerEdit {
   /// What the person typed, verbatim and unedited. The only record of WHY the
   /// numbers moved, which is the half of the audit that cannot be reconstructed.
   prompt            String
+  /// Re-price, or reshape and then re-price. See LedgerEditMode.
+  mode              LedgerEditMode   @default(REPRICE)
   /// The envelope's axes, in the same vocabulary a lock uses — the two are the
   /// same coordinate system read in opposite directions.
   declaredScope     LockScope

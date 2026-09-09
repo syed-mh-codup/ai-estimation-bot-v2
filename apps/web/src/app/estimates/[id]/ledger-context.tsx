@@ -40,7 +40,7 @@ import { retaxRole } from './dto';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
 import { lockRegion, unlockRegion } from './lock-actions';
 import { listLedgerEdits, startLedgerEdit } from './edit-actions';
-import { isEditInFlight, type LedgerEditDTO } from './edit-dto';
+import { isEditInFlight, type LedgerEditDTO, type LedgerEditMode } from './edit-dto';
 import { EMPTY_LOCK_STATE, type LockStateDTO } from './lock-dto';
 import type { LockTarget } from '@repo/db';
 
@@ -177,7 +177,7 @@ type Ledger = {
   /** True while a dispatch is in flight, so the button can stop double-firing. */
   editBusy: boolean;
   /** Declare the current selection and say what should happen to it. */
-  onSteer: (prompt: string) => Promise<void>;
+  onSteer: (prompt: string, mode: LedgerEditMode) => Promise<void>;
   /** Replace the edit list — used by the decision and revert controls. */
   setEdits: (next: LedgerEditDTO[]) => void;
 };
@@ -682,7 +682,7 @@ export function LedgerProvider({
   }, [estimateId]);
 
   const onSteer = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, mode: LedgerEditMode) => {
       // One card and one role at the least. Resolved server-side too — this is
       // the courtesy, not the guarantee.
       if (selectedCardIds.length === 0 || selectedRoles.length === 0) {
@@ -691,17 +691,24 @@ export function LedgerProvider({
       }
       setEditBusy(true);
       try {
-        // One card is declared as CARD; several are declared per card and
-        // dispatched as one edit each, because the envelope's scope axis has no
-        // "these three cards" value and inventing one would mean a second
-        // addressing vocabulary for locks to disagree with.
-        for (const cardId of selectedCardIds) {
+        // A merge is ONE edit over all the selected cards, because the point is
+        // that they become one thing; everything else is one edit per card, so
+        // a failure on one does not take the others down with it. The envelope's
+        // scope axis has no "these three cards" value, and inventing one would
+        // mean a second addressing vocabulary for locks to disagree with — so a
+        // multi-card reshape is declared against the first card and carries the
+        // rest in its pinned set.
+        const oneEditForAll = mode !== 'REPRICE' && selectedCardIds.length > 1;
+        const groups = oneEditForAll ? [selectedCardIds] : selectedCardIds.map((id) => [id]);
+        for (const group of groups) {
           const res = await startLedgerEdit(
             estimateId,
-            { scope: 'CARD', id: cardId },
+            { scope: 'CARD', id: group[0]! },
             [...selectedRoles],
             prompt,
             renderedAt,
+            mode,
+            group.length > 1 ? group : undefined,
           );
           if (!res.ok) {
             flashError(new Error(res.reason));

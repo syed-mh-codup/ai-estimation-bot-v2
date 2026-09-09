@@ -68,11 +68,11 @@ describe('AEH-228: prisma schema parser', () => {
     // a different message, and was measured during AEH-321 hanging for over
     // nine minutes and never returning. Down, never off — so if a fourth value
     // ever appears here, that is the thing to check it is not.
-    // 35 and 20 since AEH-238, which added LedgerLock, LockEvent and
-    // LedgerEdit, plus the LockScope, LockEventKind, LineProvenance and
-    // LedgerEditStatus enums — and removed none.
+    // 35 and 23 since AEH-238, which added LedgerLock, LockEvent and
+    // LedgerEdit, plus five enums — LockScope, LockEventKind, LineProvenance,
+    // LedgerEditStatus and LedgerEditMode — and removed none.
     expect(schema.models.size).toBe(35);
-    expect(schema.enums.size).toBe(22);
+    expect(schema.enums.size).toBe(23);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {

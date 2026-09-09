@@ -13,6 +13,15 @@ import type { LockScope, RoleKind } from '@repo/db';
  * read only by a revert.
  */
 
+/**
+ * What was asked for.
+ *
+ * `RESTRUCTURE` re-prices what comes out of the reshape, because cutting a
+ * module in two re-conceives the work. `RESTRUCTURE_KEEP_HOURS` is the opt-in
+ * for a pure reorganisation.
+ */
+export type LedgerEditMode = 'REPRICE' | 'RESTRUCTURE' | 'RESTRUCTURE_KEEP_HOURS';
+
 export type LedgerEditStatus =
   | 'QUEUED'
   | 'RUNNING'
@@ -32,6 +41,7 @@ export type LedgerEditDTO = {
   error: string | null;
   /** What the person asked for, verbatim. */
   prompt: string;
+  mode: LedgerEditMode;
   /** What the council said it did, collated across the slices. */
   reasoning: string | null;
   roles: RoleKind[];
@@ -64,9 +74,17 @@ export function isEditInFlight(e: LedgerEditDTO): boolean {
   return e.status === 'QUEUED' || e.status === 'RUNNING';
 }
 
-/** Applied, not yet put back, and therefore revertible. */
+/**
+ * Applied, not yet put back, and therefore revertible.
+ *
+ * A reshape is deliberately excluded. Putting its rows back would leave the
+ * cards it created sitting empty and could not resurrect a card it removed, so
+ * the ledger would end up in a state that is neither before nor after. Saying
+ * so is better than a revert that half-works; undoing a reshape properly
+ * belongs with the richer undo model, which is later work.
+ */
 export function isRevertible(e: LedgerEditDTO): boolean {
-  return e.status === 'APPLIED';
+  return e.status === 'APPLIED' && e.mode === 'REPRICE';
 }
 
 /**

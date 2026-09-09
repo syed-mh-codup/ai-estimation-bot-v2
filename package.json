@@ -24,7 +24,8 @@
     "test:e2e:setup": "bash scripts/setup-test-db.sh",
     "test:e2e": "bash scripts/setup-test-db.sh && pnpm --filter web exec playwright test",
     "db:seed:oracle": "pnpm --filter @repo/db db:seed:oracle",
-    "db:seed:cartographer": "pnpm --filter @repo/db db:seed:cartographer"
+    "db:seed:cartographer": "pnpm --filter @repo/db db:seed:cartographer",
+    "db:seed:curator": "pnpm --filter @repo/db db:seed:curator"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { lockEnvelope } from './ledger-locks.js';
 import {
   applyRegionReplace,
+  applyRestructure,
   regionFingerprint,
   revertRegion,
   snapshotRegion,
@@ -406,5 +407,217 @@ describe('snapshotRegion', () => {
     // Ordered by id, so the argument order cannot change the answer.
     expect(a).toEqual(b);
     expect(a.baseHours).toBe(6);
+  });
+});
+
+describe('applyRestructure', () => {
+  it('splits a card, moving lines rather than recreating them', async () => {
+    const result = await applyRestructure(db, {
+      estimateId,
+      sourceCardIds: [cardId],
+      cards: [
+        {
+          reuseMenuItemId: cardId,
+          title: 'Checkout - payment',
+          taxonomyKey: `${NS}.pay`,
+          category: null,
+          phase: 'Core',
+          lineItemIds: [line['DEV']!],
+        },
+        {
+          reuseMenuItemId: null,
+          title: 'Checkout - receipts',
+          taxonomyKey: `${NS}.receipts`,
+          category: null,
+          phase: 'Core',
+          lineItemIds: [line['QA']!],
+        },
+      ],
+    });
+
+    expect(result.cardIds).toHaveLength(2);
+    expect(result.cardIds[0]).toBe(cardId);
+    expect(result.removedCardIds).toEqual([]);
+
+    // The row MOVED: same id, new card. That is what lets a re-cost see the
+    // rows as they stand, and what keeps their provenance and envelope meta.
+    const moved = await db.roleLineItem.findUnique({
+      where: { id: line['QA']! },
+      select: { menuItemId: true, provenance: true },
+    });
+    expect(moved?.menuItemId).toBe(result.cardIds[1]);
+    expect(moved?.provenance).toBe('HUMAN');
+
+    const kept = await db.roleLineItem.findUnique({
+      where: { id: line['DEV']! },
+      select: { menuItemId: true },
+    });
+    expect(kept?.menuItemId).toBe(cardId);
+  });
+
+  it('drops matchScore on every card it touches, and keeps the anchor', async () => {
+    await db.menuItem.update({
+      where: { id: cardId },
+      data: { sourcePresetId: 'preset-x', matchScore: 0.87 },
+    });
+
+    await applyRestructure(db, {
+      estimateId,
+      sourceCardIds: [cardId],
+      cards: [
+        {
+          reuseMenuItemId: cardId,
+          title: 'Half a card',
+          taxonomyKey: `${NS}.half`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['DEV']!],
+        },
+        {
+          reuseMenuItemId: null,
+          title: 'The other half',
+          taxonomyKey: `${NS}.other-half`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['QA']!],
+        },
+      ],
+    });
+
+    // Half a card is no longer the thing the Archivist measured, and promotion
+    // and writeback both read this figure — so it goes null rather than being
+    // carried across or, worse, invented.
+    const after = await db.menuItem.findMany({
+      where: { estimateId, title: { in: ['Half a card', 'The other half'] } },
+      select: { matchScore: true, sourcePresetId: true },
+    });
+    expect(after).toHaveLength(2);
+    for (const c of after) expect(c.matchScore).toBeNull();
+    // The anchor itself survives: it still says what the card came from.
+    expect(after.some((c) => c.sourcePresetId === 'preset-x')).toBe(true);
+  });
+
+  it('merges two cards into one and removes the emptied one', async () => {
+    const otherLineId = (
+      await db.roleLineItem.findFirstOrThrow({
+        where: { menuItemId: otherCardId },
+        select: { id: true },
+      })
+    ).id;
+
+    const result = await applyRestructure(db, {
+      estimateId,
+      sourceCardIds: [cardId, otherCardId],
+      cards: [
+        {
+          reuseMenuItemId: cardId,
+          title: 'Checkout and reports',
+          taxonomyKey: `${NS}.both`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['DEV']!, line['QA']!, otherLineId],
+        },
+      ],
+    });
+
+    expect(result.cardIds).toEqual([cardId]);
+    expect(result.removedCardIds).toEqual([otherCardId]);
+    expect(await db.menuItem.count({ where: { id: otherCardId } })).toBe(0);
+    // Every line survived. A card disappearing must never take work with it.
+    expect(await db.roleLineItem.count({ where: { menuItemId: cardId } })).toBe(3);
+  });
+
+  it('invalidates the scopes and edges cut from the old card set, and unlinks findings', async () => {
+    const scenario = await db.scopeScenario.create({
+      data: { estimateId, name: 'A cut', createdById: userId },
+      select: { id: true },
+    });
+    await db.scopeScenarioPick.create({ data: { scenarioId: scenario.id, menuItemId: cardId } });
+    await db.menuItemDependency.create({
+      data: { estimateId, dependentId: cardId, prerequisiteId: otherCardId, source: 'MANUAL' },
+    });
+    const finding = await db.hiddenWorkFinding.create({
+      data: {
+        estimateId,
+        riskFlag: `${NS}-FLAG`,
+        claim: 'rate limiting',
+        citation: 'p3',
+        requirementId: 'REQ-001',
+        outcome: 'ACCEPTED',
+        menuItemId: cardId,
+      },
+      select: { id: true },
+    });
+
+    await applyRestructure(db, {
+      estimateId,
+      sourceCardIds: [cardId],
+      cards: [
+        {
+          reuseMenuItemId: cardId,
+          title: 'Reshaped',
+          taxonomyKey: `${NS}.reshaped`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['DEV']!, line['QA']!],
+        },
+      ],
+    });
+
+    // The rule the pipeline's own persist already states: dependencies, and
+    // the scopes cut from them, are properties of one particular set of cards.
+    expect(await db.scopeScenarioPick.count({ where: { scenarioId: scenario.id } })).toBe(0);
+    expect(await db.menuItemDependency.count({ where: { estimateId } })).toBe(0);
+    // The decision survives; only the link goes.
+    expect(
+      await db.hiddenWorkFinding.findUniqueOrThrow({
+        where: { id: finding.id },
+        select: { outcome: true, menuItemId: true },
+      }),
+    ).toEqual({ outcome: 'ACCEPTED', menuItemId: null });
+  });
+
+  it('gives a created card the anchor section and its injected/overhead flags', async () => {
+    const section = await db.estimateSection.create({
+      data: { estimateId, title: 'Phase one', order: 0 },
+      select: { id: true },
+    });
+    await db.menuItem.update({
+      where: { id: cardId },
+      data: { sectionId: section.id, injected: true, overhead: true, order: 5 },
+    });
+
+    const result = await applyRestructure(db, {
+      estimateId,
+      sourceCardIds: [cardId],
+      cards: [
+        {
+          reuseMenuItemId: cardId,
+          title: 'Kept',
+          taxonomyKey: `${NS}.kept`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['DEV']!],
+        },
+        {
+          reuseMenuItemId: null,
+          title: 'Carved out',
+          taxonomyKey: `${NS}.carved`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['QA']!],
+        },
+      ],
+    });
+
+    // A card carved out of inferred work is still inferred, and one carved out
+    // of an overhead card is still overhead. Both flags change behaviour
+    // elsewhere, so losing them would be a silent miscount.
+    expect(
+      await db.menuItem.findUniqueOrThrow({
+        where: { id: result.cardIds[1]! },
+        select: { sectionId: true, injected: true, overhead: true, order: true },
+      }),
+    ).toEqual({ sectionId: section.id, injected: true, overhead: true, order: 6 });
   });
 });

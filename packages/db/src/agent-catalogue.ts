@@ -203,6 +203,19 @@ export const AGENT_CATALOGUE: AgentProfile[] = [
     produces: ['Card dependencies', 'Foundation set'],
   },
   {
+    kind: 'CURATOR',
+    label: 'Curator',
+    track: 'SUPPLEMENTAL',
+    order: 3,
+    blurb: 'Decides what belongs together on a card when one is split or several merged.',
+    summary:
+      'Runs when somebody asks for a card to be broken up or for several to be combined. It decides which cards should exist afterwards and which of the existing lines belongs to each of them — and nothing else. It never sets an hour: the specialist council re-prices whatever comes out of it, which is why cutting a module in two changes the estimate rather than just relabelling it.',
+    detail:
+      'Runs on demand against one card or a handful, never as part of a run. It reads the cards in question with their line items, the rest of the estimate as context, and the instruction a person typed. What it returns is a shape: the cards that should exist, each with a title and the taxonomy, category and phase judgments that go with it, plus an assignment of every existing line to one of them. Two things it is deliberately not allowed to do. It never proposes hours, because the council re-prices the result and a number invented here would compete with one that was reasoned from the requirement. And it never invents a match score — that figure is the Archivist’s measurement of how closely a card resembled past work, so a split drops it to null rather than guessing at it, since half a card is no longer the thing that was matched. Where the seam should fall is normally stated by the person asking; it will choose one itself, but only when asked to.',
+    consumes: ['Menu card', 'The estimator’s instruction'],
+    produces: ['Card structure', 'Line assignments'],
+  },
+  {
     kind: 'SUPERVISOR',
     label: 'Supervisor',
     track: 'REFERENCE',

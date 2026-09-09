@@ -5,6 +5,7 @@ import { Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ROLES, useLedger, type Role } from './ledger-context';
+import type { LedgerEditMode } from './edit-dto';
 
 /**
  * The edit envelope's control surface — AEH-238.
@@ -32,6 +33,16 @@ export function EditBar() {
     locks,
   } = useLedger();
   const [prompt, setPrompt] = useState('');
+  /**
+   * Re-price, or reshape.
+   *
+   * An explicit choice rather than something read out of the instruction.
+   * "Split this in two" and "these hours are heavy" are different write paths —
+   * one moves cards around, the other only rewrites rows — and guessing which
+   * somebody meant is exactly the ambiguity a declared envelope exists to
+   * remove. It also lets the consequence be stated before the click.
+   */
+  const [mode, setMode] = useState<LedgerEditMode>('REPRICE');
 
   if (isFinalised || selectedCardIds.length === 0) return null;
 
@@ -55,6 +66,7 @@ export function EditBar() {
     0,
   );
   const ready = selectedRoles.length > 0 && rowCount > 0 && lockedInSelection === 0;
+  const reshaping = mode !== 'REPRICE';
 
   return (
     <div
@@ -97,6 +109,34 @@ export function EditBar() {
             : `${rowCount} line${rowCount === 1 ? '' : 's'} may change`}
         </span>
 
+        <div className="flex items-center gap-1">
+          {(
+            [
+              ['REPRICE', 'Re-price'],
+              ['RESTRUCTURE', 'Reshape'],
+            ] as const
+          ).map(([value, label]) => {
+            const on = value === 'REPRICE' ? !reshaping : reshaping;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                aria-pressed={on}
+                className={cn(
+                  'rounded border px-1.5 py-0.5 text-[10.5px] font-semibold',
+                  on
+                    ? 'border-green bg-green/10 text-green'
+                    : 'border-line bg-surface text-ink-4 hover:text-ink-2',
+                )}
+                data-testid={`edit-mode-${value}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
         <button
           type="button"
           onClick={clearSelection}
@@ -106,6 +146,24 @@ export function EditBar() {
           <X className="h-3 w-3" aria-hidden /> Clear
         </button>
       </div>
+
+      {reshaping && (
+        <label className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-3">
+          <input
+            type="checkbox"
+            checked={mode === 'RESTRUCTURE_KEEP_HOURS'}
+            onChange={(e) =>
+              setMode(e.currentTarget.checked ? 'RESTRUCTURE_KEEP_HOURS' : 'RESTRUCTURE')
+            }
+            className="h-3 w-3 accent-green"
+            data-testid="edit-keep-hours"
+          />
+          Keep the hours as they are
+          <span className="text-ink-4">
+            — otherwise the work is re-priced, because cutting a module in two re-conceives it
+          </span>
+        </label>
+      )}
 
       {lockedInSelection > 0 && (
         <p className="mt-1.5 text-[11.5px] text-bronze-ink" data-testid="edit-locked-warning">
@@ -124,11 +182,15 @@ export function EditBar() {
             // whole feature exists to remove.
             if (e.key === 'Enter' && !e.shiftKey && ready && !editBusy) {
               e.preventDefault();
-              void onSteer(prompt).then(() => setPrompt(''));
+              void onSteer(prompt, mode).then(() => setPrompt(''));
             }
           }}
           rows={2}
-          placeholder="The work described is right but the hours are too heavy — re-think it."
+          placeholder={
+            reshaping
+              ? 'Split this into the reporting part and the export part.'
+              : 'The work described is right but the hours are too heavy — re-think it.'
+          }
           aria-label="What should change inside the selection"
           className="min-w-0 flex-1 resize-y rounded border border-line bg-surface px-2 py-1.5 text-[12.5px] text-ink placeholder:text-ink-4 focus:border-green focus:outline-none"
           data-testid="edit-prompt"
@@ -137,16 +199,18 @@ export function EditBar() {
           type="button"
           size="sm"
           disabled={!ready || editBusy || prompt.trim().length === 0}
-          onClick={() => void onSteer(prompt).then(() => setPrompt(''))}
+          onClick={() => void onSteer(prompt, mode).then(() => setPrompt(''))}
           data-testid="edit-submit"
         >
-          <Sparkles className="h-3 w-3" /> {editBusy ? 'Starting…' : 'Re-price'}
+          <Sparkles className="h-3 w-3" />{' '}
+          {editBusy ? 'Starting…' : reshaping ? 'Reshape' : 'Re-price'}
         </Button>
       </div>
 
       <p className="mt-1.5 text-[11px] leading-snug text-ink-4">
-        The council re-prices only what is ticked above, against the same requirement it costed
-        first time. It can read the rest of the estimate; it cannot change it.
+        {reshaping
+          ? 'Only the ticked lines move. A reshape cannot be put back automatically, because the cards it creates would be left behind.'
+          : 'The council re-prices only what is ticked above, against the same requirement it costed first time. It can read the rest of the estimate; it cannot change it.'}
       </p>
     </div>
   );

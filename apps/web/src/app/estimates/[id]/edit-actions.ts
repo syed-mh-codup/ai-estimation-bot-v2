@@ -2,7 +2,7 @@
 
 import {
   applyRegionReplace,
-  lockedWithin,
+  locksOn,
   prisma,
   regionFingerprint,
   resolveTarget,
@@ -14,7 +14,7 @@ import {
 import { requireUser } from '@/lib/rbac';
 import { inngest, EVENT_LEDGER_EDIT } from '@/lib/inngest';
 import { taxContextForEstimate } from '@/lib/estimate-tax';
-import type { LedgerEditDTO } from './edit-dto';
+import type { LedgerEditDTO, LedgerEditMode } from './edit-dto';
 
 /**
  * Starting, deciding and undoing a steered edit — AEH-238.
@@ -50,6 +50,7 @@ const EDIT_SELECT = {
   pct: true,
   error: true,
   prompt: true,
+  mode: true,
   reasoning: true,
   roles: true,
   declaredScope: true,
@@ -74,6 +75,7 @@ type EditRow = {
   pct: number;
   error: string | null;
   prompt: string;
+  mode: LedgerEditMode;
   reasoning: string | null;
   roles: RoleKind[];
   declaredScope: string;
@@ -99,6 +101,7 @@ function toDTO(row: EditRow, viewerId: string, reverterNames?: Map<string, strin
     pct: row.pct,
     error: row.error,
     prompt: row.prompt,
+    mode: row.mode,
     reasoning: row.reasoning,
     roles: row.roles,
     scope: row.declaredScope as LedgerEditDTO['scope'],
@@ -144,6 +147,16 @@ export async function startLedgerEdit(
   roles: RoleKind[],
   prompt: string,
   renderedAt: string,
+  mode: LedgerEditMode = 'REPRICE',
+  /**
+   * Extra cards to pull into the same envelope, for a merge.
+   *
+   * A merge is one edit over several cards, because becoming one thing is the
+   * point of it. The scope axis has no "these three cards" value — inventing
+   * one would give locks a second addressing vocabulary to disagree with — so
+   * the declaration names the first card and the rest ride in the pinned set.
+   */
+  alsoCardIds?: string[],
 ): Promise<StartEditResult> {
   const actor = await requireUser();
   await assertOpen(estimateId);
@@ -152,7 +165,19 @@ export async function startLedgerEdit(
   if (instruction.length === 0) return { ok: false, reason: 'Say what should change.' };
 
   const envelope = { target, roles };
-  const pinnedLineItemIds = await resolveTarget(prisma, estimateId, envelope);
+  const extra = (alsoCardIds ?? []).filter((id) => !(target.scope === 'CARD' && id === target.id));
+  const pinnedLineItemIds = [
+    ...new Set([
+      ...(await resolveTarget(prisma, estimateId, envelope)),
+      // Resolved through the same function, once per extra card, so a merge
+      // cannot reach rows a single-card declaration could not.
+      ...(
+        await Promise.all(
+          extra.map((id) => resolveTarget(prisma, estimateId, { target: { scope: 'CARD', id }, roles })),
+        )
+      ).flat(),
+    ]),
+  ];
   if (pinnedLineItemIds.length === 0) {
     return {
       ok: false,
@@ -160,8 +185,10 @@ export async function startLedgerEdit(
     };
   }
 
-  // The enforcement rule, at the only point where refusing is cheap.
-  const locks = await lockedWithin(prisma, estimateId, envelope);
+  // The enforcement rule, at the only point where refusing is cheap. Asked of
+  // the resolved write set rather than the declaration, so a merge's extra
+  // cards are covered too.
+  const locks = [...(await locksOn(prisma, pinnedLineItemIds)).values()];
   if (locks.length > 0) {
     const holders = await prisma.user.findMany({
       where: { id: { in: [...new Set(locks.map((l) => l.lockedById))] } },
@@ -209,6 +236,7 @@ export async function startLedgerEdit(
       estimateId,
       actorId: actor.id,
       prompt: instruction,
+      mode,
       declaredScope: target.scope,
       declaredTargetId: target.scope === 'ESTIMATE' ? null : target.id,
       roles,

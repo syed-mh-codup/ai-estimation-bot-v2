@@ -1,6 +1,8 @@
 import {
   applyRegionReplace,
+  applyRestructure,
   regionFingerprint,
+  snapshotRegion,
   toMenuItem,
   type ApplyOutcome,
   type PrismaClient,
@@ -17,6 +19,7 @@ import {
 } from '@repo/shared';
 
 import { runSpecialist, type SpecialistContext } from './specialist';
+import { runCurator, type CuratableCard } from './curator';
 import { loadActivePrompt } from './run-estimate';
 import { createUsageRecorder } from './usage-recorder';
 
@@ -64,7 +67,7 @@ export type LedgerEditDeps = {
 };
 
 export type LedgerEditResult = {
-  outcome: ApplyOutcome;
+  outcome: ApplyOutcome | { kind: 'RESTRUCTURED'; cardIds: string[] };
   /** Cards the council was asked to re-price. */
   cardsReassessed: number;
   /** What the council said it was doing, collated across the slices. */
@@ -202,6 +205,7 @@ export async function runLedgerEdit(
     select: {
       estimateId: true,
       prompt: true,
+      mode: true,
       roles: true,
       pinnedLineItemIds: true,
       pinnedCardIds: true,
@@ -345,11 +349,132 @@ export async function runLedgerEdit(
     },
   };
 
+  // ── Phase one: reshape, when that is what was asked for ────────────────────
+  //
+  // The Curator decides which cards should exist and which lines belong to
+  // each; `applyRestructure` moves them. The lines keep their ids, so the write
+  // set pinned at dispatch is still exactly right — only the grouping changes.
+  //
+  // RESTRUCTURE_KEEP_HOURS stops here. RESTRUCTURE falls through to the re-cost
+  // below, because cutting a module in two re-conceives the work: the hours
+  // have to move, and they move by being re-priced against the requirement
+  // rather than by the reshape guessing at them.
+  let cardIdsAfterRestructure = edit.pinnedCardIds;
+  const restructureNotes: string[] = [];
+
+  if (edit.mode !== 'REPRICE') {
+    await report('Working out the new shape', 20);
+    const curatorPrompt = await loadActivePrompt(db, 'CURATOR');
+    const curatable: CuratableCard[] = [];
+    for (const cardId of edit.pinnedCardIds) {
+      const card = allCards.find((c) => c.id === cardId);
+      if (!card) continue;
+      curatable.push({
+        menuItemId: card.id,
+        title: card.title,
+        taxonomyKey: card.taxonomyKey,
+        category: card.category,
+        phase: card.phase,
+        // Only the lines in the envelope may move. A card's other roles stay
+        // where they are, which is what keeps a DEV-scoped split from silently
+        // dragging QA around with it.
+        lines: card.lineItems
+          .filter((li) => edit.pinnedLineItemIds.includes(li.id))
+          .map((li) => ({
+            lineItemId: li.id,
+            role: li.role,
+            description: li.title ?? '(no description)',
+            hours: li.baseHours,
+          })),
+      });
+    }
+
+    const curated = await step('curate', () =>
+      runCurator(
+        { cards: curatable, instruction: edit.prompt, ledgerContext },
+        {
+          modelProvider,
+          modelString: curatorPrompt.modelString,
+          instructions: curatorPrompt.body,
+          recorder,
+          levers: curatorPrompt.levers,
+        },
+      ),
+    );
+
+    if (curated.notes) restructureNotes.push(curated.notes);
+
+    if (curated.cards.length > 0) {
+      await report('Reshaping the cards', 35);
+      const result = await applyRestructure(db, {
+        estimateId: edit.estimateId,
+        sourceCardIds: edit.pinnedCardIds,
+        cards: curated.cards,
+      });
+      cardIdsAfterRestructure = result.cardIds;
+      await db.ledgerEdit.update({
+        where: { id: editId },
+        data: { pinnedCardIds: result.cardIds },
+      });
+      restructureNotes.push(
+        `Reshaped into ${result.cardIds.length} card${result.cardIds.length === 1 ? '' : 's'}${
+          result.removedCardIds.length
+            ? `, removing ${result.removedCardIds.length} that ended up empty`
+            : ''
+        }.`,
+      );
+    }
+
+    if (edit.mode === 'RESTRUCTURE_KEEP_HOURS') {
+      // The hours were carried, not re-opened. Nothing to price, so the edit is
+      // complete — and the snapshot still records what the region looked like.
+      const before = await snapshotRegion(db, edit.pinnedLineItemIds);
+      await db.ledgerEdit.update({
+        where: { id: editId },
+        data: {
+          status: 'APPLIED',
+          stage: 'Reshaped',
+          pct: 100,
+          appliedAt: new Date(),
+          reasoning: restructureNotes.join(' ') || null,
+          beforeSnapshot: before as never,
+          rowsBefore: before.rows.length,
+          rowsAfter: before.rows.length,
+          hoursBefore: before.baseHours,
+          hoursAfter: before.baseHours,
+        },
+      });
+      await report('Reshaped', 100);
+      return {
+        outcome: { kind: 'RESTRUCTURED', cardIds: cardIdsAfterRestructure },
+        cardsReassessed: 0,
+        reasoning: restructureNotes.join(' '),
+      };
+    }
+  }
+
+  // Re-read after a reshape: the rows kept their ids but changed cards, so the
+  // grouping below has to come from the database rather than from `pinned`.
+  const grouped =
+    edit.mode === 'REPRICE'
+      ? pinned
+      : await db.roleLineItem.findMany({
+          where: { id: { in: edit.pinnedLineItemIds } },
+          select: {
+            id: true,
+            menuItemId: true,
+            role: true,
+            title: true,
+            baseHours: true,
+            provenance: true,
+          },
+        });
+
   // One unit of work per (card, role) — the envelope's own granularity.
   const slices: Array<{ cardId: string; role: RoleKind; existing: ExistingLine[] }> = [];
-  for (const cardId of edit.pinnedCardIds) {
+  for (const cardId of cardIdsAfterRestructure) {
     for (const role of rolesInPlay) {
-      const rows = pinned.filter((p) => p.menuItemId === cardId && p.role === role);
+      const rows = grouped.filter((p) => p.menuItemId === cardId && p.role === role);
       if (rows.length === 0) continue;
       slices.push({
         cardId,
@@ -367,8 +492,51 @@ export async function runLedgerEdit(
   const reasoningParts: string[] = [];
   let done = 0;
 
+  // A reshape creates cards `allCards` predates, so their metadata is read back
+  // rather than looked up in the pre-restructure snapshot.
+  const cardsNow =
+    edit.mode === 'REPRICE'
+      ? allCards
+      : await db.menuItem.findMany({
+          where: { id: { in: cardIdsAfterRestructure } },
+          select: {
+            id: true,
+            title: true,
+            enabled: true,
+            taxonomyKey: true,
+            category: true,
+            phase: true,
+            sourcePresetId: true,
+            matchScore: true,
+            injected: true,
+            sectionId: true,
+            foundation: true,
+            overhead: true,
+            order: true,
+            estimateId: true,
+            meta: true,
+            updatedAt: true,
+            lineItems: {
+              select: {
+                id: true,
+                menuItemId: true,
+                role: true,
+                title: true,
+                baseHours: true,
+                taxedHours: true,
+                notes: true,
+                provenance: true,
+                touchesFrontend: true,
+                touchesBackend: true,
+                meta: true,
+                updatedAt: true,
+              },
+            },
+          },
+        });
+
   for (const slice of slices) {
-    const card = allCards.find((c) => c.id === slice.cardId);
+    const card = cardsNow.find((c) => c.id === slice.cardId);
     if (!card) continue;
     const domainCard = toMenuItem(card);
     const requirement = requirementForCard(requirements, domainCard.requirementIds);
@@ -389,7 +557,7 @@ export async function runLedgerEdit(
       );
       // Its existing rows are carried through unchanged so the write does not
       // silently delete them.
-      for (const row of pinned.filter(
+      for (const row of grouped.filter(
         (p) => p.menuItemId === slice.cardId && p.role === slice.role,
       )) {
         proposed.push({
@@ -434,18 +602,22 @@ export async function runLedgerEdit(
   const expectFingerprint =
     edit.fingerprint ??
     (await regionFingerprint(db, {
-      cardIds: edit.pinnedCardIds,
+      cardIds: cardIdsAfterRestructure,
       lineItemIds: edit.pinnedLineItemIds,
     }));
 
   const outcome = await applyRegionReplace(db, {
     editId,
     pinnedLineItemIds: edit.pinnedLineItemIds,
-    pinnedCardIds: edit.pinnedCardIds,
+    pinnedCardIds: cardIdsAfterRestructure,
     proposed,
     effective,
-    expectFingerprint,
-    reasoning: reasoningParts.join('\n') || null,
+    // A reshape has just written to these cards, so the fingerprint it was
+    // dispatched with is guaranteed stale. Comparing it would park every single
+    // restructure as a conflict with itself.
+    expectFingerprint: edit.mode === 'REPRICE' ? expectFingerprint : null,
+    overwriteConflict: edit.mode !== 'REPRICE',
+    reasoning: [...restructureNotes, ...reasoningParts].join('\n') || null,
   });
 
   await report(outcome.kind === 'APPLIED' ? 'Applied' : 'Waiting on a decision', 100);
@@ -453,6 +625,6 @@ export async function runLedgerEdit(
   return {
     outcome,
     cardsReassessed: new Set(slices.map((s) => s.cardId)).size,
-    reasoning: reasoningParts.join('\n'),
+    reasoning: [...restructureNotes, ...reasoningParts].join('\n'),
   };
 }

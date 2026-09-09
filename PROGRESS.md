@@ -329,10 +329,33 @@ Two bugs found and fixed while building, both worth knowing about:
   a `Pick<LedgerLock, ...>` now — the audit attributes reads by the
   RECEIVER's type.
 
-Stage 3 — structure
-- [ ] split/merge ops in the change set
-- [ ] metadata rules (matchScore null, scenario picks, graph edges, findings)
-- [ ] tests
+Stage 3 — structure  (DONE)
+- [x] a new agent, the CURATOR, which decides SHAPE and never a number
+      (`packages/agents/src/curator.ts`; enum + catalogues + seeded prompt;
+      migrations `..._aeh_238_curator`, `..._aeh_238_edit_mode`)
+- [x] `applyRestructure` — lines MOVE rather than being recreated, so they keep
+      their ids, provenance and envelope meta
+- [x] metadata rules: matchScore null, scenario picks and graph edges dropped by
+      the existing re-run rule, HiddenWorkFinding link cleared with the outcome
+      surviving, injected/overhead/section inherited by a created card
+- [x] `LedgerEditMode` — REPRICE / RESTRUCTURE / RESTRUCTURE_KEEP_HOURS, an
+      explicit choice in the bar rather than intent read out of the prose
+- [x] a reshape re-prices by default; keeping the hours is the opt-in
+- [x] tests — 5 restructure cases + 9 curator cases
+
+Two things to know about stage 3:
+
+A reshape is NOT revertible, on purpose. Putting the rows back would leave the
+cards the split created sitting empty and could not resurrect one a merge
+removed, so the ledger would end in a state that is neither before nor after.
+`isRevertible` excludes it and `revertRegion` refuses with that sentence.
+Undoing a reshape properly belongs with the richer undo model — later work.
+
+A multi-card merge is ONE edit whose declaration names the first card and
+carries the rest in its pinned set. The scope axis has no "these three cards"
+value, and inventing one would hand locks a second addressing vocabulary to
+disagree with. The lock check is asked of the RESOLVED write set for exactly
+that reason, not of the declaration.
 
 Stage 4 — assumptions + narrative
 - [ ] tables + migration + backfill
