@@ -336,9 +336,12 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
             </DndContext>
           )}
 
-          {/* Both live with the ledger rather than in the rail. AEH-302 records
-              that the rail is a fixed stack which buries its own actions, and
-              the bar is the heaviest thing that would go in it. */}
+          {/* The bar lives with the ledger rather than in the rail. AEH-302
+              records that the rail is a fixed stack which buries its own
+              actions, and this is the heaviest thing that would go in it.
+              `EditActivity` renders a fixed edge tab rather than anything in
+              this flow, so it costs the ledger no height — but it stays here
+              because everything it counts comes from LedgerProvider. */}
           <EditBar />
           <EditActivity />
         </>

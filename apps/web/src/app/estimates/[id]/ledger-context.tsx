@@ -47,7 +47,13 @@ import {
   unlockStatementRegion,
 } from './lock-actions';
 import { listLedgerEdits, startLedgerEdit, startStatementEdit } from './edit-actions';
-import { isEditInFlight, type LedgerEditDTO, type LedgerEditMode } from './edit-dto';
+import {
+  EMPTY_EDIT_COUNTS,
+  isEditInFlight,
+  type LedgerEditCounts,
+  type LedgerEditDTO,
+  type LedgerEditMode,
+} from './edit-dto';
 import { EMPTY_LOCK_STATE, type LockStateDTO } from './lock-dto';
 import type { LockTarget } from '@repo/db';
 
@@ -187,6 +193,8 @@ type Ledger = {
   onSteer: (prompt: string, mode: LedgerEditMode) => Promise<void>;
   /** Replace the edit list — used by the decision and revert controls. */
   setEdits: (next: LedgerEditDTO[]) => void;
+  /** How many edits are in each state, over all of them rather than the page. */
+  editCounts: LedgerEditCounts;
 
   // ── The statement axis (AEH-238) ────────────────────────────────────────────
   /**
@@ -256,6 +264,7 @@ export function LedgerProvider({
   viewerId,
   renderedAt,
   initialEdits,
+  initialEditCounts,
   children,
 }: {
   initialSections: SectionDTO[];
@@ -277,6 +286,7 @@ export function LedgerProvider({
    */
   renderedAt: string;
   initialEdits?: LedgerEditDTO[];
+  initialEditCounts?: LedgerEditCounts;
   children: ReactNode;
 }) {
   const [sections, setSections] = useState<SectionDTO[]>(initialSections);
@@ -297,6 +307,16 @@ export function LedgerProvider({
   const [statementKind, setStatementKind] = useState<'NARRATIVE' | 'ASSUMPTION' | null>(null);
   const [selectedStatementIds, setSelectedStatementIds] = useState<string[]>([]);
   const [edits, setEdits] = useState<LedgerEditDTO[]>(initialEdits ?? []);
+  /**
+   * TRUE counts, over every edit rather than the page `edits` holds.
+   *
+   * The list is capped so a two-second poll stays cheap; the counts are not,
+   * because "did my thirty-card re-price actually start" is exactly the
+   * question a capped list cannot answer.
+   */
+  const [editCounts, setEditCounts] = useState<LedgerEditCounts>(
+    initialEditCounts ?? EMPTY_EDIT_COUNTS,
+  );
   const [editBusy, setEditBusy] = useState(false);
   const router = useRouter();
   /**
@@ -729,8 +749,9 @@ export function LedgerProvider({
         try {
           const next = await listLedgerEdits(estimateId);
           const wasInFlight = inFlightIds.current;
-          setEdits(next);
-          const nowInFlight = new Set(next.filter(isEditInFlight).map((e) => e.id));
+          setEdits(next.edits);
+          setEditCounts(next.counts);
+          const nowInFlight = new Set(next.edits.filter(isEditInFlight).map((e) => e.id));
           inFlightIds.current = nowInFlight;
 
           // Something that WAS running has stopped, so the ledger underneath
@@ -754,6 +775,33 @@ export function LedgerProvider({
       })();
     }, 2000);
   }, [estimateId, router]);
+
+  /**
+   * Adopt the server's rows whenever the server has drawn this screen again.
+   *
+   * `renderedAt` is stamped fresh on every server render and never changes on a
+   * client one, which makes it exactly the signal for "the server is
+   * authoritative again" — a reload, a navigation, or the `router.refresh()`
+   * this file fires when a steered edit lands. A re-price replaces its rows
+   * with new ids, so without this the ledger kept rendering the hours the edit
+   * had just replaced.
+   *
+   * A key on the provider would do the same job by remounting, and that was the
+   * first attempt. It is worse: remounting mid-edit closes the activity sheet
+   * the person is watching the edit in, and throws away their selection. This
+   * keeps both.
+   */
+  useEffect(() => {
+    setSections(initialSections);
+    setItems(initialItems);
+    // Keyed on the server-render stamp ALONE, deliberately. `initialItems` is a
+    // new array reference on every render, so depending on it would re-run this
+    // effect on its own output.
+    //
+    // (No eslint-disable here: `react-hooks/exhaustive-deps` is not configured
+    // in this repo, and disabling a rule that does not exist is itself an
+    // error under `next build`'s stricter lint pass.)
+  }, [renderedAt]);
 
   // Resume polling for work that was already running when this screen was
   // drawn. Without it, `poll` only ever starts from inside a steer, so an edit
@@ -945,6 +993,7 @@ export function LedgerProvider({
     toggleRoleSelected,
     clearSelection,
     edits,
+    editCounts,
     editBusy,
     onSteer,
     setEdits,

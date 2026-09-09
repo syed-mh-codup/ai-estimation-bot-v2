@@ -50,7 +50,7 @@ export default async function AdminUsagePage({
   // predicate needs no fragment at all, so the whole hazard goes away.
   const filterId = estimateId ?? null;
 
-  const [byKindModel, byEstimateRun, totals, trend] = await Promise.all([
+  const [byKindModel, byEstimateRun, totals, editTotals, trend] = await Promise.all([
     // Bounded by the kind x model vocabulary. Feeds both the per-agent and the
     // per-model table — they are two projections of the same grouping.
     prisma.modelUsage.groupBy({ by: ['kind', 'model'], where, _sum: sums, _count: counts }),
@@ -58,6 +58,18 @@ export default async function AdminUsagePage({
     // the distinct-run count per estimate.
     prisma.modelUsage.groupBy({ by: ['estimateId', 'runId'], where, _sum: sums, _count: counts }),
     prisma.modelUsage.aggregate({ where, _sum: sums, _count: counts }),
+    // Steered-edit spend, as ONE aggregate rather than a grouping — AEH-238.
+    //
+    // A re-price is charged to SPECIALIST_DEV and the rest of the council, the
+    // same kinds a run uses, so the per-agent table cannot separate them. This
+    // says how much of the bill came from somebody steering. Deliberately not
+    // grouped by `ledgerEditId`: that is unbounded in the number of edits, and
+    // this page exists not to read every row back.
+    prisma.modelUsage.aggregate({
+      where: { ...where, ledgerEditId: { not: null } },
+      _sum: sums,
+      _count: counts,
+    }),
     // Prisma cannot group by a date truncation, and bucketing in JS would mean
     // reading every row back — the thing this page exists not to do.
     prisma.$queryRaw<TrendRow[]>`
@@ -182,6 +194,15 @@ export default async function AdminUsagePage({
         />
         <Stat label="Total tokens" value={totalTokens.toLocaleString()} />
         <Stat label="Total calls" value={totalCalls.toLocaleString()} />
+        <Stat
+          label="Of that, steering"
+          value={
+            (editTotals._sum.costUsd ?? 0) > 0
+              ? `$${(editTotals._sum.costUsd ?? 0).toFixed(4)}`
+              : '—'
+          }
+          hint={`${editTotals._count._all.toLocaleString()} calls inside a steered edit`}
+        />
       </div>
 
       <Section title="Per agent">

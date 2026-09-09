@@ -5,9 +5,15 @@ import { requireAdmin } from '@/lib/rbac';
 
 /**
  * What this estimate has cost to produce, all in — every model call across every
- * re-run, read from the one ModelUsage table. Admin-only, like its Oracle
- * sibling, because spend is an oversight number rather than an estimator's
- * working surface.
+ * re-run AND every steered edit, read from the one ModelUsage table. Admin-only,
+ * like its Oracle sibling, because spend is an oversight number rather than an
+ * estimator's working surface.
+ *
+ * Edits are separated out, and that is not decoration. A re-price is charged to
+ * SPECIALIST_DEV and the rest of the council — the same kinds a run uses — so
+ * in a per-agent breakdown alone an edit's spend is invisible as a category:
+ * the total climbs, the agent rows climb, and nothing says why. `runId` and
+ * `ledgerEditId` are what tell the two apart.
  *
  * Broken down per agent on the spot, not just totalled. "Which agent is burning
  * the money" is the question this data exists to answer, and answering it one
@@ -32,7 +38,7 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
   // how many calls the total below absorbed as zero.
   const counts = { _all: true, costUsd: true } as const;
 
-  const [totals, byKind, runs] = await Promise.all([
+  const [totals, byKind, runs, edits, byKindEdits] = await Promise.all([
     prisma.modelUsage.aggregate({ where, _sum: sums, _count: counts }),
     prisma.modelUsage.groupBy({
       by: ['kind'],
@@ -41,6 +47,21 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
       _count: { _all: true },
     }),
     prisma.modelUsage.groupBy({ by: ['runId'], where }),
+    // Steered edits, separately — AEH-238.
+    //
+    // The per-agent breakdown below cannot answer "why has this got more
+    // expensive" on its own, because a re-price is charged to SPECIALIST_DEV
+    // and the rest of the council: exactly the kinds a run uses, so an edit's
+    // spend hides inside the rows it shares with them. `ledgerEditId` is what
+    // tells them apart, and until this it was written on every edit call and
+    // read by nothing.
+    prisma.modelUsage.groupBy({ by: ['ledgerEditId'], where }),
+    prisma.modelUsage.groupBy({
+      by: ['kind'],
+      where: { ...where, ledgerEditId: { not: null } },
+      _sum: sums,
+      _count: counts,
+    }),
   ]);
 
   const calls = totals._count._all;
@@ -51,8 +72,22 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
   const unpriced = calls - totals._count.costUsd;
   const runCount = runs.filter((r) => r.runId !== null).length;
 
+  const editCount = edits.filter((e) => e.ledgerEditId !== null).length;
+  const editCostByKind = new Map(byKindEdits.map((k) => [k.kind, k._sum.costUsd ?? 0]));
+  const editCallsByKind = new Map(byKindEdits.map((k) => [k.kind, k._count._all]));
+  const editCost = byKindEdits.reduce((sum, k) => sum + (k._sum.costUsd ?? 0), 0);
+
   const kindRows = byKind
-    .map((k) => ({ kind: k.kind, cost: k._sum.costUsd ?? 0, calls: k._count._all }))
+    .map((k) => ({
+      kind: k.kind,
+      cost: k._sum.costUsd ?? 0,
+      calls: k._count._all,
+      // What of this agent's spend came from somebody steering rather than from
+      // a run. Zero for an agent no edit uses, and the whole row for CURATOR
+      // and SCRIBE, which only ever run inside an edit.
+      editCost: editCostByKind.get(k.kind) ?? 0,
+      editCalls: editCallsByKind.get(k.kind) ?? 0,
+    }))
     .sort((a, b) => b.cost - a.cost);
 
   const money = (v: number) => (v > 0 ? `$${v.toFixed(4)}` : '—');
@@ -82,6 +117,17 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
             <Stat label="Runs" value={runCount} />
           </div>
 
+          {editCount > 0 && (
+            <p
+              className="mt-3 border-t border-line-soft pt-2.5 text-[12px] text-ink-3"
+              data-testid="model-usage-edits"
+            >
+              <span className="num text-ink-2">{money(editCost)}</span> of that came from{' '}
+              <span className="num text-ink-2">{editCount}</span> steered{' '}
+              {editCount === 1 ? 'edit' : 'edits'} rather than from a run.
+            </p>
+          )}
+
           {unpriced > 0 && (
             <p className="mt-3 border-t border-line-soft pt-2.5 text-[12px] text-ink-3">
               <span className="num text-ink-2">{unpriced}</span> of{' '}
@@ -101,6 +147,15 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
                   <span>
                     {usageLabel(k.kind)}
                     <span className="num ml-1.5 text-[11px] text-ink-4">×{k.calls}</span>
+                    {/* The council is charged for both a run and a re-price, so
+                        without this the two are one number and "why has this
+                        got more expensive" has no answer on the screen that
+                        raises the question. */}
+                    {k.editCost > 0 && k.editCalls < k.calls && (
+                      <span className="ml-1.5 text-[11px] text-ink-4">
+                        ({money(k.editCost)} steering)
+                      </span>
+                    )}
                   </span>
                   <span className="num text-ink">{money(k.cost)}</span>
                 </li>

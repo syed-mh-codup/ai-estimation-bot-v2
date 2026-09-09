@@ -328,20 +328,15 @@ export default async function EstimateDetailPage({
     })),
   }));
 
-  // Remount the client ledger when the server's set of rows changes underneath
+  // Remount the client ledger when the server's set of CARDS changes underneath
   // it (e.g. a run just produced a whole new menu card).
   //
-  // LINE ITEM ids are in the key, not just the cards', and that is what makes a
-  // steered edit visible. `applyRegionReplace` deletes the pinned rows and
-  // creates replacements, so the cards it touched keep their ids while every
-  // row inside them is new. Keyed on cards alone, the provider held its old
-  // state through a refresh and the ledger kept rendering pre-edit hours — the
-  // whole output of the feature, invisible.
-  const editorKey = [
-    sectionDTOs.map((s) => s.id).join(','),
-    itemDTOs.map((i) => i.id).join(','),
-    itemDTOs.flatMap((i) => i.lineItems.map((li) => li.id)).join(','),
-  ].join('|');
+  // Line item ids are deliberately NOT in this key, though they change on every
+  // steered edit. They were, briefly, and it was the wrong instrument: the
+  // provider remounting mid-edit also closes the activity sheet somebody is
+  // watching the edit in. The provider syncs its rows from these props instead,
+  // on `renderedAt` — see the note there.
+  const editorKey = `${sectionDTOs.map((s) => s.id).join(',')}|${itemDTOs.map((i) => i.id).join(',')}`;
 
   // Artifacts. Archived types are excluded — `enabled` is what takes a type out
   // of circulation without breaking the documents already generated from it.
@@ -408,7 +403,8 @@ export default async function EstimateDetailPage({
         taxChanges={taxChanges}
         isFinalised={isFinalised}
         initialLocks={lockState}
-        initialEdits={edits}
+        initialEdits={edits.edits}
+        initialEditCounts={edits.counts}
         viewerId={viewer.id}
         renderedAt={new Date().toISOString()}
       >

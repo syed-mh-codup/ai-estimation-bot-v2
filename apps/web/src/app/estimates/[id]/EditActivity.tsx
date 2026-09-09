@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Undo2 } from 'lucide-react';
+import { PanelRight, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Eyebrow } from '@/components/ui/card';
+import { Dialog, DialogTitle, SheetContent } from '@/components/ui/dialog';
 import { useLedger } from './ledger-context';
 import { approveLedgerEdit, discardLedgerEdit, revertLedgerEdit } from './edit-actions';
 import { hoursDelta, isEditInFlight, isRevertible, type LedgerEditDTO } from './edit-dto';
@@ -42,18 +42,99 @@ function statusWords(e: LedgerEditDTO): string {
   }
 }
 
+/**
+ * The tab that opens the activity sheet.
+ *
+ * The list used to be an inline panel and it grew past what the ledger could
+ * spare: a whole-estimate re-price is one edit PER CARD, so on a thirty-card
+ * estimate the panel was taller than the thing it described. It is a
+ * right-hand sheet now, and this is its handle — a fixed tab on the right
+ * edge, directly above Oracle's and deliberately the same shape. Two edges of
+ * the same drawer rather than two unrelated buttons.
+ *
+ * The counts come from every edit the poll returned, not from what the list
+ * renders. That is the other half of the same complaint: the panel showed
+ * eight rows of thirty-four and nothing said so, so "did my bulk edit actually
+ * start" was a question whose answer was off the bottom of a list.
+ *
+ * Fixed positioning from inside `LedgerProvider` is fine — `position: fixed`
+ * ignores DOM nesting for layout — and it has to stay inside it, because
+ * everything it counts comes from `useLedger`.
+ */
 export function EditActivity() {
-  const { edits, setEdits, items, isFinalised } = useLedger();
+  const { edits, editCounts } = useLedger();
+  const [open, setOpen] = useState(false);
+  if (editCounts.total === 0 && edits.length === 0) return null;
+
+  // From the counts, not from `edits`. The list is a capped page — a
+  // whole-estimate re-price is one edit per card — so counting what is
+  // rendered is how "8 of 34" became "8", with nothing saying so.
+  const { running, queued, pendingConflict: waiting, failed } = editCounts;
+  const total = Math.max(editCounts.total, edits.length);
+  const inFlight = running + queued;
+
+  // Ordered so the most actionable thing is first. A parked conflict is a
+  // question somebody has to answer; the rest is progress.
+  const parts = [
+    waiting > 0 ? `${waiting} waiting on you` : null,
+    running > 0 ? `${running} running` : null,
+    queued > 0 ? `${queued} queued` : null,
+    failed > 0 ? `${failed} failed` : null,
+  ].filter((p): p is string => p !== null);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`Steered edits: ${total}${parts.length ? `, ${parts.join(', ')}` : ''}`}
+        className={cn(
+          // `bottom-28` clears Oracle's tab at `bottom-16`, so the two stack
+          // without either moving when the other appears or goes.
+          'fixed right-0 bottom-28 z-40 flex h-10 items-center gap-2 rounded-l-[10px] border border-r-0 bg-surface pr-3.5 pl-3 shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-colors',
+          'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
+          waiting > 0 || failed > 0
+            ? 'border-bronze-line bg-bronze-tint hover:border-bronze-ink'
+            : 'border-line hover:border-green-line hover:bg-green-tint',
+        )}
+        data-testid="edit-activity-open"
+      >
+        <PanelRight className="h-4 w-4 shrink-0 text-ink-4" aria-hidden />
+        <span className="text-[13px] font-medium whitespace-nowrap text-ink">
+          Edits
+          <span className="num ml-2 text-[11px] text-ink-4">
+            {parts.length > 0 ? parts.join(' · ') : total}
+          </span>
+        </span>
+        {inFlight > 0 && (
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-green" aria-hidden />
+        )}
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <SheetContent aria-describedby={undefined}>
+          <EditActivityList />
+        </SheetContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** The list itself, which now has a sheet's worth of room to be read in. */
+function EditActivityList() {
+  const { edits, editCounts: counts, setEdits, items, isFinalised } = useLedger();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // A settled edit stays listed, muted, rather than vanishing. An entry that
   // disappears the moment you put it back is disorienting — you cannot tell
-  // whether the revert worked or the panel lost track of it. The list is capped
-  // instead: this is the screen where the work happens, not the audit log, and
-  // the durable record is the LedgerEdit row.
-  const shown = edits.slice(0, 8);
-  if (shown.length === 0) return null;
+  // whether the revert worked or the panel lost track of it.
+  //
+  // Everything the poll returned is shown now, where an inline panel could
+  // only afford eight. The cap that remains is `take` in `listLedgerEdits`,
+  // which is a query bound rather than a rendering one, and the durable record
+  // is the LedgerEdit row either way.
+  const shown = edits;
   const settled = (e: LedgerEditDTO): boolean =>
     e.status === 'REVERTED' || e.status === 'DISCARDED';
 
@@ -79,19 +160,31 @@ export function EditActivity() {
   };
 
   return (
-    <div
-      className="mt-3 rounded-[10px] border border-line bg-surface px-4 py-3"
-      data-testid="edit-activity"
-    >
-      <Eyebrow>Steered edits</Eyebrow>
+    <div className="flex min-h-0 flex-col" data-testid="edit-activity">
+      <div className="border-b border-line px-4 py-3.5 pr-11">
+        <DialogTitle>Steered edits</DialogTitle>
+        <p className="mt-0.5 text-[11.5px] text-ink-4">
+          What was asked for, what it did, and what can be put back.
+          {/* Said plainly when the list is a page of something larger, because
+              a silent cap is what made a thirty-card steer look like it had
+              barely started. */}
+          {counts.total > shown.length && (
+            <>
+              {' '}
+              Showing the most recent <span className="num">{shown.length}</span> of{' '}
+              <span className="num">{counts.total}</span>.
+            </>
+          )}
+        </p>
+      </div>
 
       {error && (
-        <p className="mt-1.5 text-[12px] text-brick" data-testid="edit-activity-error">
+        <p className="px-4 pt-2.5 text-[12px] text-brick" data-testid="edit-activity-error">
           {error}
         </p>
       )}
 
-      <ul className="mt-2 flex flex-col gap-2.5">
+      <ul className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3">
         {shown.map((e) => {
           const delta = hoursDelta(e);
           return (
@@ -156,9 +249,7 @@ export function EditActivity() {
                 </p>
               )}
 
-              {e.reasoning && (
-                <p className="mt-0.5 text-[11.5px] leading-snug text-ink-4">{e.reasoning}</p>
-              )}
+              {e.reasoning && <Reasoning text={e.reasoning} editId={e.id} />}
 
               {e.error && (
                 <p className="mt-0.5 text-[11.5px] leading-snug text-brick">{e.error}</p>
@@ -210,6 +301,70 @@ export function EditActivity() {
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * The model's argument for what it did, made readable.
+ *
+ * It arrives as one string and was rendered as one paragraph, which turned the
+ * most substantive thing on this panel into a wall nobody read. It is not
+ * shapeless, though — the engine collates it as one entry per slice, newline
+ * separated, each of the form `Card title (ROLE): what it decided`. So the
+ * structure to render was already in the text and only needed respecting:
+ * split on the newlines, and lift that prefix out as a label.
+ *
+ * Folded shut past the first two entries. A whole-estimate re-price collates
+ * one entry per card per role, and forty of those unfolded is the same wall in
+ * a different shape — the fold exists because the first lines are the summary
+ * and the rest is the evidence you open when you doubt it.
+ */
+function Reasoning({ text, editId }: { text: string; editId: string }) {
+  const entries = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (entries.length === 0) return null;
+
+  // `Card (ROLE): body` — the shape `runLedgerEdit` writes. A line that does
+  // not match is rendered whole rather than forced into a label it has none
+  // of: the Curator's and the Scribe's notes are plain prose and arrive that
+  // way.
+  const parse = (line: string): { label: string | null; body: string } => {
+    const m = /^(.{1,80}?\s\((?:DEV|QA|PM|BA)\)):\s*(.+)$/.exec(line);
+    return m ? { label: m[1]!, body: m[2]! } : { label: null, body: line };
+  };
+
+  const FOLD_AT = 2;
+  const head = entries.slice(0, FOLD_AT);
+  const rest = entries.slice(FOLD_AT);
+
+  const render = (line: string, i: number) => {
+    const { label, body } = parse(line);
+    return (
+      <li key={i} className="text-[11.5px] leading-snug text-ink-4">
+        {label && <span className="font-medium text-ink-3">{label}</span>}
+        {label ? ' \u2014 ' : ''}
+        {body}
+      </li>
+    );
+  };
+
+  return (
+    <div className="mt-1" data-testid={`edit-reasoning-${editId}`}>
+      <ul className="space-y-1">{head.map(render)}</ul>
+      {rest.length > 0 && (
+        <details className="group mt-1">
+          <summary className="cursor-pointer list-none text-[11px] text-ink-3 hover:text-green">
+            <span className="group-open:hidden">
+              {rest.length} more {rest.length === 1 ? 'note' : 'notes'}
+            </span>
+            <span className="hidden group-open:inline">Fewer</span>
+          </summary>
+          <ul className="mt-1 space-y-1">{rest.map(render)}</ul>
+        </details>
+      )}
     </div>
   );
 }

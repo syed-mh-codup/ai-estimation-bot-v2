@@ -76,6 +76,30 @@ export type LedgerEditDTO = {
   mine: boolean;
 };
 
+/**
+ * How many edits are in each state, over ALL of them rather than a page.
+ *
+ * Separate from the list because they are answers to different questions. The
+ * list is capped so a two-second poll stays cheap; these are not, because a
+ * re-price fans out to one edit per card and "did my thirty-card steer
+ * actually start" is exactly what a capped list cannot answer.
+ */
+export type LedgerEditCounts = {
+  total: number;
+  queued: number;
+  running: number;
+  pendingConflict: number;
+  failed: number;
+};
+
+export const EMPTY_EDIT_COUNTS: LedgerEditCounts = {
+  total: 0,
+  queued: 0,
+  running: 0,
+  pendingConflict: 0,
+  failed: 0,
+};
+
 /** Still working, so the ledger should keep polling. */
 export function isEditInFlight(e: LedgerEditDTO): boolean {
   return e.status === 'QUEUED' || e.status === 'RUNNING';

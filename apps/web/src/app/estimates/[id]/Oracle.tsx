@@ -48,11 +48,19 @@ import {
  * is asking about the results. Entry points inside the ledger reach this through
  * the window-event bus instead (oracle-bus.ts).
  *
- * The resting state is a small notch in the corner rather than a full button.
- * This page is deliberately dense — it is meant to read as a document — and a
- * permanent floating action button sits on top of that all day for a feature
- * most sessions never open. The notch grows into the real control on approach
- * or on focus, and ⌘K opens it from anywhere.
+ * The resting state is a TAB on the right edge, always visible.
+ *
+ * It was a 3px notch that grew on hover, on the argument that this page is
+ * dense and a permanent control sits on top of it all day for a feature most
+ * sessions never open. That argument was wrong in the way undiscoverable
+ * things are always wrong: a control you have to already know about, and then
+ * hover a sliver to reveal, is a control most people never find. The reporter
+ * asked for it plainly, having used it.
+ *
+ * A tab rather than a circular FAB, and it shares that shape with the steered
+ * edits tab beneath it: both open a right-hand panel, so they read as two
+ * edges of the same drawer rather than two unrelated buttons. ⌘K still opens
+ * it from anywhere.
  */
 
 
@@ -64,7 +72,6 @@ export function Oracle({
   initialThreads: OracleThreadDTO[];
 }) {
   const [open, setOpen] = useState(false);
-  const [near, setNear] = useState(false);
   const [threads, setThreads] = useState(initialThreads);
   const [activeId, setActiveId] = useState<string | null>(initialThreads[0]?.id ?? null);
   const [messages, setMessages] = useState<OracleMessageDTO[]>([]);
@@ -105,15 +112,10 @@ export function Oracle({
   // Reveal the full control when the pointer approaches the corner. Hover alone
   // would be inaccessible, so the notch is also a real focusable button and the
   // shortcut above reaches it without a pointer at all.
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      const dx = window.innerWidth - e.clientX;
-      const dy = window.innerHeight - e.clientY;
-      setNear(dx < 220 && dy < 220);
-    };
-    window.addEventListener('pointermove', onMove);
-    return () => window.removeEventListener('pointermove', onMove);
-  }, []);
+  // The proximity listener that used to grow the notch on approach is gone
+  // with it. Worth noting what it cost: a `pointermove` handler on `window`
+  // running a comparison on every mouse move across the page, to reveal a
+  // control that is now simply visible.
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -315,24 +317,17 @@ export function Oracle({
         data-testid="oracle-notch"
         aria-label={`Ask Oracle about this estimate (${shortcut})`}
         className={cn(
-          'group fixed right-0 bottom-16 z-40 flex items-center gap-2 rounded-l-full border border-r-0 border-line bg-surface text-ink shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-all duration-200',
+          'group fixed right-0 bottom-16 z-40 flex h-10 items-center gap-2 rounded-l-[10px] border border-r-0 border-line bg-surface pr-3.5 pl-3 text-ink shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-colors',
+          'hover:border-green-line hover:bg-green-tint',
           'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
-          near
-            ? 'h-10 pr-4 pl-3.5'
-            : 'h-9 w-3 justify-center px-0 hover:w-auto hover:pr-4 hover:pl-3.5',
         )}
       >
-        <Sparkles
-          className={cn('h-4 w-4 shrink-0 text-green', !near && 'hidden group-hover:block')}
-          aria-hidden
-        />
-        <span
-          className={cn(
-            'text-[13px] font-medium whitespace-nowrap',
-            !near && 'hidden group-hover:inline',
-          )}
-        >
+        <Sparkles className="h-4 w-4 shrink-0 text-green" aria-hidden />
+        <span className="text-[13px] font-medium whitespace-nowrap">
           Ask Oracle
+          {/* The shortcut stays on the label rather than only in the aria
+              description: it is how a returning user stops reaching for the
+              mouse, and it cannot teach that from inside a screen reader. */}
           <span className="num ml-2 text-[11px] text-ink-4">{shortcut}</span>
         </span>
       </button>

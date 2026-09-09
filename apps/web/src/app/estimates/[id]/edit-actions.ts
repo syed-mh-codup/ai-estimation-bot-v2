@@ -21,7 +21,7 @@ import {
 import { requireUser } from '@/lib/rbac';
 import { inngest, EVENT_LEDGER_EDIT } from '@/lib/inngest';
 import { taxContextForEstimate } from '@/lib/estimate-tax';
-import type { LedgerEditDTO, LedgerEditMode } from './edit-dto';
+import type { LedgerEditCounts, LedgerEditDTO, LedgerEditMode } from './edit-dto';
 
 /**
  * Starting, deciding and undoing a steered edit — AEH-238.
@@ -370,20 +370,47 @@ export async function startStatementEdit(
 }
 
 /**
- * Every edit on this estimate that the ledger still cares about.
+ * Every edit on this estimate that the ledger still cares about, plus TRUE
+ * counts.
  *
  * In-flight ones so the progress can be shown in context, and the settled ones
- * from this session so a revert stays reachable. Capped, and the snapshots are
- * never selected.
+ * from this session so a revert stays reachable. The snapshots are never
+ * selected.
+ *
+ * The rows are a page and the counts are not, and that split is the point. A
+ * re-price fans out to one edit PER CARD, so a whole-estimate steer on a
+ * thirty-card estimate is thirty-plus rows — the reporter ran one and saw a
+ * handful, with nothing on screen saying how many there really were. Shipping
+ * every DTO on a two-second poll to fix that would trade one problem for a
+ * worse one, so the list stays capped and the counts come from the database.
  */
-export async function listLedgerEdits(estimateId: string): Promise<LedgerEditDTO[]> {
+export async function listLedgerEdits(
+  estimateId: string,
+): Promise<{ edits: LedgerEditDTO[]; counts: LedgerEditCounts }> {
   const actor = await requireUser();
-  const rows = await prisma.ledgerEdit.findMany({
-    where: { estimateId },
-    orderBy: { createdAt: 'desc' },
-    take: 20,
-    select: EDIT_SELECT,
-  });
+  const [rows, byStatus] = await Promise.all([
+    prisma.ledgerEdit.findMany({
+      where: { estimateId },
+      orderBy: { createdAt: 'desc' },
+      // A render cap, not a knowledge cap. Enough that a person scrolling the
+      // sheet reaches the end of what they just did.
+      take: 40,
+      select: EDIT_SELECT,
+    }),
+    // Bounded by the status vocabulary, so this is cheap however many edits
+    // exist.
+    prisma.ledgerEdit.groupBy({ by: ['status'], where: { estimateId }, _count: { _all: true } }),
+  ]);
+
+  const n = (status: string): number =>
+    byStatus.find((g) => g.status === status)?._count._all ?? 0;
+  const counts: LedgerEditCounts = {
+    total: byStatus.reduce((sum, g) => sum + g._count._all, 0),
+    queued: n('QUEUED'),
+    running: n('RUNNING'),
+    pendingConflict: n('PENDING_CONFLICT'),
+    failed: n('FAILED'),
+  };
   // Resolved by id at read time so a rename stays correct — the rule
   // HiddenWorkFinding already follows for whoever dismissed a risk.
   const reverterIds = [
@@ -396,7 +423,7 @@ export async function listLedgerEdits(estimateId: string): Promise<LedgerEditDTO
       })
     : [];
   const names = new Map(reverters.map((u) => [u.id, u.name ?? u.email]));
-  return rows.map((r) => toDTO(r, actor.id, names));
+  return { edits: rows.map((r) => toDTO(r, actor.id, names)), counts };
 }
 
 /**

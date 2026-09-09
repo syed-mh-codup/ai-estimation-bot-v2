@@ -39,6 +39,47 @@ export function DialogContent({
   );
 }
 
+/**
+ * The same dialog, anchored to the right edge and full height. AEH-238.
+ *
+ * A variant rather than a second primitive: it is the same Radix root, the same
+ * overlay, the same focus trap and the same Escape handling, so a sheet cannot
+ * drift from a dialog on any of the behaviour that is easy to get wrong.
+ *
+ * What it is FOR is content that is long and consulted rather than answered —
+ * a list you scan and come back to. A centred dialog of that shape fights the
+ * page it is about; an inline panel of that shape eats the page. Hence the
+ * steered-edit activity list, which grew past what the ledger could spare.
+ */
+export function SheetContent({
+  children,
+  className,
+  ...props
+}: ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+  return (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/35 backdrop-blur-[1px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+      <DialogPrimitive.Content
+        className={cn(
+          'fixed inset-y-0 right-0 z-50 flex w-[calc(100vw-2rem)] max-w-[420px] flex-col',
+          'border-l border-line bg-surface shadow-[-16px_0_48px_rgba(35,33,27,0.18)] focus:outline-none',
+          'data-[state=open]:animate-in data-[state=open]:slide-in-from-right',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <DialogPrimitive.Close
+          className="absolute top-3.5 right-3.5 rounded-md p-1 text-ink-4 hover:bg-surface-2 hover:text-ink-2 focus:outline-none focus-visible:outline-2 focus-visible:outline-green"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  );
+}
+
 export function DialogTitle({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <DialogPrimitive.Title
