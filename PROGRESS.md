@@ -47,6 +47,15 @@ escapable: lock `section × DEV`, drag the card out of the section (allowed —
 placement is free), and a live membership test would unlock it. The hover
 history records that a row's lock came from a section lock.
 
+**Read is WIDE, write is NARROW — and this is load-bearing, not a nicety.**
+The model sees everything the Oracle sees: every menu item, the assumptions, the
+narrative and the corpus (`sowText`). It writes only inside the envelope. A
+blind AI makes edits that are locally plausible and globally wrong — splitting a
+module without seeing the rest of the ledger produces a duplicate of a card that
+already exists elsewhere. Locked rows are VISIBLE AND MARKED, never hidden. So
+the prompt carries two clearly separated sets: what you can see, and what you
+may change.
+
 **Enforcement rule, and it is the whole mechanism:**
 
     Refuse if (selection ∩ locks) ≠ ∅. Otherwise the write set is exactly the
@@ -232,6 +241,14 @@ Stage 1 (locks) is the smallest and ships standalone value. Stage 2 is the bulk
 of it. Realistically this is two to three weeks of build before the single
 review, and the migration count is the part that will hurt.
 
+### Also decided
+
+`setEstimateTaxPct` is a bulk hour change by another name — it re-taxes every
+row of a role. It must REFUSE while any row of that role is locked, naming them,
+rather than quietly re-taxing frozen hours. Same rule as the full re-run.
+
+UI placement above is approved for now, to be revisited at the end.
+
 ### Build order — ONE review at the end
 
 The user will review all of it in one go. Build everything, then call it done.
@@ -242,9 +259,50 @@ Commit checkpoints as it goes (terminal crashes), but no incremental review.
    enforcement rule everything else depends on.
 2. **The engine, hours only** — selection UI, region-replace persist, the new
    sibling agent + prompt row + catalogue entries, revision markers, provenance
-   enum, audit/revert table, conflict flow. Scoped to `card × role`.
+   enum, audit/revert table, conflict flow, job progress. Scoped to `card x role`.
 3. **Structure** — split, merge, and the metadata rules above.
 4. **Assumptions and narrative** — the tables, plus the Oracle copy-button write.
+
+### Checklist (tick as it lands — terminal crashes)
+
+Stage 1 — locks
+- [ ] `LedgerLock` + `LockEvent` schema and migration
+- [ ] lock/unlock/override server actions, coarse locks materialised to rows
+- [ ] enforcement in `updateLineItem`, `createLineItem`, `deleteLineItem`,
+      `setLineItemSide`, `renameMenuItem`, `deleteMenuItem`, `setItemEnabled`
+- [ ] `setEstimateTaxPct` refuses on a locked role
+- [ ] full re-run refuses at dispatch while any lock exists
+- [ ] lock UI on card header + row, history on hover
+- [ ] tests
+
+Stage 2 — engine
+- [ ] `MenuItem` revision marker; provenance enum + backfill
+- [ ] `LedgerEdit` audit/revert table with `PENDING_CONFLICT`
+- [ ] new AgentKind + UsageKind + catalogues + prompt row
+- [ ] corpus render with handles (wide read, marked locks)
+- [ ] change-set zod schema + the agent
+- [ ] Inngest function, per-card steps, progress
+- [ ] region-replace persist reusing the pinned-config tax recompute
+- [ ] four-hour-rule + quarter-hour validation
+- [ ] conflict begin/end checks
+- [ ] selection UI + prompt box + progress in context
+- [ ] revert
+- [ ] tests
+
+Stage 3 — structure
+- [ ] split/merge ops in the change set
+- [ ] metadata rules (matchScore null, scenario picks, graph edges, findings)
+- [ ] tests
+
+Stage 4 — assumptions + narrative
+- [ ] tables + migration + backfill
+- [ ] targets in the envelope
+- [ ] Oracle suggested-assumption becomes a write
+- [ ] tests
+
+Gate before review: `pnpm --filter web build` (the only check that compiles
+routes), typecheck with `tsc -b` ordering, lint, full vitest with docker up,
+migrations applied to all three targets, then `/review`.
 
 ### Why the engine is an Inngest job, not a chat turn
 
@@ -254,6 +312,14 @@ house rule is already stated at `route.ts:29`: "everything else that takes time
 is an Inngest job the client polls." Oracle streams because watching words
 appear IS the value; here the value is the result. So: ALWAYS Inngest, one step
 per card, which also makes the model calls durable and replayable.
+
+**The job must be visible and in context.** A background job that shows nothing
+is worse UX than the blocking call it replaces, and the user needs to stay
+engaged with it. Show the stage it is on and how many are running, on the ledger
+where the edit is happening rather than on a separate page. There is a precedent
+to mirror: `RunProgress { stage, pct }` is persisted to the `Estimate` row by
+`onProgress` in `RunEstimateDeps` and polled by the UI (see
+`ArtifactProgress.tsx`). This needs the same, per job, with several concurrent.
 
 Consequence that must be specced: a background job cannot "ask" about a
 conflict. So a conflict detected at apply time parks the after-snapshot in the
