@@ -38,7 +38,7 @@ import {
   type TaxPercents,
 } from './ledger-context';
 import { SideTag } from './SideTag';
-import { CardLockButton, LineLockBadge } from './LockControls';
+import { CardLockButton, LineLockBadge, LineLockButton, RoleLockButton } from './LockControls';
 import { EditBar } from './EditBar';
 import { EditActivity } from './EditActivity';
 
@@ -273,7 +273,14 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
         <>
           {/* Column heads carry the buffer each role attracts, stated where its
               numbers live rather than in a footnote nobody reads. */}
-          <div className={cn(COLS, 'sticky top-0 z-[3] border-b border-line bg-canvas px-3.5 py-2')}>
+          <div
+            className={cn(
+              COLS,
+              // `group` so the per-role padlocks in these heads reveal on hover,
+              // the way every other lock control on this screen does.
+              'group sticky top-0 z-[3] border-b border-line bg-canvas px-3.5 py-2',
+            )}
+          >
             <div className="text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase">Item</div>
             {ROLES.map((r) => (
               <div
@@ -283,6 +290,11 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
                   'text-right text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase',
                 )}
               >
+                {/* The widest role declaration there is, on the heading that
+                    names the role. This is the dev's "I have worked out all my
+                    items, freeze them" — one click, every DEV line on the
+                    estimate, and nothing of anybody else's. AEH-238. */}
+                <RoleLockButton target={{ scope: 'ESTIMATE' }} role={r} label="every card" />{' '}
                 {r}
                 {taxPercents[r] > 0 && (
                   <span className="num block text-[9.5px] font-medium tracking-normal text-ink-4 normal-case">
@@ -679,8 +691,17 @@ function ItemRow({
         {ROLES.map((r) => (
           <div
             key={r}
-            className={cn(ROLE_CELL, 'num text-right text-xs', item.enabled ? 'text-ink-2' : 'text-ink-4')}
+            className={cn(
+              ROLE_CELL,
+              'num flex items-center justify-end gap-1 text-right text-xs',
+              item.enabled ? 'text-ink-2' : 'text-ink-4',
+            )}
           >
+            {/* The padlock sits where that role's number for this card sits, so
+                "lock DEV on this card" is one click on the figure it protects.
+                Freezes that role and nothing else — the card padlock at the end
+                of the row is still the lock-all. AEH-238. */}
+            <RoleLockButton target={{ scope: 'CARD', id: item.id }} role={r} label="this card" />
             {roles[r] > 0 ? round(roles[r]) : <span className="text-ink-4">—</span>}
           </div>
         ))}
@@ -907,6 +928,9 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
 
         {/* Frozen, and by whom — the story is on hover. */}
         <LineLockBadge lineItemId={li.id} estimateId={estimateId} />
+        {/* And the way to freeze it in the first place, which the badge could
+            never be: it renders only once a lock exists. AEH-238. */}
+        <LineLockButton lineItemId={li.id} />
 
         {/* Where this number came from, when it did not come from the council.
             Three states rather than two since AEH-238: a steered row carries a

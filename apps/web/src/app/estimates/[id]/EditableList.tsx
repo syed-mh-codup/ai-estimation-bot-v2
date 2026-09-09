@@ -131,7 +131,13 @@ export function EditableList({
   return (
     <div data-testid={testid}>
       <div className="mb-1 flex items-center gap-1.5">
-        <ListLockButton kind={kind} full={listLocked} partial={!listLocked && anyLocked} testid={testid} />
+        <ListLockButton
+          kind={kind}
+          full={listLocked}
+          partial={!listLocked && anyLocked}
+          testid={testid}
+          ids={items.map((it) => it.id).filter((id): id is string => id !== null)}
+        />
         {anyLocked && (
           <span className="text-[11px] text-ink-4">
             {listLocked ? 'every line is locked' : 'some lines are locked'}
@@ -278,16 +284,28 @@ function ListLockButton({
   full,
   partial,
   testid,
+  /** This list's statement ids, so the override question is asked of THIS list. */
+  ids,
 }: {
   kind: 'NARRATIVE' | 'ASSUMPTION';
   full: boolean;
   partial: boolean;
   testid: string;
+  ids: string[];
 }) {
   const { lockBusy, onLockStatement, onUnlockStatement, locks, viewerId } = useLedger();
   const [armed, setArmed] = useState(false);
   const anyLocked = full || partial;
-  const holdsOthers = Object.values(locks.statements).some((l) => l.lockedById !== viewerId);
+  // Scoped to this list's own ids. `locks.statements` is the estimate-wide map
+  // with both kinds merged, so scanning all of it armed the assumptions
+  // padlock over a colleague's lock on a NARRATIVE line — a confirmation about
+  // a lock in a different document — and, worse, skipped the confirmation when
+  // the only foreign lock lived in the other list. `CardLockButton` scopes to
+  // its own card's rows for exactly this reason.
+  const holdsOthers = ids.some((id) => {
+    const l = locks.statements[id];
+    return l !== undefined && l.lockedById !== viewerId;
+  });
   const target = { scope: 'STATEMENT_LIST' as const, kind };
 
   return (

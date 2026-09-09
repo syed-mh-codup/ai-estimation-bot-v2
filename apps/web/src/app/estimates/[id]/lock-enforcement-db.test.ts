@@ -168,6 +168,63 @@ async function lockDev(): Promise<void> {
   await lockRegion(EST, { scope: 'LINE', id: devLineId }, []);
 }
 
+describe('a role-scoped lock leaves the other roles alone', () => {
+  // The case the reporter found by using it: a dev works out their items and
+  // locks them, to protect that work from PM, BA and QA who edit their own
+  // lines later. Before AEH-238's UI work the only control that created a lock
+  // hard-coded all four roles, so the dev's lock blocked all three colleagues
+  // and forced each through the override ceremony to do their own job.
+  it('freezes DEV on a card and leaves QA editable', async () => {
+    await lockRegion(EST, { scope: 'CARD', id: CARD }, ['DEV']);
+
+    await expect(updateLineItem(devLineId, { baseHours: 9 })).rejects.toThrow(/locked/i);
+    // THE assertion. The colleague's row is untouched by somebody else's lock.
+    const qa = await updateLineItem(qaLineId, { baseHours: 5 });
+    expect(qa.baseHours).toBe(5);
+  });
+
+  it('lets a QA line be added to a card whose DEV is frozen', async () => {
+    await lockRegion(EST, { scope: 'CARD', id: CARD }, ['DEV']);
+    // `assertCardRoleAcceptsNewLine` is per role, so appending QA work is fine
+    // while appending DEV work is not.
+    const added = await createLineItem(CARD, 'QA');
+    expect(added.role).toBe('QA');
+    await expect(createLineItem(CARD, 'DEV')).rejects.toThrow(/locked/i);
+    await deleteLineItem(added.id);
+  });
+
+  it('freezes one role across EVERY card, and nothing of any other role', async () => {
+    // The widest role declaration — the dev's "freeze all my work".
+    const result = await lockRegion(EST, { scope: 'ESTIMATE' }, ['DEV']);
+    // Two DEV rows on this estimate: one on CARD, one on OTHER_CARD.
+    expect(result.changed).toBe(2);
+
+    await expect(updateLineItem(devLineId, { baseHours: 9 })).rejects.toThrow(/locked/i);
+    const qa = await updateLineItem(qaLineId, { baseHours: 6 });
+    expect(qa.baseHours).toBe(6);
+  });
+
+  it('does not freeze a card’s title when only one of its roles is locked', async () => {
+    await lockRegion(EST, { scope: 'CARD', id: CARD }, ['DEV']);
+    // A title describes the WHOLE card, so one role's slice says nothing about
+    // it — the asymmetry `assertCardTitleUnlocked` is built on.
+    await renameMenuItem(CARD, 'Checkout, renamed');
+    expect(
+      (await prisma.menuItem.findUniqueOrThrow({ where: { id: CARD }, select: { title: true } }))
+        .title,
+    ).toBe('Checkout, renamed');
+    await renameMenuItem(CARD, 'Checkout');
+  });
+
+  it('still refuses the card structure, because one locked row is enough', async () => {
+    await lockRegion(EST, { scope: 'CARD', id: CARD }, ['DEV']);
+    // Switching the card off removes those DEV hours from every total on the
+    // estimate, which is the number the lock was protecting.
+    await expect(setItemEnabled(CARD, false)).rejects.toThrow(/locked/i);
+    await expect(deleteMenuItem(CARD)).rejects.toThrow(/locked/i);
+  });
+});
+
 describe('a frozen row refuses every action that would change it', () => {
   it('refuses an hours edit, and names who holds the lock', async () => {
     await lockDev();

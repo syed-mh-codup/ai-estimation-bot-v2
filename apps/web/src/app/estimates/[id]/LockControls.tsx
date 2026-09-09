@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Lock, LockOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useLedger } from './ledger-context';
+import { useLedger, type Role } from './ledger-context';
 import { lineLockHistory } from './lock-actions';
 import type { LockEventDTO } from './lock-dto';
 import type { ItemDTO } from './dto';
@@ -278,6 +278,139 @@ export function StatementLockBadge({
         )}
       </span>
     </span>
+  );
+}
+
+/**
+ * The open padlock on an unlocked row. AEH-238.
+ *
+ * The `LINE` scope, which `resolveTarget` has always supported and the UI could
+ * not reach: `LineLockBadge` only renders once a row is ALREADY locked, so
+ * there was no way to lock one. The reporter found this from the other end — a
+ * dev who locks their finished work wants to freeze THEIR rows, and the only
+ * control available froze all four roles and blocked their colleagues.
+ */
+export function LineLockButton({ lineItemId }: { lineItemId: string }) {
+  const { locks, lockBusy, onLock, isFinalised } = useLedger();
+  if (isFinalised || locks.lines[lineItemId]) return null;
+
+  return (
+    <button
+      type="button"
+      disabled={lockBusy}
+      onClick={() => onLock({ scope: 'LINE', id: lineItemId }, [])}
+      title="Lock this line — freezes its hours, its description and its existence, for people and for the AI."
+      aria-label="Lock this line"
+      // `group/line` is the NAME the line row uses, and an unnamed
+      // `group-hover:` here would never fire — the padlock would be permanently
+      // invisible and the LINE scope would stay unreachable, which is the bug
+      // this component exists to fix.
+      className="shrink-0 px-0.5 text-line opacity-0 group-hover/line:text-ink-4 group-hover/line:opacity-100 disabled:opacity-50"
+      data-testid={`line-lock-set-${lineItemId}`}
+    >
+      <LockOpen className="h-3 w-3" aria-hidden />
+    </button>
+  );
+}
+
+/**
+ * Freeze or release ONE ROLE of a card, or of the whole estimate. AEH-238.
+ *
+ * The affordance the feature was missing. The storage was always per row and
+ * `resolveTarget` always understood `scope x role`, but the only control that
+ * created a lock was the card padlock, which hard-coded all four roles — so a
+ * dev locking their finished work froze QA, PM and BA too and forced each
+ * colleague through the override ceremony to edit their own lines.
+ *
+ * One component for both scopes because the act is identical and only the
+ * target differs, and it is placed WHERE THAT SCOPE'S NUMBER IS: in the card's
+ * role cell for a card, in the estimate's role column head for the estimate.
+ * That is the same correspondence the envelope relies on — a lock and a
+ * selection are one coordinate system read in two directions — made visible.
+ *
+ * Three states, like `CardLockButton`, and for the same reason: a role slice
+ * can be partly frozen, and a plain open padlock over four locked DEV rows
+ * would surprise whoever's edit is then refused.
+ */
+export function RoleLockButton({
+  target,
+  role,
+  label,
+}: {
+  /** A card, or the whole estimate. */
+  target: { scope: 'CARD'; id: string } | { scope: 'ESTIMATE' };
+  role: Role;
+  /** What this covers, for the title text — "this card" / "every card". */
+  label: string;
+}) {
+  const { items, locks, lockBusy, onLock, onUnlock, isFinalised, viewerId } = useLedger();
+  const [armed, setArmed] = useState(false);
+  if (isFinalised) return null;
+
+  // The rows this declaration covers, counted from what is on screen. The
+  // server resolves it again through `resolveTarget`; this is what decides how
+  // the control renders.
+  const covered = (target.scope === 'CARD' ? items.filter((i) => i.id === target.id) : items)
+    .flatMap((i) => i.lineItems)
+    .filter((li) => li.role === role);
+  // An empty slice is not a locked slice, and it has nothing to lock either.
+  if (covered.length === 0) return null;
+
+  const frozen = covered.filter((li) => locks.lines[li.id] !== undefined);
+  const full = frozen.length === covered.length;
+  const partial = frozen.length > 0 && !full;
+  const anyLocked = frozen.length > 0;
+  const holdsOthers = frozen.some((li) => locks.lines[li.id]?.lockedById !== viewerId);
+
+  return (
+    <button
+      type="button"
+      disabled={lockBusy}
+      onBlur={() => setArmed(false)}
+      onClick={() => {
+        if (!anyLocked) {
+          onLock(target, [role]);
+          return;
+        }
+        if (holdsOthers && !armed) {
+          setArmed(true);
+          return;
+        }
+        onUnlock(target, [role], armed);
+        setArmed(false);
+      }}
+      title={
+        armed
+          ? `Click again to override a colleague’s lock on ${role} across ${label}.`
+          : full
+            ? `Every ${role} line on ${label} is locked. Click to unlock.`
+            : partial
+              ? `${frozen.length} of ${covered.length} ${role} lines on ${label} are locked. Click to unlock them.`
+              : `Lock ${role} on ${label} — freezes ${covered.length} line${
+                  covered.length === 1 ? '' : 's'
+                }, and nothing of any other role.`
+      }
+      aria-label={
+        anyLocked ? `Unlock ${role} on ${label}` : `Lock ${role} on ${label}`
+      }
+      className={cn(
+        'shrink-0 align-middle disabled:opacity-50',
+        armed
+          ? 'text-brick'
+          : full
+            ? 'text-bronze-ink'
+            : partial
+              ? 'text-bronze-ink/60'
+              : 'text-line opacity-0 group-hover:text-ink-4 group-hover:opacity-100',
+      )}
+      data-testid={`role-lock-${target.scope === 'CARD' ? target.id : 'estimate'}-${role}`}
+    >
+      {anyLocked ? (
+        <Lock className="h-3 w-3" aria-hidden />
+      ) : (
+        <LockOpen className="h-3 w-3" aria-hidden />
+      )}
+    </button>
   );
 }
 

@@ -1,10 +1,14 @@
 # AEH-238 — findings
 
 Everything found after the branch was built: fifteen from the code review, four
-from you using it. Written 2026-09-09, against `10c15ee`.
+from you using it. Written 2026-09-09, last updated against `c196980` plus the
+role-lock work.
 
-Nine are fixed and committed. Ten are outstanding, and two of those are
-features you have already specified rather than defects.
+The numbers below are positions in this document, not stable identifiers — they
+renumbered when items moved from outstanding to fixed.
+
+Twelve are fixed and committed. Seven are outstanding, and one of those is a
+feature you have already specified rather than a defect.
 
 **A note on how to read the severity.** I have ordered by what the mistake
 costs, not by how hard it is to fix. The four at the top could each lose
@@ -134,11 +138,53 @@ pin and Prisma auto-loaded `packages/db/.env` — which points at Neon. Running
 one test file from `packages/db` created and deleted fixtures in the real
 database. It cleaned up after itself; it did not have to.
 
+### 10. Locks could not be scoped to a role from the UI *(you found this)*
+
+The storage is already per line item: `LedgerLock.lineItemId` is unique and
+`resolveTarget` handles `CARD × ['DEV']` correctly. The guards, the refusals and
+the engine all work at row granularity. **The UI never exposes it.**
+
+- `CardLockButton` hard-codes all four roles (`LockControls.tsx:316`), so the
+  padlock a dev would naturally click freezes DEV, QA, PM *and* BA.
+- `LineLockBadge` returns null unless the row is already locked — it is an
+  unlock-and-history control, not a lock one. So the `LINE` scope is
+  unreachable.
+
+So a dev locking their finished work blocks PM, BA and QA from touching their
+own rows and forces each of them through the override ceremony to do their job —
+the opposite of the intent, and contrary to your branch-2 answer that a lock
+applies on the same axes a selection does.
+
+**Built.** All three affordances, each placed where that scope's number already
+sits — which makes "a lock and a selection are one coordinate system" visible
+rather than merely true:
+
+| control | scope | where |
+| --- | --- | --- |
+| `LineLockButton` | `LINE` | the row, beside its lock badge |
+| `RoleLockButton` | `CARD × role` | the card's cell for that role's hours |
+| `RoleLockButton` | `ESTIMATE × role` | the column head that names the role |
+
+The card padlock stays lock-all, as you chose. Each role control is three-state
+like the card's, because a role slice can be partly frozen and a plain open
+padlock over four locked DEV rows would surprise whoever's edit is then refused.
+
+Five tests in `lock-enforcement-db.test.ts` pin your case specifically: DEV
+frozen on a card leaves QA editable, a QA line can still be added while DEV is
+frozen, one role can be frozen across every card, a single role's lock does not
+freeze the card's title, and the card's structure is still refused because one
+locked row is enough.
+
+Also fixed in the same pass: the list padlock's override confirmation was
+scanning every statement lock on the estimate rather than its own list, so a
+colleague's lock on a narrative line armed the confirmation on the assumptions
+padlock — and the mirror case skipped it when it was genuinely needed.
+
 ---
 
 ## Outstanding — defects
 
-### 10. The Curator can collapse two proposed cards onto one
+### 11. The Curator can collapse two proposed cards onto one
 
 `packages/agents/src/curator.ts:211`
 
@@ -150,7 +196,7 @@ one card, and the original the first proposal should have reused is left
 line-less and deleted. A split silently becomes a no-op merge that loses a
 card. **Fix:** key by the assignment's index, not by `ref`.
 
-### 11. The no-requirement carry-through destroys most of each row
+### 12. The no-requirement carry-through destroys most of each row
 
 `packages/agents/src/ledger-edit.ts:690`
 
@@ -164,7 +210,7 @@ over the cap is silently clamped. The comment above it says the rows are carried
 through so the write does not silently delete them; it deletes most of each row
 instead. **Fix:** select the full row, or skip those slices entirely.
 
-### 12. The lock check sits outside the transaction that deletes the rows
+### 13. The lock check sits outside the transaction that deletes the rows
 
 `packages/db/src/ledger-edit.ts:215`
 
@@ -177,7 +223,7 @@ placement deliberate; the reviewer is right that it is the same window the
 in-transaction fingerprint check exists to close. **Fix:** move the lock read
 inside the transaction, or make the fingerprint cover the lock table.
 
-### 13. A statement backfilled with whitespace can wedge its list for ever
+### 14. A statement backfilled with whitespace can wedge its list for ever
 
 `packages/db/src/statement-locks.ts:320`
 
@@ -194,7 +240,7 @@ row on the next blur, losing its id and provenance. **Fix:** trim both sides, an
 I have not checked whether any real row on Neon has this shape. Worth a query
 before deciding the priority.
 
-### 14. A statement revision reads as an edit against a deleted card
+### 15. A statement revision reads as an edit against a deleted card
 
 `apps/web/src/app/estimates/[id]/EditActivity.tsx:64`
 
@@ -203,17 +249,6 @@ renders an empty roles chip and `titleOf([])`, which falls through to "a card
 that is no longer here". Every assumption rewrite in the activity list reads as
 an edit against something deleted. `statementIds` is already on the DTO and has
 no consumer anywhere — the data to render it correctly is shipped and ignored.
-
-### 15. The list padlock's override confirmation crosses the two lists
-
-`apps/web/src/app/estimates/[id]/EditableList.tsx:290`
-
-`holdsOthers` scans every statement lock on the estimate rather than the ones in
-*this* list. So a colleague's lock on a narrative line arms the "override a
-colleague's lock" confirmation on the assumptions padlock — a warning about a
-lock in a different document — and, worse, the mirror case skips the
-confirmation when it is genuinely needed. `CardLockButton` gets this right by
-scoping to its own card's rows; this needs the same narrowing.
 
 ### 16. Every specialist call's prompt changed by one newline
 
@@ -244,7 +279,7 @@ every other verb an offence.
 
 ---
 
-## Outstanding — things you specified, not defects
+## Outstanding — a feature you specified, not a defect
 
 ### 18. Only a few of a bulk edit's jobs are visible *(you found this)*
 
@@ -271,32 +306,9 @@ even when the rows are capped; raise `take` to cover a whole-estimate fan-out;
 order in-flight first so what is moving is what you see. `concurrency: 2` left
 alone — that is a spend decision, and a one-line change whenever you want it.
 
-### 19. Locks cannot be scoped to a role from the UI *(you found this)*
-
-The storage is already per line item: `LedgerLock.lineItemId` is unique and
-`resolveTarget` handles `CARD × ['DEV']` correctly. The guards, the refusals and
-the engine all work at row granularity. **The UI never exposes it.**
-
-- `CardLockButton` hard-codes all four roles (`LockControls.tsx:316`), so the
-  padlock a dev would naturally click freezes DEV, QA, PM *and* BA.
-- `LineLockBadge` returns null unless the row is already locked — it is an
-  unlock-and-history control, not a lock one. So the `LINE` scope is
-  unreachable.
-
-So a dev locking their finished work blocks PM, BA and QA from touching their
-own rows and forces each of them through the override ceremony to do their job —
-the opposite of the intent, and contrary to your branch-2 answer that a lock
-applies on the same axes a selection does.
-
-**Agreed build:** all three affordances — a per-row padlock on hover, a per-role
-padlock on the card, and a lock button for a whole role across the current
-selection — with the card padlock staying lock-all, as you chose.
-
----
-
 ## Answered, no defect
 
-### 20. Are Scribe and Curator calls cost-tracked? *(you asked)*
+### 19. Are Scribe and Curator calls cost-tracked? *(you asked)*
 
 Yes, both, fully. `runCurator` records with `kind: 'CURATOR'`
 (`curator.ts:165`) and `runScribe` with `kind: 'SCRIBE'` (`scribe.ts:163`), both
