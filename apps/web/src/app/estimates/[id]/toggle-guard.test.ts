@@ -24,6 +24,11 @@ vi.mock('@repo/db', () => ({
       update: (...a: unknown[]) => menuItemUpdate(...a),
     },
     estimate: { findUnique: (...a: unknown[]) => estimateFindUnique(...a) },
+    // Switching a card off is lock-guarded since AEH-238: it removes those
+    // hours from every total, which is the figure a lock protects. Nothing is
+    // frozen in this file's scenarios, so it answers empty and the Architect's
+    // judgment stays the thing under test here.
+    ledgerLock: { findMany: async () => [] },
   },
 }));
 

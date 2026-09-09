@@ -20,10 +20,10 @@ type Overrides = {
 
 function makeMenuItem(id: string, overrides: Overrides = {}): MenuItem {
   const lineItems = [
-    { role: 'DEV', title: `${id} dev work`, baseHours: 40, taxedHours: 40, edited: false },
-    { role: 'QA', title: `${id} qa work`, baseHours: 15, taxedHours: 18, edited: false },
-    { role: 'PM', title: `${id} pm work`, baseHours: 8, taxedHours: 9, edited: false },
-    { role: 'BA', title: `${id} ba work`, baseHours: 10, taxedHours: 11, edited: false },
+    { role: 'DEV', title: `${id} dev work`, baseHours: 40, taxedHours: 40, provenance: 'CREW' },
+    { role: 'QA', title: `${id} qa work`, baseHours: 15, taxedHours: 18, provenance: 'CREW' },
+    { role: 'PM', title: `${id} pm work`, baseHours: 8, taxedHours: 9, provenance: 'CREW' },
+    { role: 'BA', title: `${id} ba work`, baseHours: 10, taxedHours: 11, provenance: 'CREW' },
   ];
   return MenuItemSchema.parse({
     id,
@@ -186,7 +186,7 @@ describe('AEH-317: department tabs', () => {
       taxonomyKey: 'feature.dev-only',
       title: 'Dev only',
       phase: 'Core',
-      lineItems: [{ role: 'DEV', title: 'just dev', baseHours: 4, taxedHours: 4, edited: false }],
+      lineItems: [{ role: 'DEV', title: 'just dev', baseHours: 4, taxedHours: 4, provenance: 'CREW' }],
     });
     const tabs = buildExportTabs([noQa], META);
     expect(rowWithLabel(tabNamed(tabs, 'Development'), 'DEV ONLY')).toBeGreaterThan(0);

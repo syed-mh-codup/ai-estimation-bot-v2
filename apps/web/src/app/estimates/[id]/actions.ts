@@ -9,6 +9,7 @@ import {
   OVERRIDE_FIELD,
   snapToQuarterHour,
   taxedHoursFor,
+  type LineProvenance,
   type RateOverrides,
   type TaxPercents,
 } from '@repo/shared';
@@ -241,8 +242,8 @@ export async function createLineItem(menuItemId: string, role: RoleKind): Promis
   // one of its rows would, so a locked card-role refuses new lines. AEH-238.
   await assertCardRoleAcceptsNewLine(menuItemId, role, actor.id);
   const li = await prisma.roleLineItem.create({
-    data: { menuItemId, role, title: '', baseHours: 0, taxedHours: 0, edited: true },
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true },
+    data: { menuItemId, role, title: '', baseHours: 0, taxedHours: 0, provenance: 'HUMAN' },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true },
   });
   // Typed by hand, so there is no council judgment to carry.
   return { ...li, envelope: EMPTY_ENVELOPE };
@@ -262,8 +263,15 @@ export async function updateLineItem(
     select: { role: true, baseHours: true },
   });
 
-  const data: { title?: string; baseHours?: number; taxedHours?: number; edited: boolean } = {
-    edited: true,
+  const data: {
+    title?: string;
+    baseHours?: number;
+    taxedHours?: number;
+    provenance: LineProvenance;
+  } = {
+    // A person typed this. The engine writes STEERED through its own path, so
+    // this stays unconditionally HUMAN. AEH-238.
+    provenance: 'HUMAN',
   };
   if (patch.title !== undefined) data.title = patch.title;
   if (patch.baseHours !== undefined) {
@@ -280,7 +288,7 @@ export async function updateLineItem(
   const li = await prisma.roleLineItem.update({
     where: { id },
     data,
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true, meta: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true, meta: true },
   });
   return { ...li, envelope: lineEnvelope(li.meta) };
 }
@@ -305,8 +313,8 @@ export async function setLineItemSide(
   await assertLineItemUnlocked(id, actor.id);
   const li = await prisma.roleLineItem.update({
     where: { id },
-    data: { touchesFrontend: side.touchesFrontend, touchesBackend: side.touchesBackend, edited: true },
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, edited: true, touchesFrontend: true, touchesBackend: true, meta: true },
+    data: { touchesFrontend: side.touchesFrontend, touchesBackend: side.touchesBackend, provenance: 'HUMAN' },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true, meta: true },
   });
   return { ...li, envelope: lineEnvelope(li.meta) };
 }
@@ -357,7 +365,7 @@ export type TaxPctResult = {
  * nothing on them separates a generated figure from an estimator's edit, and a
  * rewrite would discard real decisions and resurrect deleted cards.
  *
- * `edited` is NOT set. It marks a line a human touched, and a buffer change is
+ * `provenance` is NOT set. It says where a number came from, and a buffer change is
  * not a touch of any individual line.
  */
 export async function setEstimateTaxPct(

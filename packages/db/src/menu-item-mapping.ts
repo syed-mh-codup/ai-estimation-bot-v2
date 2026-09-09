@@ -65,7 +65,7 @@ type LineItemColumnKey =
   | 'baseHours'
   | 'taxedHours'
   | 'notes'
-  | 'edited'
+  | 'provenance'
   | 'touchesFrontend'
   | 'touchesBackend';
 
@@ -135,7 +135,7 @@ export function toLineItem(row: RoleLineItemRow): RoleLineItem {
     baseHours: row.baseHours,
     taxedHours: row.taxedHours,
     notes: row.notes ?? undefined,
-    edited: row.edited,
+    provenance: row.provenance,
     touchesFrontend: row.touchesFrontend,
     touchesBackend: row.touchesBackend,
   });
@@ -206,7 +206,7 @@ export function toLineItemCreateData(
     baseHours: li.baseHours,
     taxedHours: li.taxedHours,
     notes: li.notes ?? null,
-    edited: li.edited,
+    provenance: li.provenance,
     touchesFrontend: li.touchesFrontend,
     touchesBackend: li.touchesBackend,
     meta: {

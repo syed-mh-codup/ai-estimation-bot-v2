@@ -13,10 +13,10 @@ function makeMenuItem(
   baH = 10,
 ): MenuItem {
   const lineItems = [
-    { role: 'DEV', baseHours: devH, taxedHours: devH, edited: false },
-    { role: 'QA', baseHours: qaH, taxedHours: Math.round(qaH * 1.2), edited: false },
-    { role: 'PM', baseHours: pmH, taxedHours: Math.round(pmH * 1.15), edited: false },
-    { role: 'BA', baseHours: baH, taxedHours: Math.round(baH * 1.1), edited: false },
+    { role: 'DEV', baseHours: devH, taxedHours: devH, provenance: 'CREW' },
+    { role: 'QA', baseHours: qaH, taxedHours: Math.round(qaH * 1.2), provenance: 'CREW' },
+    { role: 'PM', baseHours: pmH, taxedHours: Math.round(pmH * 1.15), provenance: 'CREW' },
+    { role: 'BA', baseHours: baH, taxedHours: Math.round(baH * 1.1), provenance: 'CREW' },
   ];
   return MenuItemSchema.parse({ id, taxonomyKey: `feature.${id}`, title: id, enabled, lineItems });
 }

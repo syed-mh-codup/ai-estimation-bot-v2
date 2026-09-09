@@ -60,7 +60,7 @@ const TARGETS: AttributionTarget[] = [
   },
   {
     id: 'RoleLineItem',
-    fieldNames: new Set(['id', 'menuItemId', 'title', 'baseHours', 'taxedHours', 'notes', 'edited']),
+    fieldNames: new Set(['id', 'menuItemId', 'title', 'baseHours', 'taxedHours', 'notes', 'provenance']),
     families: new Map([['notes', 'string']]),
   },
 ];

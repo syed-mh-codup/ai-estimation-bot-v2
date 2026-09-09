@@ -17,7 +17,7 @@ const line = (id: string, role: 'DEV' | 'QA' | 'PM' | 'BA', base: number, taxed:
   title: `${role} ${base}h`,
   baseHours: base,
   taxedHours: taxed,
-  edited: false,
+  provenance: 'CREW' as const,
   touchesFrontend: false,
   touchesBackend: false,
   envelope: { complexity: null, aiAssistApplied: false, anchorPresetIds: [] },
@@ -96,9 +96,11 @@ describe('retaxRole', () => {
     }
   });
 
-  it('does not mark a recomputed line as edited', () => {
+  it('leaves a recomputed line’s provenance alone', () => {
     const next = retaxRole(ITEMS, 'QA', 40);
-    expect(next.flatMap((it) => it.lineItems).every((li) => li.edited === false)).toBe(true);
+    // A buffer move is not a person's judgement and not the council re-pricing,
+    // so it must not claim to be either.
+    expect(next.flatMap((it) => it.lineItems).every((li) => li.provenance === 'CREW')).toBe(true);
   });
 
   /** Resetting to inherit is just a re-tax at the house rate. */

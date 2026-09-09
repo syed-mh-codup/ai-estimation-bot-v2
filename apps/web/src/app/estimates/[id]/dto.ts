@@ -31,7 +31,7 @@ import type {
  */
 export type LineItemDTO = Pick<
   RoleLineItemRow,
-  'id' | 'role' | 'title' | 'baseHours' | 'taxedHours' | 'edited' | 'touchesFrontend' | 'touchesBackend'
+  'id' | 'role' | 'title' | 'baseHours' | 'taxedHours' | 'provenance' | 'touchesFrontend' | 'touchesBackend'
 > & { envelope: LineEnvelope };
 
 /**

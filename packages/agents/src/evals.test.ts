@@ -201,7 +201,7 @@ describe('WS26-02: full pipeline → Menu Card → export (stub LLM)', () => {
       taxonomyKey: m.taxonomyKey,
       title: m.title,
       enabled: m.enabled,
-      lineItems: m.lineItems.map((li) => ({ role: li.role, baseHours: li.baseHours, taxedHours: li.taxedHours, edited: li.edited })),
+      lineItems: m.lineItems.map((li) => ({ role: li.role, baseHours: li.baseHours, taxedHours: li.taxedHours, provenance: li.provenance })),
     }));
     const result = await exportToSheets(id, 'Eval', dto, new StubSheetsProvider());
     expect(result.tabCount).toBeGreaterThan(0);

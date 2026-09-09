@@ -14,7 +14,7 @@ const config: TaxationConfig = {
 };
 
 function makeLineItem(role: 'DEV' | 'QA' | 'PM' | 'BA', baseHours: number): RoleLineItem {
-  return RoleLineItemSchema.parse({ role, baseHours, taxedHours: baseHours, edited: false });
+  return RoleLineItemSchema.parse({ role, baseHours, taxedHours: baseHours, provenance: 'CREW' });
 }
 
 function makeMenuItem(id: string, lineItems: RoleLineItem[]): MenuItem {
@@ -107,7 +107,7 @@ describe('WS14-02: Delivery overhead — scales with the work it attaches to', (
         title: 'Rate Limit Management',
         enabled: true,
         injected: true,
-        lineItems: [{ role: 'DEV', baseHours: 100, taxedHours: 100, edited: false }],
+        lineItems: [{ role: 'DEV', baseHours: 100, taxedHours: 100, provenance: 'CREW' }],
       }),
     ];
     const result = injectProcessOverhead(menuItems, {

@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  *   2. Delivery-overhead cards are never re-taxed. Their hours are already a
  *      percentage OF taxed hours, so taxing them compounds a percentage on a
  *      percentage.
- *   3. `edited` is not touched. It marks a line a human typed into, and moving
+ *   3. `provenance` is not touched. It says where a number came from, and moving
  *      a buffer is not a touch of any individual line.
  */
 
@@ -58,6 +58,11 @@ vi.mock('@repo/db', () => {
   };
   return {
     prisma: { ...client, $transaction: (cb: (c: unknown) => unknown) => cb(client) },
+    // The buffer guard asks whether this role has frozen rows before it
+    // re-taxes anything (AEH-238). Nothing is locked in this file's scenarios,
+    // so it answers empty — the refusal itself is covered by
+    // lock-enforcement-db.test.ts against a real database.
+    lockedWithin: async () => [],
   };
 });
 
@@ -165,11 +170,11 @@ describe('setEstimateTaxPct — the recompute', () => {
     expect(touched).not.toContain('qa-1h');
   });
 
-  /** `edited` marks a line a human typed into. A buffer change is not that. */
-  it('never sets edited on a recomputed line', async () => {
+  /** `provenance` says where a number came from. A buffer change is not a source. */
+  it('never sets provenance on a recomputed line', async () => {
     await setEstimateTaxPct(EST, 'QA', 30);
     for (const [arg] of lineUpdateMany.mock.calls) {
-      expect((arg as { data: Record<string, unknown> }).data).not.toHaveProperty('edited');
+      expect((arg as { data: Record<string, unknown> }).data).not.toHaveProperty('provenance');
     }
   });
 

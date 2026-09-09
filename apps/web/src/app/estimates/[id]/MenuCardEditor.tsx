@@ -876,13 +876,20 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
         {/* Frozen, and by whom — the story is on hover. */}
         <LineLockBadge lineItemId={li.id} estimateId={estimateId} />
 
-        {/* A human overrode the crew's number here. */}
-        {li.edited && (
+        {/* Where this number came from, when it did not come from the council.
+            Three states rather than two since AEH-238: a steered row carries a
+            person's judgement and the council's arithmetic, and reading it as
+            either "edited by hand" or as the crew's own would be wrong. */}
+        {li.provenance !== 'CREW' && (
           <span
-            title="Edited by hand"
+            title={
+              li.provenance === 'HUMAN'
+                ? 'Typed by hand'
+                : 'Re-priced by the council inside a steered edit'
+            }
             className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 uppercase"
           >
-            edited
+            {li.provenance === 'HUMAN' ? 'edited' : 'steered'}
           </span>
         )}
       </div>

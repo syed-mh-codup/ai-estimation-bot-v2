@@ -68,8 +68,11 @@ describe('AEH-228: prisma schema parser', () => {
     // a different message, and was measured during AEH-321 hanging for over
     // nine minutes and never returning. Down, never off — so if a fourth value
     // ever appears here, that is the thing to check it is not.
-    expect(schema.models.size).toBe(32);
-    expect(schema.enums.size).toBe(18);
+    // 35 and 20 since AEH-238, which added LedgerLock, LockEvent and
+    // LedgerEdit, plus the LockScope, LockEventKind, LineProvenance and
+    // LedgerEditStatus enums — and removed none.
+    expect(schema.models.size).toBe(35);
+    expect(schema.enums.size).toBe(22);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {
@@ -99,6 +102,13 @@ describe('AEH-228: prisma schema parser', () => {
       'Estimate.agentState',
       'MenuItem.meta',
       'RoleLineItem.meta',
+      // AEH-238. The region exactly as it was, and the rows proposed for it.
+      // Json because a snapshot's shape is whatever the ledger's shape is —
+      // columns here would mean a migration every time a line item gains a
+      // field, and the payload is opaque to everything but a revert and an
+      // export. Listed before the artifact pair because this is schema order.
+      'LedgerEdit.beforeSnapshot',
+      'LedgerEdit.afterSnapshot',
       // AEH-239. Both are Json for the same reason: their shape is decided by
       // a hand-authored artifact type, not by this schema. `outline` is the
       // section plan a type's brief produced; `inputs` is whatever that brief

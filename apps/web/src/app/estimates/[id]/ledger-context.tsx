@@ -409,7 +409,7 @@ export function LedgerProvider({
   ) => {
     const snap0 = snapshot();
     void optimistic(
-      () => patchLineItem(menuItemId, { ...li, ...side, edited: true }),
+      () => patchLineItem(menuItemId, { ...li, ...side, provenance: 'HUMAN' }),
       snap0,
       async () => {
         const updated = await setLineItemSide(li.id, side);
@@ -423,7 +423,13 @@ export function LedgerProvider({
     const taxed = taxedHoursFor(base, taxPercents[li.role as Role] ?? 0);
     const snap0 = snapshot();
     void optimistic(
-      () => patchLineItem(menuItemId, { ...li, baseHours: base, taxedHours: taxed, edited: true }),
+      () =>
+        patchLineItem(menuItemId, {
+          ...li,
+          baseHours: base,
+          taxedHours: taxed,
+          provenance: 'HUMAN',
+        }),
       snap0,
       async () => {
         const updated = await updateLineItem(li.id, { baseHours: base });

@@ -19,6 +19,14 @@ import { toMenuItem, toMenuItemCreateData } from './menu-item-mapping.js';
  * bug it exists to catch.
  */
 
+/**
+ * A fixed instant for the `updatedAt` columns AEH-238 added. The mapping does
+ * not read them — they are the edit engine's staleness fingerprint, not a
+ * domain field — so a constant keeps these fixtures deterministic and makes
+ * that non-involvement visible.
+ */
+const FIXED_AT = new Date('2026-01-01T00:00:00.000Z');
+
 const DB_URL =
   process.env['DATABASE_URL'] ??
   'postgresql://postgres:postgres@localhost:5433/ai_estimation?schema=public';
@@ -56,7 +64,7 @@ const richCard = (): MenuItem =>
         dependsOn: ['DEV-REQ001-00'],
         anchorPresetIds: ['P28', 'P31'],
         notes: 'anchored on the B2B contextual pricing preset',
-        edited: true,
+        provenance: 'HUMAN',
         touchesFrontend: true,
         touchesBackend: true,
       }),
@@ -121,7 +129,7 @@ describe('AEH-227: row <-> domain round trip', () => {
     expect(readBack.matchScore).toBeCloseTo(0.91);
     expect(line?.touchesFrontend).toBe(true);
     expect(line?.touchesBackend).toBe(true);
-    expect(line?.edited).toBe(true);
+    expect(line?.provenance).toBe('HUMAN');
   });
 
   it('identifies a card by its row id and a line item by its semantic id', async () => {
@@ -163,6 +171,7 @@ describe('AEH-227: row <-> domain round trip', () => {
       overhead: false,
       order: 0,
       meta: null,
+      updatedAt: FIXED_AT,
       lineItems: [
         {
           id: 'cuid-line',
@@ -172,10 +181,11 @@ describe('AEH-227: row <-> domain round trip', () => {
           baseHours: 2,
           taxedHours: 2.4,
           notes: null,
-          edited: false,
+          provenance: 'CREW',
           touchesFrontend: false,
           touchesBackend: false,
           meta: null,
+          updatedAt: FIXED_AT,
         },
       ],
     });
@@ -207,6 +217,7 @@ describe('AEH-227: row <-> domain round trip', () => {
       overhead: false,
       order: 0,
       meta: { title: 'stale title from meta', enabled: false, injected: false, requirementIds: ['REQ9'] },
+      updatedAt: FIXED_AT,
       lineItems: [],
     });
 

@@ -120,7 +120,7 @@ export function buildInjectedMenuItem(
       anchorPresetIds: li.anchorPresetIds,
       touchesFrontend: li.touchesFrontend,
       touchesBackend: li.touchesBackend,
-      edited: false,
+      provenance: 'CREW',
     })),
   );
   if (lineItems.length === 0) return null;

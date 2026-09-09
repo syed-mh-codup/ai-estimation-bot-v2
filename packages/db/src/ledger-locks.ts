@@ -1,4 +1,9 @@
-import type { LockScope, PrismaClient, RoleKind } from './generated/client/index.js';
+import type {
+  LedgerLock as LedgerLockRow,
+  LockScope,
+  PrismaClient,
+  RoleKind,
+} from './generated/client/index.js';
 
 /**
  * Ledger locks, and the addressing concept they share with the edit envelope —
@@ -50,14 +55,19 @@ export type LockTarget =
  */
 export type LockEnvelope = { target: LockTarget; roles: readonly RoleKind[] };
 
-/** A frozen row, and who froze it. */
-export type LockInfo = {
-  lineItemId: string;
-  lockedById: string;
-  lockedAt: Date;
-  declaredScope: LockScope;
-  declaredTargetId: string | null;
-};
+/**
+ * A frozen row, and who froze it.
+ *
+ * Picked from the generated row type rather than written out, following
+ * `menu-item-mapping.ts`. Not only for brevity: the orphan-field audit
+ * attributes a read to a model by the RECEIVER's type, so a hand-written
+ * look-alike would make every `lock.declaredScope` in the app invisible to it
+ * and report live columns as orphans.
+ */
+export type LockInfo = Pick<
+  LedgerLockRow,
+  'lineItemId' | 'lockedById' | 'lockedAt' | 'declaredScope' | 'declaredTargetId'
+>;
 
 /** `declaredTargetId` for a target — null only for the whole estimate. */
 function targetId(target: LockTarget): string | null {

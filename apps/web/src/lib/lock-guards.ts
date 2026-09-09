@@ -1,4 +1,4 @@
-import { locksOn, prisma, resolveTarget, type LockInfo, type RoleKind } from '@repo/db';
+import { lockedWithin, locksOn, prisma, resolveTarget, type LockInfo, type RoleKind } from '@repo/db';
 
 /**
  * The refusal half of ledger locks — AEH-238.
@@ -149,15 +149,17 @@ export async function assertRoleUnlockedForBuffer(
   role: RoleKind,
   actorId?: string,
 ): Promise<void> {
-  const ids = await resolveTarget(prisma, estimateId, {
+  // The enforcement rule stated directly: does this declaration intersect a
+  // lock. A buffer move's declaration is the whole estimate narrowed to one
+  // role, which is exactly an envelope.
+  const locks = await lockedWithin(prisma, estimateId, {
     target: { scope: 'ESTIMATE' },
     roles: [role],
   });
-  const locks = await locksOn(prisma, ids);
-  if (locks.size === 0) return;
-  const who = await describeHolders([...locks.values()], actorId);
+  if (locks.length === 0) return;
+  const who = await describeHolders(locks, actorId);
   throw new Error(
-    `${locks.size} ${role} line${locks.size === 1 ? ' is' : 's are'} locked (${who}). Changing the ${role} buffer would re-tax them, so it is refused until they are unlocked.`,
+    `${locks.length} ${role} line${locks.length === 1 ? ' is' : 's are'} locked (${who}). Changing the ${role} buffer would re-tax them, so it is refused until they are unlocked.`,
   );
 }
 

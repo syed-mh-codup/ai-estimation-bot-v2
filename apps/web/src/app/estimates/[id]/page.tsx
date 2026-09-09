@@ -309,7 +309,7 @@ export default async function EstimateDetailPage({
       title: li.title,
       baseHours: li.baseHours,
       taxedHours: li.taxedHours,
-      edited: li.edited,
+      provenance: li.provenance,
       touchesFrontend: li.touchesFrontend,
       touchesBackend: li.touchesBackend,
       envelope: lineEnvelope(li.meta),

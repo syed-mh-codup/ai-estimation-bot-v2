@@ -125,7 +125,7 @@ export function injectProcessOverhead(
         baseHours: hours,
         // Not taxed again: the percentage was taken over taxed hours already.
         taxedHours: hours,
-        edited: false,
+        provenance: 'CREW',
         aiAssistApplied: false,
         dependsOn: [],
         anchorPresetIds: [],

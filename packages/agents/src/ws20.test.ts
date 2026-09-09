@@ -68,10 +68,10 @@ afterAll(async () => {
 
 function makeMenuItem(id: string, title: string): MenuItem {
   const lineItems = [
-    { role: 'DEV', baseHours: 40, taxedHours: 40, edited: false },
-    { role: 'QA', baseHours: 15, taxedHours: 18, edited: false },
-    { role: 'PM', baseHours: 8, taxedHours: 9, edited: false },
-    { role: 'BA', baseHours: 10, taxedHours: 11, edited: false },
+    { role: 'DEV', baseHours: 40, taxedHours: 40, provenance: 'CREW' },
+    { role: 'QA', baseHours: 15, taxedHours: 18, provenance: 'CREW' },
+    { role: 'PM', baseHours: 8, taxedHours: 9, provenance: 'CREW' },
+    { role: 'BA', baseHours: 10, taxedHours: 11, provenance: 'CREW' },
   ];
   return MenuItemSchema.parse({ id, taxonomyKey: `b2b.${id}`, title, enabled: true, lineItems });
 }

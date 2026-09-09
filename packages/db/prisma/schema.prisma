@@ -245,6 +245,8 @@ model User {
   /// Ledger rows this user has frozen. Only they may unlock one without
   /// confirming an override. AEH-238.
   ledgerLocks       LedgerLock[]
+  /// Steered edits this user asked for. Attribution, not ownership.
+  ledgerEdits       LedgerEdit[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -674,6 +676,8 @@ model Estimate {
   ledgerLocks        LedgerLock[]
   /// Every lock and unlock on this estimate, the overridden ones included.
   lockEvents         LockEvent[]
+  /// Every steered edit asked for on this estimate. AEH-238.
+  ledgerEdits        LedgerEdit[]
 }
 
 /// One change to one of an estimate buffer overrides.
@@ -856,6 +860,13 @@ model MenuItem {
   /// Extra envelope structure that doesn't warrant its own column yet:
   /// requirementIds, toggleable, notSafelyRemovable, thinSlice.
   meta           Json?
+  /// Maintained by Prisma on every write. The staleness signal the edit engine
+  /// needs, and deliberately NOT a hand-bumped revision counter: a counter
+  /// means remembering to increment it in a dozen write paths, and the one
+  /// somebody forgets is the one that silently reports a moved card as
+  /// unchanged. The region fingerprint is max(updatedAt) across a region's
+  /// cards and rows. AEH-238.
+  updatedAt      DateTime             @updatedAt
   lineItems      RoleLineItem[]
   /// This card's place in its estimate's dependency graph. Two sides, because
   /// an edge is directed and both ends are cards in the same estimate.
@@ -992,7 +1003,18 @@ model RoleLineItem {
   baseHours       Float
   taxedHours      Float
   notes           String?
-  edited          Boolean  @default(false)
+  /// Where this number came from. AEH-238.
+  ///
+  /// Was `edited Boolean`, which had exactly two answers and now needs three.
+  /// A steered row has a human's judgement behind it and a model's arithmetic
+  /// in it, so folding it into either neighbour throws away the distinction
+  /// that makes the audit trail worth keeping — and a bulk steer would have set
+  /// `edited` on hundreds of rows, destroying the "a person typed this" signal
+  /// the flag existed for.
+  ///
+  /// Display-only, as `edited` was: nothing gates on it. Promotion, writeback
+  /// and the Sheets export all ignore it.
+  provenance      LineProvenance @default(CREW)
   /// Which side of the stack this unit of work touches. Only meaningful for
   /// role = DEV; the hours stay a SINGLE combined number — these say what the
   /// number covers, they do not split it.
@@ -1010,6 +1032,9 @@ model RoleLineItem {
   /// Set when this row is frozen. See LedgerLock — hours, description and
   /// existence, for people as well as for the edit engine.
   lock            LedgerLock?
+  /// Maintained by Prisma. Half of a region's staleness fingerprint — see
+  /// MenuItem.updatedAt for why this is not a hand-bumped counter.
+  updatedAt       DateTime @updatedAt
 
   @@index([menuItemId, role])
 }
@@ -1219,6 +1244,20 @@ model ModelUsage {
   /// `estimateId` — the spend record must outlive what it was spent on.
   artifactId       String?
   artifact         EstimateArtifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  /// Which steered edit this call was spent on. Null for everything else.
+  ///
+  /// Same shape and same reasoning as `artifactId` above: not unique, because
+  /// one edit is one model call per card per role and adding them up is the
+  /// point; SetNull, because the spend record must outlive what it was spent
+  /// on.
+  ///
+  /// Note what this is NOT: a new `UsageKind`. A steered edit re-runs the
+  /// specialist council, so the call really is a SPECIALIST_DEV call and
+  /// "which agent is burning the money" — the question the kind exists to
+  /// answer — stays correctly answered. "What did steered editing cost" is a
+  /// query on this column, which is a join, not an enum value. AEH-238.
+  ledgerEditId     String?
+  ledgerEdit       LedgerEdit?       @relation(fields: [ledgerEditId], references: [id], onDelete: SetNull)
   createdAt        DateTime          @default(now())
 
   @@index([estimateId, createdAt])
@@ -1226,6 +1265,143 @@ model ModelUsage {
   @@index([runId])
   @@index([threadId])
   @@index([artifactId])
+  @@index([ledgerEditId])
+}
+
+/// Where a line item's number came from. AEH-238.
+///
+/// Three answers where there used to be two. See RoleLineItem.provenance.
+enum LineProvenance {
+  /// The estimator council priced it on a run.
+  CREW
+  /// A person typed it.
+  HUMAN
+  /// A person steered, and the council re-priced it inside a declared envelope.
+  STEERED
+}
+
+/// How far a steered edit has got. Polled by the ledger while a job runs.
+enum LedgerEditStatus {
+  /// Dispatched, not picked up yet.
+  QUEUED
+  /// A card is being re-assessed. `stage` and `pct` say where.
+  RUNNING
+  /// Re-assessed, but the region moved underneath it. The proposed rows are
+  /// parked in `afterSnapshot` and a person has to approve or discard them.
+  ///
+  /// This state exists because a background job cannot ask a question. The
+  /// warn-and-approve rule is the same either way; what changes is that the
+  /// question has to be left somewhere the UI will find it.
+  PENDING_CONFLICT
+  /// Written to the ledger.
+  APPLIED
+  /// Written, then put back. `beforeSnapshot` is what it was put back to.
+  REVERTED
+  /// A person threw the proposed rows away rather than approving them.
+  DISCARDED
+  /// The job failed. `error` says how.
+  ///
+  /// A real state rather than a stuck RUNNING: on this deploy a step that
+  /// overruns dies as a bare HTTP 504 with no step output, and without somewhere
+  /// to record that, the ledger would poll a spinner for ever.
+  FAILED
+}
+
+/// One steered edit: what a person asked for, where it was allowed to reach,
+/// and what it did. AEH-238.
+///
+/// This row is four things at once, and they are deliberately not four tables:
+///
+///   the request      `prompt`, the declared envelope, who and when
+///   the write set    `pinnedLineItemIds` / `pinnedCardIds`
+///   the job          `status`, `stage`, `pct`, `error`
+///   the record       the snapshots, the totals, the model's reasoning
+///
+/// The write set is PINNED at dispatch rather than re-resolved when the job
+/// finishes, and that is not an optimisation. If somebody adds a QA row to a
+/// card while the job is running, re-resolving the envelope at apply time would
+/// pull that brand-new row into the delete set — the engine would destroy a row
+/// the person who asked for the edit never saw. Pinning means the applier
+/// deletes exactly what was declared and nothing else.
+///
+/// `beforeSnapshot` is the audit record AND the revert payload. One piece of
+/// data serving both is why revert costs nothing extra: what you need to undo a
+/// write is precisely what you need to explain it.
+///
+/// Two rules about the snapshot columns:
+///
+///   Never select them by default. Prisma returns every scalar when no `select`
+///   is given, so a careless `findMany` here drags every snapshot on the
+///   estimate out of Neon. Read paths name their columns; only a revert or an
+///   export reads a payload.
+///
+///   They are written in the SAME TRANSACTION as the ledger change. A ledger
+///   write whose revert payload did not land is worse than no audit at all.
+model LedgerEdit {
+  id                String           @id @default(cuid())
+  estimateId        String
+  estimate          Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  /// Who asked. Attribution, not ownership.
+  actorId           String
+  actor             User             @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  /// What the person typed, verbatim and unedited. The only record of WHY the
+  /// numbers moved, which is the half of the audit that cannot be reconstructed.
+  prompt            String
+  /// The envelope's axes, in the same vocabulary a lock uses — the two are the
+  /// same coordinate system read in opposite directions.
+  declaredScope     LockScope
+  /// The id of what was selected, or null for the whole estimate.
+  declaredTargetId  String?
+  roles             RoleKind[]
+
+  /// The write set, resolved once at dispatch. See the note above.
+  pinnedLineItemIds String[]
+  /// The cards the envelope covers, so the applier and the progress UI both
+  /// know the unit of work without re-deriving it.
+  pinnedCardIds     String[]
+  /// max(updatedAt) across the region when the job started. Compared again
+  /// before the write; a difference means somebody edited underneath it.
+  fingerprint       DateTime?
+
+  status            LedgerEditStatus @default(QUEUED)
+  /// Human-readable progress, mirroring Estimate.runStage. The job must be
+  /// visible in context or it is worse than the blocking call it replaced.
+  stage             String?
+  pct               Int              @default(0)
+  error             String?
+
+  /// The model's own argument for the numbers it produced. Not decoration: the
+  /// council is allowed to set numbers precisely because it went back to the
+  /// requirement, so what it says about that is the evidence for the change.
+  reasoning         String?
+
+  /// The region exactly as it was. The revert payload and the audit record.
+  beforeSnapshot    Json?
+  /// The proposed rows. Parked here while PENDING_CONFLICT; kept afterwards as
+  /// the analysis corpus.
+  afterSnapshot     Json?
+
+  /// Analysable dimensions, promoted out of the snapshots so that "how often
+  /// does a steer move a total by more than a fifth" is a query rather than a
+  /// scan of every payload.
+  rowsBefore        Int?
+  rowsAfter         Int?
+  hoursBefore       Float?
+  hoursAfter        Float?
+  /// True when this edit was approved over a concurrent change.
+  overwroteConflict Boolean          @default(false)
+
+  createdAt         DateTime         @default(now())
+  appliedAt         DateTime?
+  revertedAt        DateTime?
+  revertedById      String?
+
+  /// What the model calls cost. See ModelUsage.ledgerEditId.
+  usage             ModelUsage[]
+
+  @@index([estimateId, createdAt])
+  @@index([estimateId, status])
 }
 
 // ─── Artifacts ────────────────────────────────────────────────────────────────

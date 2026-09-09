@@ -20,7 +20,7 @@ const li = (role: RoleLineItem['role'], taxedHours: number, side?: 'fe' | 'be' |
     role,
     baseHours: taxedHours,
     taxedHours,
-    edited: false,
+    provenance: 'CREW',
     aiAssistApplied: false,
     dependsOn: [],
     anchorPresetIds: [],

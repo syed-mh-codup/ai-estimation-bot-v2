@@ -39,7 +39,7 @@ const li = (role: RoleLineItem['role'], hours: number, side?: 'fe' | 'be' | 'bot
     role,
     baseHours: hours,
     taxedHours: hours,
-    edited: false,
+    provenance: 'CREW',
     touchesFrontend: side === 'fe' || side === 'both',
     touchesBackend: side === 'be' || side === 'both',
   });

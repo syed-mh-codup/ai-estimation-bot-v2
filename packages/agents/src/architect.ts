@@ -78,7 +78,7 @@ export function assembleCardsFromSpecialists(
         anchorPresetIds: li.anchorPresetIds,
         touchesFrontend: li.touchesFrontend,
         touchesBackend: li.touchesBackend,
-        edited: false,
+        provenance: 'CREW',
       });
     }
   }

@@ -122,7 +122,7 @@ const qaHours = async () =>
     await prisma.roleLineItem.findMany({
       where: { role: 'QA', menuItem: { estimateId: EST, overhead: false } },
       orderBy: { baseHours: 'asc' },
-      select: { baseHours: true, taxedHours: true, edited: true },
+      select: { baseHours: true, taxedHours: true, provenance: true },
     })
   ).map((l) => ({ ...l }));
 
@@ -143,8 +143,8 @@ describe('setEstimateTaxPct against a real database', () => {
 
     // 2h -> 2.6 -> snaps to 2.5 (unmoved); 3h -> 3.9 -> snaps to 4.
     expect(await qaHours()).toEqual([
-      { baseHours: 2, taxedHours: 2.5, edited: false },
-      { baseHours: 3, taxedHours: 4, edited: false },
+      { baseHours: 2, taxedHours: 2.5, provenance: 'CREW' },
+      { baseHours: 3, taxedHours: 4, provenance: 'CREW' },
     ]);
     // Only the line that actually moved comes back.
     expect(res.lineItems).toHaveLength(1);
@@ -193,8 +193,8 @@ describe('setEstimateTaxPct against a real database', () => {
     const res = await setEstimateTaxPct(EST, 'QA', null);
     expect(res.effective.QA).toBe(20);
     expect(await qaHours()).toEqual([
-      { baseHours: 2, taxedHours: 2.5, edited: false },
-      { baseHours: 3, taxedHours: 3.5, edited: false },
+      { baseHours: 2, taxedHours: 2.5, provenance: 'CREW' },
+      { baseHours: 3, taxedHours: 3.5, provenance: 'CREW' },
     ]);
     const est = await prisma.estimate.findUniqueOrThrow({
       where: { id: EST },

@@ -3,6 +3,17 @@ import { z } from 'zod';
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
 export const RoleKindSchema = z.enum(['DEV', 'QA', 'PM', 'BA']);
+
+/**
+ * Where a line item's number came from. AEH-238.
+ *
+ * Replaces the `edited` boolean, which had two answers and now needs three: a
+ * STEERED row has a person's judgement behind it and the council's arithmetic
+ * in it, so folding it into either neighbour loses the distinction. CREW is the
+ * default because a row nobody has touched is the council's.
+ */
+export const LineProvenanceSchema = z.enum(['CREW', 'HUMAN', 'STEERED']);
+export type LineProvenance = z.infer<typeof LineProvenanceSchema>;
 export type RoleKind = z.infer<typeof RoleKindSchema>;
 
 // The preset-library / audit enums (AgentKind, EstimateStatus, ChangeMotivation,
@@ -346,7 +357,7 @@ export const RoleLineItemSchema = z.object({
   dependsOn: z.array(z.string()).default([]),
   anchorPresetIds: z.array(z.string()).default([]),
   notes: z.string().optional(),
-  edited: z.boolean().default(false),
+  provenance: LineProvenanceSchema.default('CREW'),
   /**
    * Which side of the stack this unit touches (DEV only). The hours stay one
    * combined number — these describe what it covers, they don't divide it.
