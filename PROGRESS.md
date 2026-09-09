@@ -42,6 +42,11 @@ A lock freezes **hours, description, and existence**. Placement stays free
 (`sectionId`/`order` are presentational per the schema). So: no hour change, no
 rename, no delete, no merge; dragging between sections is fine.
 
+**Coarse locks materialise to row level at lock time.** Otherwise a lock is
+escapable: lock `section × DEV`, drag the card out of the section (allowed —
+placement is free), and a live membership test would unlock it. The hover
+history records that a row's lock came from a section lock.
+
 **Enforcement rule, and it is the whole mechanism:**
 
     Refuse if (selection ∩ locks) ≠ ∅. Otherwise the write set is exactly the
@@ -51,7 +56,9 @@ So locking DEV on a card does not block re-costing QA on that same card — the
 sets do not intersect. A refusal names what is locked and who locked it.
 
 Locks bind USERS as well as the AI, so `updateLineItem`, `deleteLineItem`,
-`renameMenuItem`, `moveMenuItem` and friends all grow a lock check. This is a
+`renameMenuItem`, `deleteMenuItem` and `setItemEnabled` all grow a lock check.
+NOT `moveMenuItem` — placement is free. `setItemEnabled` IS frozen: toggling a
+locked card off changes the totals, so it belongs with existence. This is a
 permission layer on the ledger that the AI happens to also respect.
 
 Override: the locker unlocks freely; anyone else must confirm they are
@@ -92,6 +99,14 @@ knowingly deferred: "we will fix it when we get there."
   them are properties of THIS set of cards"). `HiddenWorkFinding.menuItemId` is
   cleared while the outcome survives — also an existing precedent.
 
+### A full re-run refuses while any lock exists
+
+`runEstimate` still deletes every row at `run-estimate.ts:460`, so the first
+re-run after someone locks a card destroys the locked work and orphans its audit
+trail. Same rule as 2c: refuse, naming the locks and who set them. The refusal
+belongs in the action that DISPATCHES the Inngest job — not inside the persist
+step, five minutes of paid model calls later.
+
 ### Apply model — no gate in the happy path, a gate only when the world moved
 
 1. Pre-flight: warn if the region on screen is already stale vs the DB, before
@@ -127,11 +142,15 @@ a change to Oracle.
 
 ### Provenance and the audit record
 
-`RoleLineItem.edited` becomes an enum: **CREW / HUMAN / STEERED**. Verified cheap
-— it is display-only: three write sites, two DTO mappings in
-`packages/db/src/menu-item-mapping.ts`, and exactly one behaviour-bearing read
-(a badge at `MenuCardEditor.tsx:860`). Nothing gates on it — not promotion, not
-writeback, not the Sheets export.
+`RoleLineItem.edited` becomes an enum: **CREW / HUMAN / STEERED**. It is
+display-only — exactly one behaviour-bearing read, a badge at
+`MenuCardEditor.tsx:860`. Nothing gates on it: not promotion, not writeback, not
+the Sheets export. Full blast radius, counted: three write sites in
+`actions.ts` (215/226/270) setting true, three in the agents package setting
+false (`architect.ts:81`, `audit.ts:123`, `taxation.ts:128`), the zod default at
+`packages/shared/src/schemas.ts:349`, two DTO mappings in
+`packages/db/src/menu-item-mapping.ts`, and a Boolean-to-enum migration on Neon
+with a backfill (true -> HUMAN, false -> CREW).
 
 One audit row per prompt, holding: the prompt verbatim, the resolved envelope
 (concrete card and row ids), the model's stated reasoning, who and when, the
@@ -192,6 +211,27 @@ normalised child table.
   is write-only by convention (the AEH-227 lesson). Reading it needs a validated
   helper or promotion to a column.
 
+### UI placement — proposed, needs approving not discovering
+
+Selection ticks live on the cards and their rows; role chips and the prompt box
+live in a bar that appears only once something is selected, anchored to the
+bottom of the ledger rather than added to the rail — AEH-302 already records
+that the rail is a fixed stack that buries its actions, and this would be the
+heaviest thing in it. Lock controls sit on the card header and the row, with
+the history on hover. The revert affordance sits on the region it applies to.
+
+### Sizing
+
+Seven migrations on Neon: lock table, per-card revision marker, provenance enum
+(with backfill), audit/revert table, assumptions table, narrative table, and the
+sibling AgentKind plus UsageKind (which also needs catalogue entries in
+`agent-catalogue.ts` and `usage-catalogue.ts` — there is a completeness test
+that fails until both move, plus a `PromptVersion` row for the new agent).
+
+Stage 1 (locks) is the smallest and ships standalone value. Stage 2 is the bulk
+of it. Realistically this is two to three weeks of build before the single
+review, and the migration count is the part that will hurt.
+
 ### Build order — ONE review at the end
 
 The user will review all of it in one go. Build everything, then call it done.
@@ -206,13 +246,28 @@ Commit checkpoints as it goes (terminal crashes), but no incremental review.
 3. **Structure** — split, merge, and the metadata rules above.
 4. **Assumptions and narrative** — the tables, plus the Oracle copy-button write.
 
-### The one question still open
+### Why the engine is an Inngest job, not a chat turn
 
-A whole-estimate envelope (863 rows, all roles) re-assessed in ONE model call
-will not fit inside 300s. Narrow envelopes are fine and are the common case.
-Options: cap the envelope, or route wide envelopes through Inngest as a durable
-job with a step per card (the run pipeline already works that way). Needs an
-answer before stage 2.
+A whole-estimate envelope (863 rows, all roles) will not be re-assessed inside
+300s in one call. The engine is job-shaped, not conversation-shaped, and the
+house rule is already stated at `route.ts:29`: "everything else that takes time
+is an Inngest job the client polls." Oracle streams because watching words
+appear IS the value; here the value is the result. So: ALWAYS Inngest, one step
+per card, which also makes the model calls durable and replayable.
+
+Consequence that must be specced: a background job cannot "ask" about a
+conflict. So a conflict detected at apply time parks the after-snapshot in the
+audit row as `PENDING_CONFLICT`, and the UI presents approve/discard against it.
+That IS the "write warns, approval overwrites" mechanism from branch 5 — it
+falls out of the audit table rather than needing anything new.
+
+### Corpus render needs handles (stage 2)
+
+Region-replace does not need row ids, but split and merge address cards, and
+locked rows must be VISIBLE BUT MARKED to the model — the user was explicit that
+a locked card stays in the AI's context and is merely unwritable. The Oracle
+corpus carries no ids at all (`packages/agents/src/oracle.ts:33-52`), so the new
+agent needs its own render with stable handles the applier resolves.
 
 ---
 
