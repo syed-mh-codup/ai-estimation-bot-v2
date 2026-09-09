@@ -265,15 +265,30 @@ Commit checkpoints as it goes (terminal crashes), but no incremental review.
 
 ### Checklist (tick as it lands — terminal crashes)
 
-Stage 1 — locks
-- [ ] `LedgerLock` + `LockEvent` schema and migration
-- [ ] lock/unlock/override server actions, coarse locks materialised to rows
-- [ ] enforcement in `updateLineItem`, `createLineItem`, `deleteLineItem`,
+Stage 1 — locks  (DONE, local docker only — see the migration note below)
+- [x] `LedgerLock` + `LockEvent` schema and migration
+      (`20260909120000_aeh_238_ledger_locks`)
+- [x] lock/unlock/override server actions, coarse locks materialised to rows
+      (`packages/db/src/ledger-locks.ts`, `lock-actions.ts`)
+- [x] enforcement in `updateLineItem`, `createLineItem`, `deleteLineItem`,
       `setLineItemSide`, `renameMenuItem`, `deleteMenuItem`, `setItemEnabled`
-- [ ] `setEstimateTaxPct` refuses on a locked role
-- [ ] full re-run refuses at dispatch while any lock exists
-- [ ] lock UI on card header + row, history on hover
-- [ ] tests
+      (`apps/web/src/lib/lock-guards.ts`)
+- [x] `setEstimateTaxPct` refuses on a locked role
+- [x] full re-run refuses at dispatch while any lock exists
+- [x] lock UI on card header + row, history on hover (`LockControls.tsx`)
+- [x] tests — 15, `packages/db/src/ledger-locks.test.ts`
+
+Migrations are applied to LOCAL DOCKER ONLY so far, deliberately. Neon dev/main
+and the Neon test branch get every migration in one pass at the final gate, so
+the schema is settled first rather than half-applied across three targets.
+
+Two notes for the reviewer of stage 1:
+- Role-scoped locking exists in the data model but has no UI yet. Picking roles
+  is the selection bar's interaction, so the role picker arrives with stage 2
+  rather than being built twice.
+- `prisma format` reflows the WHOLE schema file (it had pre-existing drift), so
+  the schema edits here are hand-formatted to each block's existing alignment.
+  `git diff -w` on the schema is pure additions, which is the check.
 
 Stage 2 — engine
 - [ ] `MenuItem` revision marker; provenance enum + backfill

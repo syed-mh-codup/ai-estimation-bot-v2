@@ -9,7 +9,8 @@ import {
   type RoleKind,
 } from '@repo/db';
 import { requireUser } from '@/lib/rbac';
-import { loadLockState, type LockEventDTO, type LockStateDTO } from '@/lib/lock-state';
+import { loadLockState } from '@/lib/lock-state';
+import type { LockEventDTO, LockStateDTO } from './lock-dto';
 
 /**
  * Freezing and releasing ledger rows — AEH-238.

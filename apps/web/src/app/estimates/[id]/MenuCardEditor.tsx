@@ -38,6 +38,7 @@ import {
   type TaxPercents,
 } from './ledger-context';
 import { SideTag } from './SideTag';
+import { CardLockButton, LineLockBadge } from './LockControls';
 
 /**
  * The ledger's column template, shared by every section head and item row. This
@@ -549,6 +550,9 @@ function ItemRow({
               aria-hidden
             />
           </button>
+          {/* Beside the grip rather than out by the total: freezing a card is an
+              act on the card, and the numbers column is for numbers. AEH-238. */}
+          <CardLockButton item={item} />
           {/* The grip and the chevron stay outside the wrapping cell, so a
               second line of chips starts under the title rather than under
               them. */}
@@ -807,9 +811,22 @@ function LineEnvelopeTag({ li }: { li: LineItemDTO }) {
 }
 
 function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDTO }) {
-  const { taxPercents, isFinalised, onEditLineTitle, onSetLineSide, onEditLineHours, onDeleteLineItem } =
-    useLedger();
+  const {
+    taxPercents,
+    isFinalised,
+    estimateId,
+    isLineLocked,
+    onEditLineTitle,
+    onSetLineSide,
+    onEditLineHours,
+    onDeleteLineItem,
+  } = useLedger();
   const pct = (taxPercents as TaxPercents)[role] ?? 0;
+  // A frozen row reads exactly like a finalised one, because it is the same
+  // statement narrowed to a single line: this number is settled. The server
+  // refuses either way; these disabled controls are the courtesy. AEH-238.
+  const locked = isLineLocked(li.id);
+  const frozen = isFinalised || locked;
 
   return (
     <div className="group/line flex items-center gap-2 px-3.5 py-1 pl-10 hover:bg-line-soft">
@@ -826,7 +843,7 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
         {role === 'DEV' && (
           <SideTag
             li={li}
-            disabled={isFinalised}
+            disabled={frozen}
             onChange={(side) => onSetLineSide(item.id, li, side)}
           />
         )}
@@ -847,7 +864,7 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
               e.currentTarget.blur();
             }
           }}
-          disabled={isFinalised}
+          disabled={frozen}
           aria-label={`${role} line item title`}
           className={cn(TITLE_FIELD, 'text-[12.5px] text-ink-2 disabled:opacity-100')}
           data-testid={`line-title-${li.id}`}
@@ -855,6 +872,9 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
 
         {/* What the council priced against, before a human touched it. */}
         <LineEnvelopeTag li={li} />
+
+        {/* Frozen, and by whom — the story is on hover. */}
+        <LineLockBadge lineItemId={li.id} estimateId={estimateId} />
 
         {/* A human overrode the crew's number here. */}
         {li.edited && (
@@ -867,7 +887,7 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
         )}
       </div>
 
-      {!isFinalised && (
+      {!frozen && (
         <button
           type="button"
           onClick={() => onDeleteLineItem(item.id, li.id)}
@@ -880,7 +900,7 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
         </button>
       )}
 
-      {!isFinalised && (
+      {!frozen && (
         <input
           type="number"
           step="0.25"
@@ -894,7 +914,7 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
       )}
 
       {/* Only worth showing where a buffer actually changes the number. */}
-      {pct > 0 && !isFinalised && (
+      {pct > 0 && !frozen && (
         <span className="num hidden shrink-0 text-[10px] whitespace-nowrap text-ink-4 lg:inline">
           +{pct}% →
         </span>

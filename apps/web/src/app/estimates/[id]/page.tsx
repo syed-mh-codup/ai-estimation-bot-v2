@@ -8,6 +8,7 @@ import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { latestTaxChanges, taxContextFor } from '@/lib/estimate-tax';
+import { loadLockState } from '@/lib/lock-state';
 import { inngest, EVENT_PROMOTE } from '@/lib/inngest';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { SowText } from './SowText';
@@ -241,9 +242,13 @@ export default async function EstimateDetailPage({
   // The buffers in force for THIS estimate — its own overrides where it has
   // them, and the house defaults from the config version it is pinned to
   // otherwise. Not the active config: see lib/estimate-tax.ts. AEH-335.
-  const [tax, taxChanges] = await Promise.all([
+  const [tax, taxChanges, lockState] = await Promise.all([
     taxContextFor(estimate),
     latestTaxChanges(estimate.id),
+    // Read with the page rather than fetched by the editor: which rows are
+    // frozen changes how every one of them renders, so it has to be in the
+    // first paint or the ledger flashes editable and then locks. AEH-238.
+    loadLockState(estimate.id),
   ]);
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
@@ -379,6 +384,8 @@ export default async function EstimateDetailPage({
         initialOverheadStale={estimate.overheadRatesStale}
         taxChanges={taxChanges}
         isFinalised={isFinalised}
+        initialLocks={lockState}
+        viewerId={viewer.id}
       >
         <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           {/* ── the document ─────────────────────────────────────────────── */}

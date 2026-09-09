@@ -38,6 +38,9 @@ import {
 import type { TaxChangeNote } from '@/lib/estimate-tax';
 import { retaxRole } from './dto';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
+import { lockRegion, unlockRegion } from './lock-actions';
+import { EMPTY_LOCK_STATE, type LockStateDTO } from './lock-dto';
+import type { LockTarget } from '@repo/db';
 
 export const ROLES = ['DEV', 'QA', 'PM', 'BA'] as const;
 export type Role = (typeof ROLES)[number];
@@ -119,6 +122,37 @@ type Ledger = {
   onEditLineHours: (menuItemId: string, li: LineItemDTO, raw: number) => void;
   onDeleteLineItem: (menuItemId: string, id: string) => void;
   onMoveItem: (id: string, toSectionId: string | null, orderedIds: string[]) => void;
+
+  // ── Locks (AEH-238) ────────────────────────────────────────────────────────
+  /**
+   * Which rows are frozen, and the two card-level facts derived from that.
+   *
+   * Not optimistic, unlike everything above it. A lock is a deliberate act
+   * taken a few times per review rather than a keystroke, and one card-scoped
+   * lock changes the rendering of every row on that card plus the card's own
+   * controls — so the server returns the resolved truth and this is replaced
+   * wholesale. Predicting it locally would be more code and less correct.
+   */
+  locks: LockStateDTO;
+  /** True while a lock call is in flight, so the controls can stop double-firing. */
+  lockBusy: boolean;
+  /** Freeze one declaration of scope by role. */
+  onLock: (target: LockTarget, roles: Role[]) => void;
+  /**
+   * Release one declaration. `override` is the confirmation for removing
+   * somebody else's lock; without it their rows are reported and left standing.
+   */
+  onUnlock: (target: LockTarget, roles: Role[], override?: boolean) => void;
+  /** Is this row frozen? The one question the editor asks per row. */
+  isLineLocked: (lineItemId: string) => boolean;
+  /**
+   * Who is looking. Needed because a lock is a permission, and the controls
+   * have to distinguish releasing your own from overriding a colleague's —
+   * which is the difference between one click and a confirmed one.
+   */
+  viewerId: string;
+  /** The estimate these rows belong to, for the actions that need naming it. */
+  estimateId: string;
 };
 
 const LedgerContext = createContext<Ledger | null>(null);
@@ -148,6 +182,8 @@ export function LedgerProvider({
   taxChanges: initialTaxChanges,
   isFinalised,
   estimateId,
+  initialLocks,
+  viewerId,
   children,
 }: {
   initialSections: SectionDTO[];
@@ -159,6 +195,8 @@ export function LedgerProvider({
   taxChanges: Partial<Record<TaxableRole, TaxChangeNote>>;
   isFinalised: boolean;
   estimateId: string;
+  initialLocks?: LockStateDTO;
+  viewerId: string;
   children: ReactNode;
 }) {
   const [sections, setSections] = useState<SectionDTO[]>(initialSections);
@@ -172,6 +210,8 @@ export function LedgerProvider({
   const [overheadStale, setOverheadStale] = useState<boolean>(initialOverheadStale);
   const [taxChanges, setTaxChanges] =
     useState<Partial<Record<TaxableRole, TaxChangeNote>>>(initialTaxChanges);
+  const [locks, setLocks] = useState<LockStateDTO>(initialLocks ?? EMPTY_LOCK_STATE);
+  const [lockBusy, setLockBusy] = useState(false);
 
   const errTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashError = useCallback((e: unknown) => {
@@ -496,6 +536,64 @@ export function LedgerProvider({
     })();
   };
 
+  // ── Locks ──────────────────────────────────────────────────────────────────
+  //
+  // No optimistic prediction and no rollback, unlike every ledger mutation
+  // above. Two reasons, and the second is the load-bearing one. A lock is a
+  // considered act rather than a keystroke, so the round trip is not in
+  // anybody's way. And the server may legitimately do LESS than was asked —
+  // fourteen of sixteen rows, because a colleague holds the other two — which
+  // a local prediction has no way to know and would render as a lie until the
+  // next load.
+  const applyLockResult = useCallback(
+    (result: { state: LockStateDTO; notice: string | null }) => {
+      setLocks(result.state);
+      // A partial outcome is reported through the same channel as an error
+      // because it is the same kind of news: something you asked for did not
+      // happen. It is deliberately not thrown — locking most of a selection is
+      // a success with a caveat, not a failure.
+      if (result.notice) flashError(new Error(result.notice));
+    },
+    [flashError],
+  );
+
+  const onLock = useCallback(
+    (target: LockTarget, roles: Role[]) => {
+      setLockBusy(true);
+      void (async () => {
+        try {
+          applyLockResult(await lockRegion(estimateId, target, [...roles]));
+        } catch (e) {
+          flashError(e);
+        } finally {
+          setLockBusy(false);
+        }
+      })();
+    },
+    [estimateId, applyLockResult, flashError],
+  );
+
+  const onUnlock = useCallback(
+    (target: LockTarget, roles: Role[], override = false) => {
+      setLockBusy(true);
+      void (async () => {
+        try {
+          applyLockResult(await unlockRegion(estimateId, target, [...roles], override));
+        } catch (e) {
+          flashError(e);
+        } finally {
+          setLockBusy(false);
+        }
+      })();
+    },
+    [estimateId, applyLockResult, flashError],
+  );
+
+  const isLineLocked = useCallback(
+    (lineItemId: string) => locks.lines[lineItemId] !== undefined,
+    [locks],
+  );
+
   const value: Ledger = {
     sections,
     items,
@@ -527,6 +625,13 @@ export function LedgerProvider({
     onEditLineHours,
     onDeleteLineItem,
     onMoveItem,
+    locks,
+    lockBusy,
+    onLock,
+    onUnlock,
+    isLineLocked,
+    viewerId,
+    estimateId,
   };
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;
