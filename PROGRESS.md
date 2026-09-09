@@ -366,9 +366,11 @@ Stage 4 — assumptions + narrative
       that was protecting somebody: no number a client sees can move because
       of Oracle
 - [x] tests — 12 statement cases + the narrowed Oracle guard
-- [ ] targets in the envelope (see the sub-plan below)
+- [x] targets in the envelope — `StatementLock`, the SCRIBE agent, the
+      `REVISE_STATEMENTS` mode, ticks and padlocks on both lists, and the
+      text-identity guard; 38 new tests across four files
 
-#### Statements as envelope targets — the sub-plan
+#### Statements as envelope targets — what was built
 
 The last piece, and the one the reframe led with: "if i want to edit my
 assumptions". Statements are rows now precisely so this is possible — locking
@@ -376,7 +378,7 @@ assumptions". Statements are rows now precisely so this is possible — locking
 stops meaning the same thing the moment a line is inserted above it.
 
 Four decisions, each taken by precedent rather than invented, each cheap to
-overturn in review:
+overturn in review — and each one built as described below:
 
 1. **Storage.** A SECOND current-state table, `StatementLock`, not a nullable
    `LedgerLock.lineItemId`. `UNIQUE` + `FK ON DELETE CASCADE` on that column IS
@@ -411,9 +413,47 @@ There is no role axis here, and none is invented. A statement is one sentence;
 what the reporter's "their own tickable targets, outside the scope × role axes"
 already said.
 
-Gate before review: `pnpm --filter web build` (the only check that compiles
-routes), typecheck with `tsc -b` ordering, lint, full vitest with docker up,
-migrations applied to all three targets, then `/review`.
+Two things about the statement axis that only became clear while building it:
+
+**A re-run destroys locked statements.** `assertEstimateUnlockedForRerun` was
+written about line items, and a run calls `replaceStatements`, which deletes
+both lists wholesale before writing the new ones. The guard counts statement
+locks now. This was a real hole, not a hypothetical one.
+
+**The list editor was index-based.** `EditableList` worked on `string[]` and
+identified a line by its array position, which is exactly what the table was
+promoted to rows to stop. It works on ids now, and a line somebody has just
+added carries `id: null` until the save comes back — there is genuinely nothing
+to lock or tick until then, and saying so beats inventing a temporary handle.
+
+### The gate, and where it got to
+
+- [x] `pnpm --filter web build` — the only check that compiles routes
+- [x] typecheck with `tsc -b` ordering, per package
+- [x] lint — clean apart from one pre-existing warning in `cartographer.test.ts`
+- [x] full vitest with docker up — **1035 passing, 91 files**, including all
+      three AEH-228 gates (field audit at 0 orphans, 253 audited)
+- [x] migrations applied to local docker, Neon dev/main and the Neon test
+      branch — six of them, verified on real data: 554 rows to HUMAN and 6851
+      to CREW, 119 narrative + 2152 assumption lines in and out, orders
+      contiguous, dropped columns gone
+- [x] CURATOR and SCRIBE prompts seeded on local docker and Neon dev/main
+      (`db:seed:prompt`, which refuses to overwrite anything already there)
+- [ ] e2e — **deliberately deferred at the reporter's instruction**, to be run
+      after shipping. One real failure was found and fixed before deferring:
+      `global-setup.ts` still seeded `edited: false`, which `tsc -b` cannot
+      catch because excess-property checking does not reach an object literal
+      returned from a `.map()` handed to a Prisma nested create.
+- [ ] `/review`
+
+### A near-miss worth keeping
+
+`packages/db/vitest.config.ts` and `apps/web/vitest.config.ts` had no
+`setupFiles`, so a filtered run started from inside either package skipped the
+root DB pin and Prisma auto-loaded `packages/db/.env` — which points at Neon.
+Running one test file from `packages/db` created and deleted fixtures in the
+real database. It cleaned up after itself; it did not have to. Both configs now
+load the same pin `packages/agents` has had all along.
 
 ### Why the engine is an Inngest job, not a chat turn
 
