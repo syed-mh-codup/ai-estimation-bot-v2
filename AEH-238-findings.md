@@ -7,8 +7,9 @@ role-lock work.
 The numbers below are positions in this document, not stable identifiers — they
 renumbered when items moved from outstanding to fixed.
 
-All nineteen are addressed, plus a twentieth found in use afterwards — see 20,
-which was by far the most damaging of the lot and was mine.
+All nineteen are addressed, plus two more found in use afterwards. Both of
+those (20 and 21) were mine, were the most damaging of the lot, and were only
+ever going to surface by somebody using the thing.
 
 One of the nineteen turned out not to be a defect at all — see 16, where the
 review was wrong and my fix for it was worse.
@@ -362,6 +363,36 @@ The same loop shape exists in `applyStatementRevision` and
 person ticked and both already carry a 60s timeout — but the constraint is now
 written next to each, with what would have to change if a future selection
 could reach a whole list.
+
+### 21. Deleting several assumptions kept only one *(you found this)* — FIXED
+
+`apps/web/src/app/estimates/[id]/EditableList.tsx`,
+`apps/web/src/app/estimates/[id]/serial-save.ts`
+
+A second, separate bug from 20 — and three faults in one eight-line function.
+
+`removeAt` computed from the render closure's `items`, so two deletions before
+React re-rendered both started from the same original list and the second undid
+the first. Each change then fired its own WHOLE-LIST save, so four deletions
+were four writes in flight over the same rows and the survivor was whichever
+the network delivered last. And the rollback captured `const prev = items` from
+that same stale closure, restoring an already-outdated list on failure.
+
+Every mutation now reads a synchronously-updated ref, and writes are
+serialised: one in flight, and whatever the list has become when it returns
+goes next. Twenty deletions cost two writes and converge on what is on screen —
+which also closes the door 20's fix left ajar, since mashing delete was another
+route to twenty concurrent whole-list transactions.
+
+**The sequencing is its own module, and that is the substance.** There is no DOM
+renderer in this test setup, so while that logic sat inside a React component
+nothing could assert it — which is why it shipped wrong twice. `serial-save.ts`
+is nine lines of state with six tests driving it on deferred promises.
+
+Checked for the same shape elsewhere and it is not there: `ScopeConfigurator`
+guards with `inFlight` (it drops a concurrent change rather than coalescing —
+different trade-off, no lost write), and `RollupCard` and `ArtifactTitle` save
+a single field.
 
 ## Answered, no defect
 
