@@ -1,13 +1,18 @@
 import {
   applyRegionReplace,
   applyRestructure,
+  applyStatementRevision,
   regionFingerprint,
   snapshotRegion,
+  statementFingerprint,
   toMenuItem,
   type ApplyOutcome,
+  type Prisma,
   type PrismaClient,
   type ProposedRow,
   type RoleKind,
+  type StatementApplyOutcome,
+  type StatementKind,
 } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
 import {
@@ -20,6 +25,7 @@ import {
 
 import { runSpecialist, type SpecialistContext } from './specialist';
 import { runCurator, type CuratableCard } from './curator';
+import { runScribe, type ScribableStatement } from './scribe';
 import { loadActivePrompt } from './run-estimate';
 import { createUsageRecorder } from './usage-recorder';
 
@@ -67,8 +73,11 @@ export type LedgerEditDeps = {
 };
 
 export type LedgerEditResult = {
-  outcome: ApplyOutcome | { kind: 'RESTRUCTURED'; cardIds: string[] };
-  /** Cards the council was asked to re-price. */
+  outcome:
+    | ApplyOutcome
+    | StatementApplyOutcome
+    | { kind: 'RESTRUCTURED'; cardIds: string[] };
+  /** Cards the council was asked to re-price. Zero on a statement revision. */
   cardsReassessed: number;
   /** What the council said it was doing, collated across the slices. */
   reasoning: string;
@@ -118,6 +127,47 @@ export function renderLedgerContext(
     })
     .join('\n');
 }
+
+/**
+ * What the wide read selects. Named so the re-cost's second read — the cards a
+ * reshape created, which `allCards` predates — cannot drift from it.
+ */
+const WIDE_READ_SELECT = {
+  id: true,
+  title: true,
+  enabled: true,
+  taxonomyKey: true,
+  category: true,
+  phase: true,
+  sourcePresetId: true,
+  matchScore: true,
+  injected: true,
+  sectionId: true,
+  foundation: true,
+  overhead: true,
+  order: true,
+  estimateId: true,
+  meta: true,
+  updatedAt: true,
+  lineItems: {
+    select: {
+      id: true,
+      menuItemId: true,
+      role: true,
+      title: true,
+      baseHours: true,
+      taxedHours: true,
+      notes: true,
+      provenance: true,
+      touchesFrontend: true,
+      touchesBackend: true,
+      meta: true,
+      updatedAt: true,
+    },
+  },
+} as const;
+
+type WideReadCard = Prisma.MenuItemGetPayload<{ select: typeof WIDE_READ_SELECT }>;
 
 /** The council's output as rows for one card, ready for the ledger. */
 function toProposedRows(
@@ -180,6 +230,164 @@ function requirementForCard(
 }
 
 /**
+ * The wide read: every card on the estimate, and it rendered for a prompt.
+ *
+ * One function because both halves of this engine need the same thing — a
+ * council re-pricing a card and a Scribe rewriting an assumption are both
+ * capable of contradicting work they cannot see. `allCards` is returned
+ * alongside the rendering because the re-cost also needs the rows themselves.
+ */
+async function loadWideRead(
+  db: PrismaClient,
+  estimateId: string,
+  envelopeCardIds: string[],
+): Promise<{ allCards: WideReadCard[]; ledgerContext: string }> {
+  const allCards = await db.menuItem.findMany({
+    where: { estimateId },
+    orderBy: { order: 'asc' },
+    select: WIDE_READ_SELECT,
+  });
+
+  const lockedRows = await db.ledgerLock.findMany({
+    where: { estimateId },
+    select: { lineItemId: true },
+  });
+  const lockedIds = new Set(lockedRows.map((l) => l.lineItemId));
+  const envelopeCards = new Set(envelopeCardIds);
+
+  const ledgerContext = renderLedgerContext(
+    allCards.map((card) => {
+      const roleHours: Partial<Record<RoleKind, number>> = {};
+      const lockedRoles = new Set<RoleKind>();
+      for (const li of card.lineItems) {
+        roleHours[li.role] = (roleHours[li.role] ?? 0) + li.baseHours;
+        if (lockedIds.has(li.id)) lockedRoles.add(li.role);
+      }
+      return {
+        title: card.title,
+        enabled: card.enabled,
+        roleHours,
+        inEnvelope: envelopeCards.has(card.id),
+        lockedRoles: [...lockedRoles],
+      };
+    }),
+  );
+
+  return { allCards, ledgerContext };
+}
+
+/**
+ * Rewrite the statements in an envelope. AEH-238.
+ *
+ * The narrow write, on the axis that has no roles. Nothing here can reach an
+ * hour or a card: `applyStatementRevision` writes to `pinnedStatementIds` and
+ * the Scribe is only ever handed wording.
+ *
+ * One model call, not one per statement. A person ticking three assumptions and
+ * saying "these three overlap" is asking about them TOGETHER — three
+ * independent calls could not merge them, and would each be free to write the
+ * same sentence. That is the opposite of the hours side, where the envelope's
+ * axes are the council's granularity and a card is priced alone.
+ */
+async function runStatementEdit(
+  editId: string,
+  edit: {
+    estimateId: string;
+    prompt: string;
+    pinnedStatementIds: string[];
+    pinnedCardIds: string[];
+    fingerprint: Date | null;
+  },
+  deps: LedgerEditDeps,
+  report: (stage: string, pct: number) => Promise<void>,
+): Promise<LedgerEditResult> {
+  const { db, modelProvider } = deps;
+  const step = deps.step ?? (<T>(_id: string, fn: () => Promise<T>) => fn());
+
+  const pinned = new Set(edit.pinnedStatementIds);
+
+  // Every statement on the estimate, not just the ticked ones. The Scribe has
+  // to be able to merge a selected line into an unselected neighbour and to
+  // avoid repeating what a locked one already says, and it can do neither with
+  // a list it cannot see. The envelope is expressed by MARKING them.
+  const all = await db.estimateStatement.findMany({
+    where: { estimateId: edit.estimateId },
+    orderBy: [{ kind: 'asc' }, { order: 'asc' }],
+    select: { id: true, kind: true, text: true },
+  });
+  const locks = await db.statementLock.findMany({
+    where: { estimateId: edit.estimateId },
+    select: { statementId: true },
+  });
+  const lockedIds = new Set(locks.map((l) => l.statementId));
+
+  // Which list this edit is about — the kind the selection lives in. Mixing the
+  // narrative and the assumptions in one envelope is not offered: they are two
+  // documents with different jobs, and one instruction about both would be
+  // exactly the vague boundary this feature exists to replace.
+  const kind: StatementKind =
+    all.find((s) => pinned.has(s.id))?.kind ?? 'ASSUMPTION';
+  const inKind = all.filter((s) => s.kind === kind);
+
+  const statements: ScribableStatement[] = inKind.map((s) => ({
+    statementId: s.id,
+    text: s.text,
+    inEnvelope: pinned.has(s.id),
+    locked: lockedIds.has(s.id),
+  }));
+
+  const { ledgerContext } = await loadWideRead(db, edit.estimateId, edit.pinnedCardIds);
+
+  await report('Loading the prompt', 10);
+  const prompt = await loadActivePrompt(db, 'SCRIBE');
+
+  const recorder = createUsageRecorder({
+    db,
+    estimateId: edit.estimateId,
+    ledgerEditId: editId,
+  });
+
+  await report(`Rewriting the ${kind === 'NARRATIVE' ? 'narrative' : 'assumptions'}`, 40);
+
+  const scribed = await step('scribe', () =>
+    runScribe(
+      {
+        kindLabel: kind === 'NARRATIVE' ? 'narrative' : 'assumptions',
+        statements,
+        instruction: edit.prompt,
+        ledgerContext,
+      },
+      {
+        modelProvider,
+        modelString: prompt.modelString,
+        instructions: prompt.body,
+        recorder,
+        levers: prompt.levers,
+      },
+    ),
+  );
+
+  await report('Writing the change', 90);
+
+  // Re-read rather than trusting the dispatched value, for the reason the hours
+  // path gives: the job may have been replayed.
+  const expectFingerprint =
+    edit.fingerprint ?? (await statementFingerprint(db, edit.pinnedStatementIds));
+
+  const outcome = await applyStatementRevision(db, {
+    editId,
+    pinnedStatementIds: edit.pinnedStatementIds,
+    proposed: scribed.lines,
+    expectFingerprint,
+    reasoning: scribed.notes,
+  });
+
+  await report(outcome.kind === 'APPLIED' ? 'Applied' : 'Waiting on a decision', 100);
+
+  return { outcome, cardsReassessed: 0, reasoning: scribed.notes ?? '' };
+}
+
+/**
  * Re-price a pinned region and write it.
  *
  * Mirrors `runEstimate`'s shape deliberately — a `step` seam that defaults to
@@ -209,11 +417,20 @@ export async function runLedgerEdit(
       roles: true,
       pinnedLineItemIds: true,
       pinnedCardIds: true,
+      pinnedStatementIds: true,
       fingerprint: true,
     },
   });
 
   await report('Reading the estimate', 5);
+
+  // The statement axis is its own write, and it branches here rather than
+  // further down so none of the line-item reads below can run on its behalf.
+  // Nothing in the rest of this function is reachable with an empty
+  // `pinnedLineItemIds`, and a statement edit has exactly that.
+  if (edit.mode === 'REVISE_STATEMENTS') {
+    return runStatementEdit(editId, edit, deps, report);
+  }
 
   const estimate = await db.estimate.findUniqueOrThrow({
     where: { id: edit.estimateId },
@@ -240,71 +457,7 @@ export async function runLedgerEdit(
     },
   });
 
-  // Every card on the estimate, for the wide read; the envelope's cards are
-  // marked rather than separated so one render serves both purposes.
-  const allCards = await db.menuItem.findMany({
-    where: { estimateId: edit.estimateId },
-    orderBy: { order: 'asc' },
-    select: {
-      id: true,
-      title: true,
-      enabled: true,
-      taxonomyKey: true,
-      category: true,
-      phase: true,
-      sourcePresetId: true,
-      matchScore: true,
-      injected: true,
-      sectionId: true,
-      foundation: true,
-      overhead: true,
-      order: true,
-      estimateId: true,
-      meta: true,
-      updatedAt: true,
-      lineItems: {
-        select: {
-          id: true,
-          menuItemId: true,
-          role: true,
-          title: true,
-          baseHours: true,
-          taxedHours: true,
-          notes: true,
-          provenance: true,
-          touchesFrontend: true,
-          touchesBackend: true,
-          meta: true,
-          updatedAt: true,
-        },
-      },
-    },
-  });
-
-  const lockedRows = await db.ledgerLock.findMany({
-    where: { estimateId: edit.estimateId },
-    select: { lineItemId: true },
-  });
-  const lockedIds = new Set(lockedRows.map((l) => l.lineItemId));
-  const envelopeCards = new Set(edit.pinnedCardIds);
-
-  const ledgerContext = renderLedgerContext(
-    allCards.map((card) => {
-      const roleHours: Partial<Record<RoleKind, number>> = {};
-      const lockedRoles = new Set<RoleKind>();
-      for (const li of card.lineItems) {
-        roleHours[li.role] = (roleHours[li.role] ?? 0) + li.baseHours;
-        if (lockedIds.has(li.id)) lockedRoles.add(li.role);
-      }
-      return {
-        title: card.title,
-        enabled: card.enabled,
-        roleHours,
-        inEnvelope: envelopeCards.has(card.id),
-        lockedRoles: [...lockedRoles],
-      };
-    }),
-  );
+  const { allCards, ledgerContext } = await loadWideRead(db, edit.estimateId, edit.pinnedCardIds);
 
   // Only the roles this envelope actually names. Loading all four would mean
   // four prompt reads for a DEV-only edit, and a missing prompt row for an
@@ -506,40 +659,7 @@ export async function runLedgerEdit(
       ? allCards
       : await db.menuItem.findMany({
           where: { id: { in: cardIdsAfterRestructure } },
-          select: {
-            id: true,
-            title: true,
-            enabled: true,
-            taxonomyKey: true,
-            category: true,
-            phase: true,
-            sourcePresetId: true,
-            matchScore: true,
-            injected: true,
-            sectionId: true,
-            foundation: true,
-            overhead: true,
-            order: true,
-            estimateId: true,
-            meta: true,
-            updatedAt: true,
-            lineItems: {
-              select: {
-                id: true,
-                menuItemId: true,
-                role: true,
-                title: true,
-                baseHours: true,
-                taxedHours: true,
-                notes: true,
-                provenance: true,
-                touchesFrontend: true,
-                touchesBackend: true,
-                meta: true,
-                updatedAt: true,
-              },
-            },
-          },
+          select: WIDE_READ_SELECT,
         });
 
   for (const slice of slices) {

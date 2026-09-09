@@ -14,8 +14,15 @@ import type { LockScope } from '@repo/db';
  * arrays, ISO strings, no `Map`, `Set` or `Date`.
  */
 
-/** One frozen row, as the editor renders it. */
-export type LineLockDTO = {
+/**
+ * One frozen thing, as the editor renders it.
+ *
+ * One shape for a frozen row and a frozen statement, because the padlock, the
+ * hover story and the override confirmation are the same affordance in both
+ * places. `declaredScope` is what tells them apart — CARD or LINE against a
+ * row, STATEMENT or STATEMENT_LIST against a statement.
+ */
+export type HeldLockDTO = {
   lockedById: string;
   /** Display name, or the email when there is no name. */
   lockedByName: string;
@@ -27,20 +34,32 @@ export type LineLockDTO = {
 
 export type LockStateDTO = {
   /** Keyed by `RoleLineItem.id`. Absent means free. */
-  lines: Record<string, LineLockDTO>;
+  lines: Record<string, HeldLockDTO>;
   /** Cards with at least one frozen row: existence and enablement frozen. */
   cardsWithAnyLock: string[];
   /** Cards where every row is frozen: the title is frozen too. */
   cardsFullyLocked: string[];
+  /** Keyed by `EstimateStatement.id`. Absent means free. AEH-238. */
+  statements: Record<string, HeldLockDTO>;
+  /**
+   * Lists where every line is frozen, as StatementKind strings.
+   *
+   * What it buys the UI is the three-state padlock on the list itself: none,
+   * some, all. Same derivation as `cardsFullyLocked`, and an empty list is not
+   * locked for the same reason.
+   */
+  listsFullyLocked: string[];
 };
 
 export const EMPTY_LOCK_STATE: LockStateDTO = {
   lines: {},
   cardsWithAnyLock: [],
   cardsFullyLocked: [],
+  statements: {},
+  listsFullyLocked: [],
 };
 
-/** One entry of a row's lock story, as the hover affordance renders it. */
+/** One entry of a lock story, as the hover affordance renders it. */
 export type LockEventDTO = {
   kind: 'LOCKED' | 'UNLOCKED' | 'OVERRIDDEN';
   declaredScope: LockScope;

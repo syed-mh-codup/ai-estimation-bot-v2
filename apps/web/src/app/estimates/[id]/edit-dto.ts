@@ -18,9 +18,14 @@ import type { LockScope, RoleKind } from '@repo/db';
  *
  * `RESTRUCTURE` re-prices what comes out of the reshape, because cutting a
  * module in two re-conceives the work. `RESTRUCTURE_KEEP_HOURS` is the opt-in
- * for a pure reorganisation.
+ * for a pure reorganisation. `REVISE_STATEMENTS` changes words and cannot reach
+ * an hour or a card at all.
  */
-export type LedgerEditMode = 'REPRICE' | 'RESTRUCTURE' | 'RESTRUCTURE_KEEP_HOURS';
+export type LedgerEditMode =
+  | 'REPRICE'
+  | 'RESTRUCTURE'
+  | 'RESTRUCTURE_KEEP_HOURS'
+  | 'REVISE_STATEMENTS';
 
 export type LedgerEditStatus =
   | 'QUEUED'
@@ -48,6 +53,8 @@ export type LedgerEditDTO = {
   scope: LockScope;
   /** The cards the envelope covered, so the ledger can badge them. */
   cardIds: string[];
+  /** The statements the envelope covered. Empty unless REVISE_STATEMENTS. */
+  statementIds: string[];
   rowsBefore: number | null;
   rowsAfter: number | null;
   hoursBefore: number | null;
@@ -82,9 +89,13 @@ export function isEditInFlight(e: LedgerEditDTO): boolean {
  * the ledger would end up in a state that is neither before nor after. Saying
  * so is better than a revert that half-works; undoing a reshape properly
  * belongs with the richer undo model, which is later work.
+ *
+ * A statement revision IS revertible, and more exactly than an hours edit: it
+ * patched rows rather than replacing them, so the wording goes back onto the
+ * same ids and a line a merge removed is restored with the id it had.
  */
 export function isRevertible(e: LedgerEditDTO): boolean {
-  return e.status === 'APPLIED' && e.mode === 'REPRICE';
+  return e.status === 'APPLIED' && (e.mode === 'REPRICE' || e.mode === 'REVISE_STATEMENTS');
 }
 
 /**
@@ -92,6 +103,10 @@ export function isRevertible(e: LedgerEditDTO): boolean {
  *
  * Signed on purpose: "+18h" and "-6h" are different news, and a reviewer
  * skimming a list of edits is looking for the big movers in either direction.
+ *
+ * Always null for a statement revision, and that is the honest answer rather
+ * than a gap: it moved no hours, and rendering "0h" would put it in the list of
+ * things that changed a number.
  */
 export function hoursDelta(e: LedgerEditDTO): number | null {
   if (e.hoursBefore === null || e.hoursAfter === null) return null;

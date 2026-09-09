@@ -40,6 +40,12 @@ function scopeWords(scope: LockEventDTO['declaredScope']): string {
       return 'with its card';
     case 'LINE':
       return 'on its own';
+    // The statement axis, which this component also serves — the padlock and
+    // the hover story are the same affordance wherever a lock appears.
+    case 'STATEMENT':
+      return 'on its own';
+    case 'STATEMENT_LIST':
+      return 'with the whole list';
   }
 }
 
@@ -138,6 +144,119 @@ export function LineLockBadge({
             them: when it was frozen, and whether it was frozen on its own or
             swept up in a coarser selection, are the two things a reviewer who
             cannot edit a row actually wants to know. */}
+        <span className="font-semibold text-ink">
+          Locked by {mine ? 'you' : lock.lockedByName} {scopeWords(lock.declaredScope)}
+        </span>
+        <span className="text-ink-4">
+          since{' '}
+          {new Date(lock.lockedAt).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+          })}
+        </span>
+        {loading && <span className="text-ink-4">Loading history…</span>}
+        {history?.map((e, i) => (
+          <span key={i} className="text-ink-3">
+            {eventWords(e)}
+          </span>
+        ))}
+        {history?.length === 0 && !loading && (
+          <span className="text-ink-4">No history recorded.</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The badge on a frozen statement: who holds it, its story on hover, click to
+ * release.
+ *
+ * A sibling of `LineLockBadge` rather than a generic over both, and the reason
+ * is the shape of what it reads. A row lock is keyed by `lineItemId` and
+ * released with a `scope x role` declaration; a statement lock is keyed by
+ * `statementId` and released with a declaration that has no role axis at all.
+ * A version parameterised over both would spend most of itself deciding which
+ * of two vocabularies it was in.
+ *
+ * What IS shared is everything a person sees: the same words for the same
+ * events, the same one-click-yours / two-clicks-theirs rule, and the same
+ * history read out of the same `LockEvent` table.
+ */
+export function StatementLockBadge({
+  statementId,
+  estimateId,
+}: {
+  statementId: string;
+  estimateId: string;
+}) {
+  const { locks, lockBusy, onUnlockStatement, isFinalised, viewerId } = useLedger();
+  const [history, setHistory] = useState<LockEventDTO[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [armed, setArmed] = useState(false);
+
+  const lock = locks.statements[statementId];
+  if (!lock) return null;
+  const mine = lock.lockedById === viewerId;
+
+  const loadHistory = (): void => {
+    if (history !== null || loading) return;
+    setLoading(true);
+    void (async () => {
+      try {
+        setHistory(await lineLockHistory(estimateId, { statementId }));
+      } catch {
+        setHistory([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  };
+
+  return (
+    <span className="group/lock relative mt-0.5 shrink-0">
+      <button
+        type="button"
+        disabled={isFinalised || lockBusy}
+        onMouseEnter={loadHistory}
+        onFocus={loadHistory}
+        onBlur={() => setArmed(false)}
+        onClick={() => {
+          if (mine) {
+            onUnlockStatement({ scope: 'STATEMENT', id: statementId }, false);
+            return;
+          }
+          if (!armed) {
+            setArmed(true);
+            return;
+          }
+          onUnlockStatement({ scope: 'STATEMENT', id: statementId }, true);
+          setArmed(false);
+        }}
+        aria-label={
+          mine
+            ? 'You locked this line. Unlock it.'
+            : armed
+              ? `Confirm overriding ${lock.lockedByName}'s lock`
+              : `Locked by ${lock.lockedByName}. Unlock this line.`
+        }
+        className={cn(
+          'num flex items-center gap-0.5 rounded border px-1 text-[9.5px] font-bold tracking-[0.06em] uppercase disabled:opacity-60',
+          armed
+            ? 'border-brick bg-brick/10 text-brick'
+            : 'border-bronze-line bg-surface text-bronze-ink',
+        )}
+        data-testid={`statement-lock-${statementId}`}
+      >
+        <Lock className="h-2.5 w-2.5" aria-hidden />
+        {armed ? 'override?' : 'locked'}
+      </button>
+
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute top-full right-0 z-20 mt-1 hidden w-[280px] flex-col gap-0.5 rounded-[6px] border border-line bg-surface px-2 py-1.5 text-[11px] leading-snug text-ink-2 shadow-sm group-focus-within/lock:flex group-hover/lock:flex"
+        data-testid={`statement-lock-history-${statementId}`}
+      >
         <span className="font-semibold text-ink">
           Locked by {mine ? 'you' : lock.lockedByName} {scopeWords(lock.declaredScope)}
         </span>

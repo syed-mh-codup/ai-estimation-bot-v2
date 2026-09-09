@@ -216,6 +216,19 @@ export const AGENT_CATALOGUE: AgentProfile[] = [
     produces: ['Card structure', 'Line assignments'],
   },
   {
+    kind: 'SCRIBE',
+    label: 'Scribe',
+    track: 'SUPPLEMENTAL',
+    order: 4,
+    blurb: 'Rewrites the narrative lines or assumptions somebody has ticked.',
+    summary:
+      'Runs when an estimator ticks some of the narrative or some of the assumptions and says what is wrong with them. It rewrites those lines and only those lines — it never touches an hour and it never touches a card, so a reworded assumption cannot move a number a client sees.',
+    detail:
+      'Runs on demand against the statements a person selected, never as part of a run. It reads the ticked lines, the rest of the estimate for context — the cards, the role totals, both statement lists and the requirements behind them — and the instruction that was typed. What it returns is replacement wording for the lines it was given: the same count or fewer, because merging two assumptions into one is a legitimate answer, and a line it hands back unchanged stays unchanged down to its provenance. Locked statements are shown to it and marked, exactly as locked cards are, because a rewrite that cannot see what it must work around produces contradictions; the write set never includes them. It is deliberately not the Architect: the Architect writes a narrative from scratch out of a whole run’s specialist output, which is a different job with a different input and a different output shape. Where an assumption is wrong because the WORK is wrong, it says so rather than papering over it — changing the sentence would then be hiding the problem, and the hours edit is the tool for that.',
+    consumes: ['Narrative', 'Assumptions', 'Menu card', 'The estimator’s instruction'],
+    produces: ['Narrative', 'Assumptions'],
+  },
+  {
     kind: 'SUPERVISOR',
     label: 'Supervisor',
     track: 'REFERENCE',

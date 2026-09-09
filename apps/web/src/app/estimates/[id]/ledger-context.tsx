@@ -38,8 +38,13 @@ import {
 import type { TaxChangeNote } from '@/lib/estimate-tax';
 import { retaxRole } from './dto';
 import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
-import { lockRegion, unlockRegion } from './lock-actions';
-import { listLedgerEdits, startLedgerEdit } from './edit-actions';
+import {
+  lockRegion,
+  lockStatementRegion,
+  unlockRegion,
+  unlockStatementRegion,
+} from './lock-actions';
+import { listLedgerEdits, startLedgerEdit, startStatementEdit } from './edit-actions';
 import { isEditInFlight, type LedgerEditDTO, type LedgerEditMode } from './edit-dto';
 import { EMPTY_LOCK_STATE, type LockStateDTO } from './lock-dto';
 import type { LockTarget } from '@repo/db';
@@ -180,7 +185,43 @@ type Ledger = {
   onSteer: (prompt: string, mode: LedgerEditMode) => Promise<void>;
   /** Replace the edit list — used by the decision and revert controls. */
   setEdits: (next: LedgerEditDTO[]) => void;
+
+  // ── The statement axis (AEH-238) ────────────────────────────────────────────
+  /**
+   * Which narrative lines or assumptions are ticked, and which list they are in.
+   *
+   * ONE list at a time, and the constraint is deliberate rather than a
+   * simplification: the narrative and the assumptions are two documents with
+   * different jobs, and one instruction about both would be exactly the vague
+   * boundary this feature exists to replace. Ticking a line in the other list
+   * moves the selection rather than widening it.
+   *
+   * No role axis. A statement is one sentence — there is nothing to narrow it
+   * by, and inventing a dimension for symmetry's sake would put a control on
+   * screen that means nothing.
+   */
+  statementKind: 'NARRATIVE' | 'ASSUMPTION' | null;
+  selectedStatementIds: string[];
+  toggleStatementSelected: (statementId: string, kind: 'NARRATIVE' | 'ASSUMPTION') => void;
+  clearStatementSelection: () => void;
+  /** Freeze one statement, or a whole list. */
+  onLockStatement: (target: StatementTargetDTO) => void;
+  /** Release one. `override` confirms removing somebody else's. */
+  onUnlockStatement: (target: StatementTargetDTO, override?: boolean) => void;
+  /** Declare the ticked statements and say what is wrong with them. */
+  onSteerStatements: (prompt: string) => Promise<void>;
 };
+
+/**
+ * A statement declaration, as the client states it.
+ *
+ * Mirrors `StatementTarget` in `@repo/db` rather than importing it, for the
+ * reason `lock-dto.ts` exists: this module is a client component, and the type
+ * would arrive through a module that pulls Prisma into the bundle.
+ */
+export type StatementTargetDTO =
+  | { scope: 'STATEMENT'; id: string }
+  | { scope: 'STATEMENT_LIST'; kind: 'NARRATIVE' | 'ASSUMPTION' };
 
 const LedgerContext = createContext<Ledger | null>(null);
 
@@ -251,6 +292,8 @@ export function LedgerProvider({
   const [lockBusy, setLockBusy] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<Role[]>([]);
+  const [statementKind, setStatementKind] = useState<'NARRATIVE' | 'ASSUMPTION' | null>(null);
+  const [selectedStatementIds, setSelectedStatementIds] = useState<string[]>([]);
   const [edits, setEdits] = useState<LedgerEditDTO[]>(initialEdits ?? []);
   const [editBusy, setEditBusy] = useState(false);
 
@@ -728,6 +771,95 @@ export function LedgerProvider({
     [estimateId, selectedCardIds, selectedRoles, renderedAt, flashError, clearSelection, poll],
   );
 
+  // ── The statement axis ─────────────────────────────────────────────────────
+  const toggleStatementSelected = useCallback(
+    (statementId: string, kind: 'NARRATIVE' | 'ASSUMPTION') => {
+      setSelectedStatementIds((prev) => {
+        // Ticking in the other list MOVES the selection. See the note on the
+        // type: two documents, two boundaries, never one instruction about both.
+        if (statementKind !== null && statementKind !== kind) return [statementId];
+        return prev.includes(statementId)
+          ? prev.filter((id) => id !== statementId)
+          : [...prev, statementId];
+      });
+      setStatementKind(kind);
+    },
+    [statementKind],
+  );
+
+  const clearStatementSelection = useCallback(() => {
+    setSelectedStatementIds([]);
+    setStatementKind(null);
+  }, []);
+
+  const onLockStatement = useCallback(
+    (target: StatementTargetDTO) => {
+      setLockBusy(true);
+      void (async () => {
+        try {
+          applyLockResult(await lockStatementRegion(estimateId, target));
+        } catch (e) {
+          flashError(e);
+        } finally {
+          setLockBusy(false);
+        }
+      })();
+    },
+    [estimateId, applyLockResult, flashError],
+  );
+
+  const onUnlockStatement = useCallback(
+    (target: StatementTargetDTO, override = false) => {
+      setLockBusy(true);
+      void (async () => {
+        try {
+          applyLockResult(await unlockStatementRegion(estimateId, target, override));
+        } catch (e) {
+          flashError(e);
+        } finally {
+          setLockBusy(false);
+        }
+      })();
+    },
+    [estimateId, applyLockResult, flashError],
+  );
+
+  const onSteerStatements = useCallback(
+    async (prompt: string) => {
+      if (selectedStatementIds.length === 0) {
+        flashError(new Error('Tick at least one line first.'));
+        return;
+      }
+      setEditBusy(true);
+      try {
+        // ONE edit over every ticked line, unlike the hours path's one-per-card.
+        // "These three assumptions overlap" is a single request about three
+        // lines: split into three, no call could merge them and each would be
+        // free to write the same sentence.
+        const res = await startStatementEdit(
+          estimateId,
+          { scope: 'STATEMENT', id: selectedStatementIds[0]! },
+          prompt,
+          renderedAt,
+          selectedStatementIds.length > 1 ? selectedStatementIds : undefined,
+        );
+        if (!res.ok) {
+          flashError(new Error(res.reason));
+          return;
+        }
+        if (res.staleWarning) flashError(new Error(res.staleWarning));
+        setEdits((prev) => [res.edit, ...prev.filter((e) => e.id !== res.edit.id)]);
+        clearStatementSelection();
+        poll();
+      } catch (e) {
+        flashError(e);
+      } finally {
+        setEditBusy(false);
+      }
+    },
+    [estimateId, selectedStatementIds, renderedAt, flashError, clearStatementSelection, poll],
+  );
+
   const value: Ledger = {
     sections,
     items,
@@ -775,6 +907,13 @@ export function LedgerProvider({
     editBusy,
     onSteer,
     setEdits,
+    statementKind,
+    selectedStatementIds,
+    toggleStatementSelected,
+    clearStatementSelection,
+    onLockStatement,
+    onUnlockStatement,
+    onSteerStatements,
   };
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

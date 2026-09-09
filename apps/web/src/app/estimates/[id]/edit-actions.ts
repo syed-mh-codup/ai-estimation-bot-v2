@@ -2,14 +2,21 @@
 
 import {
   applyRegionReplace,
+  applyStatementRevision,
   locksOn,
   prisma,
   regionFingerprint,
+  resolveStatementTarget,
   resolveTarget,
   revertRegion,
+  revertStatementRevision,
+  statementFingerprint,
+  statementLocksOn,
   type LockTarget,
   type ProposedRow,
+  type ProposedStatement,
   type RoleKind,
+  type StatementTarget,
 } from '@repo/db';
 import { requireUser } from '@/lib/rbac';
 import { inngest, EVENT_LEDGER_EDIT } from '@/lib/inngest';
@@ -56,6 +63,7 @@ const EDIT_SELECT = {
   declaredScope: true,
   pinnedCardIds: true,
   pinnedLineItemIds: true,
+  pinnedStatementIds: true,
   rowsBefore: true,
   rowsAfter: true,
   hoursBefore: true,
@@ -81,6 +89,7 @@ type EditRow = {
   declaredScope: string;
   pinnedCardIds: string[];
   pinnedLineItemIds: string[];
+  pinnedStatementIds: string[];
   rowsBefore: number | null;
   rowsAfter: number | null;
   hoursBefore: number | null;
@@ -106,6 +115,7 @@ function toDTO(row: EditRow, viewerId: string, reverterNames?: Map<string, strin
     roles: row.roles,
     scope: row.declaredScope as LedgerEditDTO['scope'],
     cardIds: row.pinnedCardIds,
+    statementIds: row.pinnedStatementIds,
     rowsBefore: row.rowsBefore,
     rowsAfter: row.rowsAfter,
     hoursBefore: row.hoursBefore,
@@ -255,6 +265,111 @@ export async function startLedgerEdit(
 }
 
 /**
+ * Declare a statement envelope, say what is wrong with it, and start the job.
+ *
+ * The same three steps `startLedgerEdit` takes, on the axis that has no roles:
+ * resolve the declaration to ids, refuse if it intersects a lock, pin the ids
+ * and the fingerprint. After that the job cannot widen its reach —
+ * `applyStatementRevision` writes to the pinned statements and nothing else,
+ * and there is no code path from a statement edit to an hour.
+ *
+ * `alsoStatementIds` carries a multi-line selection for the same reason a merge
+ * carries extra cards: ticking three assumptions and saying "these overlap" is
+ * one request about three lines, and the scope axis has no "these three" value.
+ * The declaration names the first and the rest ride in the pinned set.
+ */
+export async function startStatementEdit(
+  estimateId: string,
+  target: StatementTarget,
+  prompt: string,
+  renderedAt: string,
+  alsoStatementIds?: string[],
+): Promise<StartEditResult> {
+  const actor = await requireUser();
+  await assertOpen(estimateId);
+
+  const instruction = prompt.trim();
+  if (instruction.length === 0) return { ok: false, reason: 'Say what should change.' };
+
+  const extra = (alsoStatementIds ?? []).filter(
+    (id) => !(target.scope === 'STATEMENT' && id === target.id),
+  );
+  const pinnedStatementIds = [
+    ...new Set([
+      ...(await resolveStatementTarget(prisma, estimateId, target)),
+      // Through the same resolver, so a multi-line selection cannot reach a
+      // statement a single declaration could not.
+      ...(
+        await Promise.all(
+          extra.map((id) =>
+            resolveStatementTarget(prisma, estimateId, { scope: 'STATEMENT', id }),
+          ),
+        )
+      ).flat(),
+    ]),
+  ];
+  if (pinnedStatementIds.length === 0) {
+    return { ok: false, reason: 'That selection covers no lines. Tick at least one.' };
+  }
+
+  const locks = [...(await statementLocksOn(prisma, pinnedStatementIds)).values()];
+  if (locks.length > 0) {
+    const holders = await prisma.user.findMany({
+      where: { id: { in: [...new Set(locks.map((l) => l.lockedById))] } },
+      select: { id: true, name: true, email: true },
+    });
+    const names = [
+      ...new Set(
+        locks.map((l) => {
+          if (l.lockedById === actor.id) return 'you';
+          const u = holders.find((h) => h.id === l.lockedById);
+          return u ? (u.name ?? u.email) : 'a colleague';
+        }),
+      ),
+    ].join(', ');
+    return {
+      ok: false,
+      reason: `${locks.length} line${locks.length === 1 ? '' : 's'} in this selection ${
+        locks.length === 1 ? 'is' : 'are'
+      } locked (${names}). Unlock ${locks.length === 1 ? 'it' : 'them'}, or narrow the selection.`,
+    };
+  }
+
+  const fingerprint = await statementFingerprint(prisma, pinnedStatementIds);
+
+  const rendered = new Date(renderedAt);
+  const staleWarning =
+    fingerprint && !Number.isNaN(rendered.getTime()) && fingerprint > rendered
+      ? 'Someone has changed these lines since your screen was drawn. What you are looking at may not be what gets rewritten.'
+      : null;
+
+  const edit = await prisma.ledgerEdit.create({
+    data: {
+      estimateId,
+      actorId: actor.id,
+      prompt: instruction,
+      mode: 'REVISE_STATEMENTS',
+      declaredScope: target.scope,
+      declaredTargetId: target.scope === 'STATEMENT' ? target.id : target.kind,
+      // No role axis on this one, and none invented. A statement is one
+      // sentence; there is nothing to narrow it by.
+      roles: [],
+      pinnedLineItemIds: [],
+      pinnedCardIds: [],
+      pinnedStatementIds,
+      fingerprint,
+      status: 'QUEUED',
+      stage: 'Queued',
+    },
+    select: EDIT_SELECT,
+  });
+
+  await inngest.send({ name: EVENT_LEDGER_EDIT, data: { editId: edit.id } });
+
+  return { ok: true, edit: toDTO(edit, actor.id), staleWarning };
+}
+
+/**
  * Every edit on this estimate that the ledger still cares about.
  *
  * In-flight ones so the progress can be shown in context, and the settled ones
@@ -302,8 +417,10 @@ export async function approveLedgerEdit(editId: string): Promise<LedgerEditDTO> 
     select: {
       estimateId: true,
       status: true,
+      mode: true,
       pinnedLineItemIds: true,
       pinnedCardIds: true,
+      pinnedStatementIds: true,
       afterSnapshot: true,
       reasoning: true,
     },
@@ -313,21 +430,35 @@ export async function approveLedgerEdit(editId: string): Promise<LedgerEditDTO> 
   }
   await assertOpen(edit.estimateId);
 
-  const parked = edit.afterSnapshot as unknown as { rows?: ProposedRow[] } | null;
-  const proposed = parked?.rows ?? [];
-  const { effective } = await taxContextForEstimate(edit.estimateId);
+  if (edit.mode === 'REVISE_STATEMENTS') {
+    // A parked statement proposal is a different payload written by a different
+    // applier. Same decision, same "approval overwrites" rule.
+    const parked = edit.afterSnapshot as unknown as { statements?: ProposedStatement[] } | null;
+    await applyStatementRevision(prisma, {
+      editId,
+      pinnedStatementIds: edit.pinnedStatementIds,
+      proposed: parked?.statements ?? [],
+      expectFingerprint: null,
+      overwriteConflict: true,
+      reasoning: edit.reasoning,
+    });
+  } else {
+    const parked = edit.afterSnapshot as unknown as { rows?: ProposedRow[] } | null;
+    const proposed = parked?.rows ?? [];
+    const { effective } = await taxContextForEstimate(edit.estimateId);
 
-  await applyRegionReplace(prisma, {
-    editId,
-    pinnedLineItemIds: edit.pinnedLineItemIds,
-    pinnedCardIds: edit.pinnedCardIds,
-    proposed,
-    effective,
-    // Already parked once for this reason; the person has now decided.
-    expectFingerprint: null,
-    overwriteConflict: true,
-    reasoning: edit.reasoning,
-  });
+    await applyRegionReplace(prisma, {
+      editId,
+      pinnedLineItemIds: edit.pinnedLineItemIds,
+      pinnedCardIds: edit.pinnedCardIds,
+      proposed,
+      effective,
+      // Already parked once for this reason; the person has now decided.
+      expectFingerprint: null,
+      overwriteConflict: true,
+      reasoning: edit.reasoning,
+    });
+  }
 
   const row = await prisma.ledgerEdit.findUniqueOrThrow({
     where: { id: editId },
@@ -358,11 +489,19 @@ export async function revertLedgerEdit(editId: string): Promise<LedgerEditDTO> {
   const actor = await requireUser();
   const edit = await prisma.ledgerEdit.findUniqueOrThrow({
     where: { id: editId },
-    select: { estimateId: true },
+    select: { estimateId: true, mode: true },
   });
   await assertOpen(edit.estimateId);
 
-  await revertRegion(prisma, { editId, revertedById: actor.id });
+  // A statement revision comes back EXACTLY: the rewritten lines kept their
+  // ids, and a line a merge deleted is recreated with the id it had. The hours
+  // revert cannot promise that, because its rows were replaced rather than
+  // patched.
+  if (edit.mode === 'REVISE_STATEMENTS') {
+    await revertStatementRevision(prisma, { editId, revertedById: actor.id });
+  } else {
+    await revertRegion(prisma, { editId, revertedById: actor.id });
+  }
 
   const row = await prisma.ledgerEdit.findUniqueOrThrow({
     where: { id: editId },

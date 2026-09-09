@@ -38,6 +38,7 @@ export const AGENT_USAGE_KIND: Record<AgentKind, UsageKind> = {
   ORACLE: 'ORACLE',
   CARTOGRAPHER: 'CARTOGRAPHER',
   CURATOR: 'CURATOR',
+  SCRIBE: 'SCRIBE',
 };
 
 /** The model surfaces that are not agents. */

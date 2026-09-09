@@ -68,14 +68,19 @@ describe('AEH-228: prisma schema parser', () => {
     // a different message, and was measured during AEH-321 hanging for over
     // nine minutes and never returning. Down, never off — so if a fourth value
     // ever appears here, that is the thing to check it is not.
-    // 36 and 24 since AEH-238, which added four models — LedgerLock,
-    // LockEvent, LedgerEdit and EstimateStatement — and six enums: LockScope,
-    // LockEventKind, LineProvenance, LedgerEditStatus, LedgerEditMode and
-    // StatementKind. It removed no model, and removed two COLUMNS:
-    // Estimate.narrative and Estimate.assumptions became EstimateStatement
-    // rows, because a string in an array has no identity to lock, audit or
-    // steer.
-    expect(schema.models.size).toBe(36);
+    // 37 and 24 since AEH-238, which added five models — LedgerLock,
+    // LockEvent, LedgerEdit, EstimateStatement and StatementLock — and six
+    // enums: LockScope, LockEventKind, LineProvenance, LedgerEditStatus,
+    // LedgerEditMode and StatementKind. It removed no model, and removed two
+    // COLUMNS: Estimate.narrative and Estimate.assumptions became
+    // EstimateStatement rows, because a string in an array has no identity to
+    // lock, audit or steer.
+    //
+    // No enum joined the count for the statement axis. STATEMENT and
+    // STATEMENT_LIST are VALUES on the existing LockScope, deliberately: there
+    // is one vocabulary of things a person can point at, and a second one would
+    // eventually disagree with the first about what a declaration means.
+    expect(schema.models.size).toBe(37);
     expect(schema.enums.size).toBe(24);
   });
 

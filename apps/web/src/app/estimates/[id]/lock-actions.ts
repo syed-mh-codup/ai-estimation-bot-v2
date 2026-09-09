@@ -3,10 +3,13 @@
 import {
   lockEnvelope,
   lockHistoryFor,
+  lockStatements,
   prisma,
   unlockEnvelope,
+  unlockStatements,
   type LockTarget,
   type RoleKind,
+  type StatementTarget,
 } from '@repo/db';
 import { requireUser } from '@/lib/rbac';
 import { loadLockState } from '@/lib/lock-state';
@@ -140,19 +143,79 @@ export async function unlockRegion(
 }
 
 /**
- * One row's lock story, oldest first, for the hover affordance.
+ * Freeze one statement, or a whole list of them. AEH-238.
+ *
+ * The same act on the axis that has no roles: a statement is one sentence, so
+ * there is nothing to narrow it by. What a lock settles here is the wording —
+ * neither a person nor the Scribe can change or delete it while it stands.
+ */
+export async function lockStatementRegion(
+  estimateId: string,
+  target: StatementTarget,
+): Promise<LockActionResult> {
+  const actor = await requireUser();
+  await assertOpen(estimateId);
+
+  const result = await lockStatements(prisma, { estimateId, target, actorId: actor.id });
+
+  const held = result.alreadyLocked.filter((l) => l.lockedById !== actor.id);
+  const names = await namesFor(held.map((l) => l.lockedById));
+  const notice =
+    held.length === 0
+      ? null
+      : `${held.length} line${held.length === 1 ? ' was' : 's were'} already locked by ${[
+          ...new Set(held.map((l) => names.get(l.lockedById) ?? 'a colleague')),
+        ].join(', ')} and stayed as they were.`;
+
+  return { state: await loadLockState(estimateId), changed: result.locked.length, notice };
+}
+
+/** Release one statement, or a whole list. Same override rule as the ledger. */
+export async function unlockStatementRegion(
+  estimateId: string,
+  target: StatementTarget,
+  override = false,
+): Promise<LockActionResult> {
+  const actor = await requireUser();
+  await assertOpen(estimateId);
+
+  const result = await unlockStatements(prisma, {
+    estimateId,
+    target,
+    actorId: actor.id,
+    override,
+  });
+
+  const names = await namesFor(result.heldByOthers.map((l) => l.lockedById));
+  const notice =
+    result.heldByOthers.length === 0
+      ? null
+      : `${result.heldByOthers.length} line${
+          result.heldByOthers.length === 1 ? ' is' : 's are'
+        } locked by ${[
+          ...new Set(result.heldByOthers.map((l) => names.get(l.lockedById) ?? 'a colleague')),
+        ].join(', ')}. Confirm to override.`;
+
+  return { state: await loadLockState(estimateId), changed: result.unlocked.length, notice };
+}
+
+/**
+ * One subject's lock story, oldest first, for the hover affordance.
  *
  * Read on demand rather than shipped with the page: a reviewer looks at one
- * row's history when they want to know why they cannot edit it, and preloading
+ * history when they want to know why they cannot edit something, and preloading
  * every event for an estimate with hundreds of locks would be several hundred
  * rows nobody reads.
+ *
+ * One action for rows and statements both, because `LockEvent` holds both and
+ * the hover affordance is the same component in both places.
  */
 export async function lineLockHistory(
   estimateId: string,
-  lineItemId: string,
+  subject: string | { lineItemId: string } | { statementId: string },
 ): Promise<LockEventDTO[]> {
   await requireUser();
-  const events = await lockHistoryFor(prisma, estimateId, lineItemId);
+  const events = await lockHistoryFor(prisma, estimateId, subject);
   const names = await namesFor(events.flatMap((e) => [e.actorId, e.priorHolderId ?? '']));
   return events.map((e) => ({
     kind: e.kind,

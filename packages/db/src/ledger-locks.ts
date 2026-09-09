@@ -313,22 +313,38 @@ export async function lockStateFor(
   return { byLineItem, cardsWithAnyLock, cardsFullyLocked };
 }
 
-/** One row's lock story, oldest first. Outlives the locks it describes. */
+/** One lock story, oldest first. */
+export type LockHistoryEntry = {
+  kind: 'LOCKED' | 'UNLOCKED' | 'OVERRIDDEN';
+  declaredScope: LockScope;
+  actorId: string;
+  priorHolderId: string | null;
+  createdAt: Date;
+};
+
+/**
+ * One subject's lock story, oldest first. Outlives the locks it describes.
+ *
+ * Takes either kind of subject because `LockEvent` holds both: a row's history
+ * and a statement's history are read the same way, rendered by the same hover
+ * affordance, and a second function here would be a second thing to keep in
+ * step with it. Exactly one of the two keys is set — the database says so with
+ * a CHECK constraint, and this signature says so with a union.
+ */
 export async function lockHistoryFor(
   db: PrismaClient,
   estimateId: string,
-  lineItemId: string,
-): Promise<
-  Array<{
-    kind: 'LOCKED' | 'UNLOCKED' | 'OVERRIDDEN';
-    declaredScope: LockScope;
-    actorId: string;
-    priorHolderId: string | null;
-    createdAt: Date;
-  }>
-> {
+  subject: string | { lineItemId: string } | { statementId: string },
+): Promise<LockHistoryEntry[]> {
+  // A bare string is a line item id. Every caller predating statements passes
+  // one, and the ledger is where nearly all of the hovering happens.
+  const where =
+    typeof subject === 'string'
+      ? { estimateId, lineItemId: subject }
+      : { estimateId, ...subject };
+
   return db.lockEvent.findMany({
-    where: { estimateId, lineItemId },
+    where,
     orderBy: { createdAt: 'asc' },
     select: {
       kind: true,

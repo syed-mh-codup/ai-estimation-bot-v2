@@ -25,6 +25,7 @@ import {
   assertCardTitleUnlocked,
   assertLineItemUnlocked,
   assertRoleUnlockedForBuffer,
+  assertStatementListEditable,
 } from '@/lib/lock-guards';
 import { cardFlags, lineEnvelope, EMPTY_ENVELOPE } from './dto';
 import type { ItemDTO, LineItemDTO, SectionDTO } from './dto';
@@ -595,12 +596,17 @@ export async function setDueAt(id: string, value: string | null): Promise<void> 
  * the top no longer reads as "every point changed".
  */
 export async function updateNarrative(id: string, items: string[]): Promise<void> {
-  await requireSession();
+  const actor = await requireUser();
   await assertEditable(id);
+  const texts = cleanList(items);
+  // Before the reconcile, never after. See `assertStatementListEditable` — the
+  // text matching means a reworded locked line would otherwise take its own
+  // lock down with it.
+  await assertStatementListEditable(id, 'NARRATIVE', texts, actor.id);
   await reconcileStatements(prisma, {
     estimateId: id,
     kind: 'NARRATIVE',
-    texts: cleanList(items),
+    texts,
     // Somebody typed into the list, so anything new here is theirs.
     provenance: 'HUMAN',
   });
@@ -608,12 +614,14 @@ export async function updateNarrative(id: string, items: string[]): Promise<void
 
 /** Save the assumptions list. See `updateNarrative` for the reconciliation. */
 export async function updateAssumptions(id: string, items: string[]): Promise<void> {
-  await requireSession();
+  const actor = await requireUser();
   await assertEditable(id);
+  const texts = cleanList(items);
+  await assertStatementListEditable(id, 'ASSUMPTION', texts, actor.id);
   await reconcileStatements(prisma, {
     estimateId: id,
     kind: 'ASSUMPTION',
-    texts: cleanList(items),
+    texts,
     provenance: 'HUMAN',
   });
 }

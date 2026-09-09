@@ -101,6 +101,17 @@ enum AgentKind {
   /// result afterwards. The Architect assembles cards from a whole run's
   /// specialist output, which is a different job with a different input.
   CURATOR
+  /// Not part of a run either. Rewrites the narrative lines and the assumptions
+  /// a person has ticked, inside a declared envelope. AEH-238.
+  ///
+  /// A separate kind for the same reason CURATOR is one, stated by what it does
+  /// NOT do: it never touches an hour and it never touches a card. It is handed
+  /// the statements in the envelope, the whole estimate for context, and an
+  /// instruction, and it returns replacement wording for those statements and
+  /// nothing else. The Architect writes the narrative from scratch out of a
+  /// whole run's specialist output — a different job, a different input, and a
+  /// different output shape.
+  SCRIBE
 }
 
 /// The attribution vocabulary for ModelUsage rows. Owned in code by
@@ -120,6 +131,7 @@ enum UsageKind {
   ORACLE
   CARTOGRAPHER
   CURATOR
+  SCRIBE
   /// Supporting-document generation. ONE value for every artifact type, and
   /// deliberately so: artifact types are rows in ArtifactType, so a per-type
   /// usage kind would be a migration per type — the exact thing AEH-239 exists
@@ -257,6 +269,8 @@ model User {
   ledgerLocks       LedgerLock[]
   /// Steered edits this user asked for. Attribution, not ownership.
   ledgerEdits       LedgerEdit[]
+  /// Statements this user has frozen. Same override rule as ledgerLocks.
+  statementLocks    StatementLock[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -688,6 +702,8 @@ model Estimate {
   ledgerEdits        LedgerEdit[]
   /// The narrative and the assumptions, as addressable rows. AEH-238.
   statements         EstimateStatement[]
+  /// Statements on this estimate somebody has frozen. AEH-238.
+  statementLocks     StatementLock[]
 }
 
 /// One change to one of an estimate buffer overrides.
@@ -1089,7 +1105,11 @@ model EstimateStatement {
   /// nothing addresses a statement by position any more.
   order      Int            @default(0)
   provenance LineProvenance @default(CREW)
+  /// Set when this statement is frozen. See StatementLock.
+  lock       StatementLock?
   createdAt  DateTime       @default(now())
+  /// Maintained by Prisma, and the staleness fingerprint for a statement
+  /// region — the same role RoleLineItem.updatedAt plays for an hours region.
   updatedAt  DateTime       @updatedAt
 
   @@index([estimateId, kind, order])
@@ -1113,6 +1133,19 @@ enum LockScope {
   SECTION
   CARD
   LINE
+  /// One statement — one narrative line, or one assumption. AEH-238.
+  ///
+  /// Statements joined this enum rather than getting a vocabulary of their own,
+  /// and that is the whole reason it is worth a comment. There is exactly ONE
+  /// list of things a person can point at when they declare a boundary, and a
+  /// second list would eventually disagree with the first about what a
+  /// declaration means. What the two halves do NOT share is the role axis: a
+  /// statement is one sentence, so `roles` is meaningless against these two
+  /// values and is ignored, the way it already is for LINE.
+  STATEMENT
+  /// A whole list: every narrative line, or every assumption. `declaredTargetId`
+  /// carries the StatementKind.
+  STATEMENT_LIST
 }
 
 /// What happened to a lock. Append-only; see LockEvent.
@@ -1177,12 +1210,24 @@ model LedgerLock {
 ///
 /// `lineItemId` is deliberately NOT a relation. The point of this table is to
 /// outlive the lock, and a cascade from `RoleLineItem` would delete exactly the
-/// record of an override somebody later wants to ask about.
+/// record of an override somebody later wants to ask about. `statementId`
+/// follows the same rule.
+///
+/// ONE table for line-item locks and statement locks both. The hover history
+/// and the three-state padlock are the same affordance wherever they appear, so
+/// a second event table would have meant a second implementation of them that
+/// could drift. What differs between the two is only which column is set.
 model LockEvent {
   id               String        @id @default(cuid())
   estimateId       String
   estimate         Estimate      @relation(fields: [estimateId], references: [id], onDelete: Cascade)
-  lineItemId       String
+  /// The row this event is about, when it is about a row. Exactly one of this
+  /// and `statementId` is set — a database CHECK constraint says so, because
+  /// Prisma cannot and an event about nothing is not auditable.
+  lineItemId       String?
+  /// The statement this event is about, when it is about a statement. Same
+  /// no-relation rule as `lineItemId`, and for the same reason.
+  statementId      String?
   kind             LockEventKind
   declaredScope    LockScope
   /// @backend-only Same as LedgerLock.declaredTargetId: which selection this event acted through, kept for the record rather than for the hover story, which reads the scope.
@@ -1196,6 +1241,45 @@ model LockEvent {
   createdAt        DateTime      @default(now())
 
   @@index([estimateId, lineItemId, createdAt])
+  @@index([estimateId, statementId, createdAt])
+}
+
+/// One frozen statement — a narrative line or an assumption. AEH-238.
+///
+/// A SECOND current-state table rather than a nullable `LedgerLock.lineItemId`,
+/// and the reason is the constraint on that column. `@unique` plus a cascading
+/// foreign key is what makes "is this frozen" a lookup and makes two concurrent
+/// lock calls over overlapping selections unable to produce two locks on one
+/// row. Widening it to hold either kind of id would have traded a guarantee for
+/// the appearance of tidiness.
+///
+/// One thing here works differently from a line-item lock, and it is the thing
+/// most likely to be got wrong by a later change. `reconcileStatements` matches
+/// the submitted list to existing rows BY TEXT, so rewording a statement is a
+/// delete plus a create — and the cascade below would then quietly remove the
+/// lock instead of the edit being refused. So the guard runs BEFORE the
+/// reconcile, over the locked ids: every locked statement's text must come back
+/// verbatim or the save is refused. The cascade exists for the case that is
+/// genuinely a deletion, which is the estimate going away.
+model StatementLock {
+  id               String            @id @default(cuid())
+  estimateId       String
+  estimate         Estimate          @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  /// One lock per statement at most. See the note above.
+  statementId      String            @unique
+  statement        EstimateStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  /// STATEMENT or STATEMENT_LIST. Provenance only — see LockScope.
+  declaredScope    LockScope
+  /// The statement id, or the StatementKind for a whole-list declaration.
+  ///
+  /// @backend-only Records WHICH declaration froze this statement, for the audit trail. The hover story reads the scope word; resolving this to anything displayable would be a query per hovered row.
+  declaredTargetId String?
+  /// Who set it. Only they may remove it without confirming an override.
+  lockedById       String
+  lockedBy         User              @relation(fields: [lockedById], references: [id], onDelete: Cascade)
+  lockedAt         DateTime          @default(now())
+
+  @@index([estimateId])
 }
 
 // ─── Oracle ───────────────────────────────────────────────────────────────────
@@ -1354,6 +1438,15 @@ enum LedgerEditMode {
   /// Split or merge and move the hours WITHOUT re-pricing. The opt-in, for when
   /// somebody genuinely means "reorganise this, do not re-open the numbers".
   RESTRUCTURE_KEEP_HOURS
+  /// Rewrite the ticked narrative lines or assumptions. Touches no hours and no
+  /// cards; the write set is `pinnedStatementIds` and nothing else. AEH-238.
+  ///
+  /// Its own mode rather than something an hours edit can also do, because the
+  /// point of the envelope is that a person can say what may change and be
+  /// certain about it. "Re-price DEV on this card" and "reword these two
+  /// assumptions" are two boundaries, and one request that did both would make
+  /// neither of them checkable.
+  REVISE_STATEMENTS
 }
 
 /// How far a steered edit has got. Polled by the ledger while a job runs.
@@ -1414,71 +1507,75 @@ enum LedgerEditStatus {
 ///   They are written in the SAME TRANSACTION as the ledger change. A ledger
 ///   write whose revert payload did not land is worse than no audit at all.
 model LedgerEdit {
-  id                String           @id @default(cuid())
-  estimateId        String
-  estimate          Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  id                 String           @id @default(cuid())
+  estimateId         String
+  estimate           Estimate         @relation(fields: [estimateId], references: [id], onDelete: Cascade)
   /// Who asked. Attribution, not ownership.
-  actorId           String
-  actor             User             @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  actorId            String
+  actor              User             @relation(fields: [actorId], references: [id], onDelete: Cascade)
 
   /// What the person typed, verbatim and unedited. The only record of WHY the
   /// numbers moved, which is the half of the audit that cannot be reconstructed.
-  prompt            String
+  prompt             String
   /// Re-price, or reshape and then re-price. See LedgerEditMode.
-  mode              LedgerEditMode   @default(REPRICE)
+  mode               LedgerEditMode   @default(REPRICE)
   /// The envelope's axes, in the same vocabulary a lock uses — the two are the
   /// same coordinate system read in opposite directions.
-  declaredScope     LockScope
+  declaredScope      LockScope
   /// The id of what was selected, or null for the whole estimate.
   ///
   /// @backend-only Records WHICH selection was declared, for the audit trail. The UI renders pinnedCardIds instead — the cards the envelope actually resolved to, which is what a reviewer needs to see and is not always the same thing.
-  declaredTargetId  String?
-  roles             RoleKind[]
+  declaredTargetId   String?
+  roles              RoleKind[]
 
   /// The write set, resolved once at dispatch. See the note above.
-  pinnedLineItemIds String[]
+  pinnedLineItemIds  String[]
   /// The cards the envelope covers, so the applier and the progress UI both
   /// know the unit of work without re-deriving it.
-  pinnedCardIds     String[]
+  pinnedCardIds      String[]
+  /// The statements the envelope covers, pinned at dispatch for exactly the
+  /// reason `pinnedLineItemIds` is. Empty on an hours edit, and the only
+  /// populated write set on a REVISE_STATEMENTS one.
+  pinnedStatementIds String[]
   /// max(updatedAt) across the region when the job started. Compared again
   /// before the write; a difference means somebody edited underneath it.
-  fingerprint       DateTime?
+  fingerprint        DateTime?
 
-  status            LedgerEditStatus @default(QUEUED)
+  status             LedgerEditStatus @default(QUEUED)
   /// Human-readable progress, mirroring Estimate.runStage. The job must be
   /// visible in context or it is worse than the blocking call it replaced.
-  stage             String?
-  pct               Int              @default(0)
-  error             String?
+  stage              String?
+  pct                Int              @default(0)
+  error              String?
 
   /// The model's own argument for the numbers it produced. Not decoration: the
   /// council is allowed to set numbers precisely because it went back to the
   /// requirement, so what it says about that is the evidence for the change.
-  reasoning         String?
+  reasoning          String?
 
   /// The region exactly as it was. The revert payload and the audit record.
-  beforeSnapshot    Json?
+  beforeSnapshot     Json?
   /// The proposed rows. Parked here while PENDING_CONFLICT; kept afterwards as
   /// the analysis corpus.
-  afterSnapshot     Json?
+  afterSnapshot      Json?
 
   /// Analysable dimensions, promoted out of the snapshots so that "how often
   /// does a steer move a total by more than a fifth" is a query rather than a
   /// scan of every payload.
-  rowsBefore        Int?
-  rowsAfter         Int?
-  hoursBefore       Float?
-  hoursAfter        Float?
+  rowsBefore         Int?
+  rowsAfter          Int?
+  hoursBefore        Float?
+  hoursAfter         Float?
   /// True when this edit was approved over a concurrent change.
-  overwroteConflict Boolean          @default(false)
+  overwroteConflict  Boolean          @default(false)
 
-  createdAt         DateTime         @default(now())
-  appliedAt         DateTime?
-  revertedAt        DateTime?
-  revertedById      String?
+  createdAt          DateTime         @default(now())
+  appliedAt          DateTime?
+  revertedAt         DateTime?
+  revertedById       String?
 
   /// What the model calls cost. See ModelUsage.ledgerEditId.
-  usage             ModelUsage[]
+  usage              ModelUsage[]
 
   @@index([estimateId, createdAt])
   @@index([estimateId, status])

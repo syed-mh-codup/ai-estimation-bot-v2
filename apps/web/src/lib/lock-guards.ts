@@ -1,4 +1,12 @@
-import { lockedWithin, locksOn, prisma, resolveTarget, type LockInfo, type RoleKind } from '@repo/db';
+import {
+  lockedStatementTextsMissing,
+  lockedWithin,
+  locksOn,
+  prisma,
+  resolveTarget,
+  type RoleKind,
+  type StatementKind,
+} from '@repo/db';
 
 /**
  * The refusal half of ledger locks — AEH-238.
@@ -23,8 +31,17 @@ import { lockedWithin, locksOn, prisma, resolveTarget, type LockInfo, type RoleK
  *            reviewer tidying the board is not editing anybody's numbers
  */
 
-/** Renders "Alice" / "you" for a message, resolving names by id. */
-async function describeHolders(locks: LockInfo[], actorId?: string): Promise<string> {
+/**
+ * Renders "Alice" / "you" for a message, resolving names by id.
+ *
+ * Takes the one field it needs rather than a `LockInfo`, because it now serves
+ * statement locks too and those are a different row type. Its callers still
+ * hold the full lock, which is where the audit sees the rest of it read.
+ */
+async function describeHolders(
+  locks: Array<{ lockedById: string }>,
+  actorId?: string,
+): Promise<string> {
   const ids = [...new Set(locks.map((l) => l.lockedById))];
   const users = await prisma.user.findMany({
     where: { id: { in: ids } },
@@ -164,6 +181,40 @@ export async function assertRoleUnlockedForBuffer(
 }
 
 /**
+ * Throws when a list save would drop or reword a locked statement. AEH-238.
+ *
+ * THE guard on the statement axis, and the reason it looks nothing like the
+ * others. `reconcileStatements` matches the submitted list to existing rows BY
+ * TEXT, so rewording a locked line is a delete plus a create — and the lock's
+ * foreign key cascades. Without this, a person could rewrite a frozen assumption
+ * and the lock would vanish along with the row it was protecting: no error, no
+ * event, and a lock nobody removed.
+ *
+ * So it runs BEFORE the reconcile, and it asks the only question that catches
+ * both cases: does every locked line's text still come back. Reworded and
+ * deleted are the same refusal, which is right — a lock says this sentence is
+ * settled.
+ */
+export async function assertStatementListEditable(
+  estimateId: string,
+  kind: StatementKind,
+  texts: readonly string[],
+  actorId?: string,
+): Promise<void> {
+  const missing = await lockedStatementTextsMissing(prisma, { estimateId, kind, texts });
+  if (missing.length === 0) return;
+  const who = await describeHolders(missing, actorId);
+  const label = kind === 'NARRATIVE' ? 'narrative line' : 'assumption';
+  throw new Error(
+    `${missing.length} locked ${label}${
+      missing.length === 1 ? '' : 's'
+    } (${who}) would be reworded or removed by this save, so it was refused. Unlock ${
+      missing.length === 1 ? 'it' : 'them'
+    } first.`,
+  );
+}
+
+/**
  * Throws when a full re-run is asked for while anything on the estimate is
  * frozen.
  *
@@ -179,19 +230,36 @@ export async function assertRoleUnlockedForBuffer(
  * both expensive and confusing.
  */
 export async function assertEstimateUnlockedForRerun(estimateId: string): Promise<void> {
-  const locks = await prisma.ledgerLock.findMany({
-    where: { estimateId },
-    select: {
-      lineItemId: true,
-      lockedById: true,
-      lockedAt: true,
-      declaredScope: true,
-      declaredTargetId: true,
-    },
-  });
-  if (locks.length === 0) return;
-  const who = await describeHolders(locks);
+  // Statements as well as rows, and that is not symmetry for its own sake: a
+  // run calls `replaceStatements`, which deletes both lists wholesale before
+  // writing the new ones. A locked assumption would be destroyed by a re-run
+  // exactly as surely as a locked line item.
+  const [locks, statementLocks] = await Promise.all([
+    prisma.ledgerLock.findMany({
+      where: { estimateId },
+      select: {
+        lineItemId: true,
+        lockedById: true,
+        lockedAt: true,
+        declaredScope: true,
+        declaredTargetId: true,
+      },
+    }),
+    prisma.statementLock.findMany({ where: { estimateId }, select: { lockedById: true } }),
+  ]);
+  if (locks.length === 0 && statementLocks.length === 0) return;
+
+  const who = await describeHolders([...locks, ...statementLocks]);
+  const parts = [
+    locks.length > 0 ? `${locks.length} line${locks.length === 1 ? '' : 's'}` : null,
+    statementLocks.length > 0
+      ? `${statementLocks.length} statement${statementLocks.length === 1 ? '' : 's'}`
+      : null,
+  ].filter((p): p is string => p !== null);
+
   throw new Error(
-    `${locks.length} line${locks.length === 1 ? '' : 's'} on this estimate are locked (${who}). A re-run rebuilds every card from scratch and would discard them, so it is refused. Unlock them, or re-run a copy.`,
+    `${parts.join(' and ')} on this estimate ${
+      locks.length + statementLocks.length === 1 ? 'is' : 'are'
+    } locked (${who}). A re-run rebuilds every card and both statement lists from scratch and would discard them, so it is refused. Unlock them, or re-run a copy.`,
   );
 }

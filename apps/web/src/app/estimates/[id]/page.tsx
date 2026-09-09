@@ -9,7 +9,7 @@ import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { latestTaxChanges, taxContextFor } from '@/lib/estimate-tax';
 import { loadLockState } from '@/lib/lock-state';
-import { loadStatementTexts } from '@repo/db';
+import { loadStatements } from '@repo/db';
 import { inngest, EVENT_PROMOTE } from '@/lib/inngest';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { SowText } from './SowText';
@@ -250,10 +250,11 @@ export default async function EstimateDetailPage({
     // frozen changes how every one of them renders, so it has to be in the
     // first paint or the ledger flashes editable and then locks. AEH-238.
     loadLockState(estimate.id),
-    // Their own rows since AEH-238, so their own read. The editor still works
-    // in whole lists of text; identity is preserved on the way back in by
-    // `reconcileStatements`.
-    loadStatementTexts(prisma, estimate.id),
+    // Their own rows since AEH-238, so their own read — and the rows rather
+    // than just the text, because a lock, a tick and a provenance badge all
+    // need the id. The editor still submits whole lists of text; identity is
+    // preserved on the way back in by `reconcileStatements`.
+    loadStatements(prisma, estimate.id),
   ]);
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
@@ -435,6 +436,7 @@ export default async function EstimateDetailPage({
                 addLabel="Add point"
                 testid="narrative-list"
                 askSubject="narrative line"
+                kind="NARRATIVE"
               />
             </CollapsibleSection>
 
@@ -453,6 +455,7 @@ export default async function EstimateDetailPage({
                 addLabel="Add assumption"
                 testid="assumptions-list"
                 askSubject="assumption"
+                kind="ASSUMPTION"
               />
             </CollapsibleSection>
 
