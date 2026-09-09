@@ -7,8 +7,10 @@ role-lock work.
 The numbers below are positions in this document, not stable identifiers — they
 renumbered when items moved from outstanding to fixed.
 
-Twelve are fixed and committed. Seven are outstanding, and one of those is a
-feature you have already specified rather than a defect.
+All nineteen are addressed.
+
+One of the nineteen turned out not to be a defect at all — see 16, where the
+review was wrong and my fix for it was worse.
 
 **A note on how to read the severity.** I have ordered by what the mistake
 costs, not by how hard it is to fix. The four at the top could each lose
@@ -182,106 +184,109 @@ padlock — and the mirror case skipped it when it was genuinely needed.
 
 ---
 
-## Outstanding — defects
+## Also fixed — the seven lower-severity review findings
 
-### 11. The Curator can collapse two proposed cards onto one
+### 11. The Curator could collapse two proposals onto one card
 
-`packages/agents/src/curator.ts:211`
+`packages/agents/src/curator.ts`
 
-`reuseFor` is keyed by the model's own `ref`, and the schema only requires
-`z.number().int().min(1)` — nothing makes it unique. Given
-`[{ref:1, lines:[1,2]}, {ref:1, lines:[3,4]}]`, the second write overwrites the
-first, both proposals read the same `reuseMenuItemId`, all four lines land on
-one card, and the original the first proposal should have reused is left
-line-less and deleted. A split silently becomes a no-op merge that loses a
-card. **Fix:** key by the assignment's index, not by `ref`.
+`reuseFor` was keyed by the model's own `ref`, which the schema does not make
+unique. Given two proposals both calling themselves 1, the second write
+overwrote the first, both read the same `reuseMenuItemId`, every line landed on
+one card, and the original the first should have reused was left line-less and
+deleted — a split silently becoming a merge that lost a card. Keyed by the
+assignment's index now, with a test that fails if it goes back.
 
-### 12. The no-requirement carry-through destroys most of each row
+### 12. The no-requirement carry-through destroyed most of each row
 
-`packages/agents/src/ledger-edit.ts:690`
+`packages/agents/src/ledger-edit.ts`
 
-For a card with no matching requirement, rows are "carried through unchanged" —
-except they are rebuilt from a five-column select. `notes`, `meta`,
-`touchesFrontend` and `touchesBackend` are never selected, so the requirement
-id, complexity tier, `aiAssistApplied`, `dependsOn` and `anchorPresetIds`
-envelope every reader renders is destroyed, the DEV frontend/backend split is
-lost, a hand-typed row's `HUMAN` provenance becomes `STEERED`, and a legacy row
-over the cap is silently clamped. The comment above it says the rows are carried
-through so the write does not silently delete them; it deletes most of each row
-instead. **Fix:** select the full row, or skip those slices entirely.
+Rows the council could not price were "carried through unchanged" — through a
+five-column select. `notes`, `meta`, `touchesFrontend` and `touchesBackend`
+were never fetched, so a carried row lost the requirement id, complexity tier,
+`aiAssistApplied`, `dependsOn` and `anchorPresetIds` every reader renders, lost
+the DEV frontend/backend split, and had a hand-typed row's `HUMAN` provenance
+restamped `STEERED`.
 
-### 13. The lock check sits outside the transaction that deletes the rows
+One `PINNED_SELECT` now covers both reads, and `ProposedRow` gained an optional
+`provenance` so a carried row keeps what it had: it was not re-priced, so
+calling it steered would record a re-assessment nobody made.
 
-`packages/db/src/ledger-edit.ts:215`
+### 13. The lock check sat outside the transaction that deletes
 
-`applyRegionReplace` reads `LedgerLock`, then snapshots, then opens the
-transaction. A `lockRegion` call landing in that window inserts a lock the
-fingerprint cannot see — `ledgerLock.createMany` touches neither
-`RoleLineItem.updatedAt` nor `MenuItem.updatedAt` — so `moved` is false, the
-delete runs, and the lock cascades away with its row. My comment calls the
-placement deliberate; the reviewer is right that it is the same window the
-in-transaction fingerprint check exists to close. **Fix:** move the lock read
-inside the transaction, or make the fingerprint cover the lock table.
+`packages/db/src/ledger-edit.ts`
 
-### 14. A statement backfilled with whitespace can wedge its list for ever
+A `lockRegion` landing between the check and the `deleteMany` inserted a lock
+the fingerprint could not see — `ledgerLock.createMany` touches neither
+`RoleLineItem.updatedAt` nor `MenuItem.updatedAt`, so `moved` stayed false. The
+delete ran and cascaded the lock away. My comment claimed the placement was
+deliberate; the reviewer was right and the comment was wrong.
 
-`packages/db/src/statement-locks.ts:320`
+Checked twice now: once cheaply outside, so a refusal costs no snapshot, and
+once inside the transaction, which is the one that holds.
 
-The `..._aeh_238_statements` migration inserted `t."text"` raw, filtered only on
-`btrim(...) <> ''`. So a legacy line of `' Phase one is out of scope. '` sits in
-`EstimateStatement` with its spaces. `lockedStatementTextsMissing` builds its
-multiset from `t.trim()` but looks the row up untrimmed, so it never matches: if
-that line is locked, **every** save of the list is refused for ever with "would
-be reworded or removed", even when nobody touched it. If it is unlocked,
-`reconcileStatements` misses for the same reason and deletes-and-recreates the
-row on the next blur, losing its id and provenance. **Fix:** trim both sides, and
-`btrim` the existing rows.
+### 14. A statement with surrounding whitespace could wedge its list — latent only
 
-I have not checked whether any real row on Neon has this shape. Worth a query
-before deciding the priority.
+`packages/db/src/statement-locks.ts`, `packages/db/src/estimate-statements.ts`
 
-### 15. A statement revision reads as an edit against a deleted card
+**Verified against real data before deciding: zero of 2271 rows on Neon
+dev/main are untrimmed.** Every writer trims before storing, so no path can
+create one; only the backfill inserted raw values, and none of what it inserted
+had surrounding space. So this was never live.
 
-`apps/web/src/app/estimates/[id]/EditActivity.tsx:64`
+Trimmed on both sides anyway — one line each, and it removes the class. Had one
+slipped through, a locked statement would have been unmatchable: every save of
+its list refused for ever for a line nobody touched, or, unlocked, deleted and
+recreated on the next blur, losing its id and provenance.
 
-`startStatementEdit` stores `roles: []` and `pinnedCardIds: []`, so the panel
-renders an empty roles chip and `titleOf([])`, which falls through to "a card
-that is no longer here". Every assumption rewrite in the activity list reads as
-an edit against something deleted. `statementIds` is already on the DTO and has
-no consumer anywhere — the data to render it correctly is shipped and ignored.
+### 15. A statement revision read as an edit against a deleted card
 
-### 16. Every specialist call's prompt changed by one newline
+`apps/web/src/app/estimates/[id]/EditActivity.tsx`
 
-`packages/agents/src/specialist.ts:180`
+`startStatementEdit` stores no roles and no cards, so the panel rendered an
+empty chip and "a card that is no longer here" for every assumption rewrite.
+It reads its own write set now — `statementIds`, which was on the DTO with no
+consumer — and says "Prose" where a role would go, because a sentence is not
+DEV or QA work.
 
-Inserting `buildRevisionBlocks` swallowed the blank line before "Respond with
-JSON only". The function returns `''` on an ordinary run — no steer, no
-existing lines, no ledger context — so every pipeline run's user message is now
-one newline shorter than it was. The docstring two lines up asserts that a plain
-run's message is byte-identical to what it was before steering existed, and
-gives the reason it matters: a run whose message silently changed would re-price
-differently for no recorded reason. Smaller than a gained section, same class of
-unrecorded drift, on every `SPECIALIST_*` call on every estimate. **Fix:** return
-`'\n'` for the empty case.
+### 16. The specialist prompt drift — THE REVIEW WAS WRONG, and so was my fix
+
+`packages/agents/src/specialist.ts`, `packages/agents/src/specialist-prompt.test.ts`
+
+Reported as: inserting `buildRevisionBlocks` swallowed the blank line before
+"Respond with JSON only", so every specialist call sent a message one newline
+short. I applied it, returning `'\n'` for the empty case.
+
+**Both wrong.** The template interpolates on its own line, so the newline after
+the insertion point is already in it: returning `''` yields exactly the
+original `\n\nRespond`, and my `'\n'` added a *third* — introducing the drift
+the finding claimed to fix.
+
+What caught it was insisting the new test fail without the fix. It didn't, so
+I checked the template's actual bytes. Reverted, and the test now asserts both
+halves — a blank line before the JSON contract, and *not* two — because
+asserting only its presence passes whatever the function returns.
+
+The lesson is the one worth keeping from this whole list: a review finding is
+a hypothesis. I applied this one without verifying it and briefly made the
+codebase worse.
 
 ### 17. The Oracle no-write guard was widened by model instead of by verb
 
-`apps/web/src/app/estimates/[id]/oracle-no-write.test.ts:74`
+`apps/web/src/app/estimates/[id]/oracle-no-write.test.ts`
 
-`OWN_MODELS` gained `estimateStatement`, and the write regex matches every verb
-— so `prisma.estimateStatement.deleteMany({ where: { estimateId } })` added
-anywhere in the Oracle source set would pass the guard untouched, wiping both
-statement lists and, through the `StatementLock` cascade, every lock protecting
-them. The companion assertion (one export, `appendStatement` only) covers
-`statement-actions.ts`; the estimate-wide grep is what is supposed to catch the
-*next* module. **Fix:** permit `estimateStatement.create` specifically and keep
-every other verb an offence.
+`OWN_MODELS` gained `estimateStatement`, and the write regex matches every
+verb — so `estimateStatement.deleteMany({ where: { estimateId } })` added
+anywhere in the Oracle source set would have passed, wiping both statement
+lists and, through the `StatementLock` cascade, every lock protecting them.
 
----
+Allowed pairs now, not allowed models: `estimateStatement.create` and nothing
+else, with its own tables keeping every verb because they are its own. A new
+test feeds the guard that hostile line and asserts it is caught.
 
-## Outstanding — a feature you specified, not a defect
+## Also fixed — the two things you specified
 
-### 18. Only a few of a bulk edit's jobs are visible *(you found this)*
+### 18. Only a few of a bulk edit's jobs were visible *(you found this)* — FIXED
 
 Three limits stack, and a bulk re-price hits all of them:
 
@@ -300,11 +305,15 @@ run. But this fails your own requirement — "it needs to be clearly visible wha
 stage its on, how many jobs are running" — on the exact workload that most
 needs it.
 
-**Agreed fix:** a summary line above the rows ("34 edits: 2 running, 28 queued,
-4 applied") computed from everything the poll returns, so the count is right
-even when the rows are capped; raise `take` to cover a whole-estimate fan-out;
-order in-flight first so what is moving is what you see. `concurrency: 2` left
-alone — that is a spend decision, and a one-line change whenever you want it.
+**Fixed.** The list moved into a right-hand sheet with a fixed tab, and the tab
+carries TRUE counts — a `groupBy` over status, bounded by the status vocabulary
+rather than by the number of edits, so "34 · 2 running · 28 queued" is right
+however many there are. The list stays a page (40, up from 20; shipping every
+DTO on a two-second poll would trade one problem for a worse one) and the sheet
+says which page of what it is showing.
+
+`concurrency: 2` left alone — that is a spend decision, and a one-line change
+whenever you want it.
 
 ## Answered, no defect
 

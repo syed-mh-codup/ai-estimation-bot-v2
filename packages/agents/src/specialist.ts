@@ -119,6 +119,18 @@ Use "both" only when a unit genuinely cannot be separated. If an item would be "
 function buildRevisionBlocks(role: 'DEV' | 'QA' | 'PM' | 'BA', input: SpecialistInput): string {
   const { steer, ledgerContext } = input;
   const existing = input.existing ?? [];
+  // An EMPTY STRING, and it is worth saying why, because a code review read
+  // this as a bug and it is not one.
+  //
+  // The template interpolates on its own line — `${riskText}`, newline,
+  // `${buildRevisionBlocks(...)}`, newline, `Respond with JSON only` — so the
+  // newline AFTER the interpolation is already in the template. Returning ''
+  // therefore yields `${riskText}\n\nRespond`, exactly what the template said
+  // before steering existed. Returning '\n' would add a THIRD newline and be
+  // the drift this comment is about.
+  //
+  // Pinned by `specialist-prompt.test.ts`, which asserts both halves: a blank
+  // line before "Respond", and not two.
   if (!steer && existing.length === 0 && !ledgerContext) return '';
 
   const parts: string[] = [];

@@ -195,6 +195,15 @@ export async function runCurator(
   for (const c of args.cards) for (const l of c.lines) originalOf.set(l.lineItemId, c.menuItemId);
   const takenOriginals = new Set<string>();
 
+  // Keyed by the assignment's INDEX, not by the model's `ref`.
+  //
+  // `ref` is the model's own numbering and the schema does not make it unique:
+  // two proposals may both call themselves 1. Keyed by ref, the second write
+  // overwrote the first, both proposals then read the same `reuseMenuItemId`,
+  // every line landed on one card, and the original the first proposal should
+  // have reused was left line-less and deleted by `applyRestructure`. A split
+  // silently became a merge that lost a card.
+  const indexOf = new Map(assignments.map((a, i) => [a, i]));
   const ranked = [...assignments].sort((a, b) => b.lineItemIds.length - a.lineItemIds.length);
   const reuseFor = new Map<number, string | null>();
   for (const a of ranked) {
@@ -208,15 +217,15 @@ export async function runCurator(
       .sort((x, y) => y[1] - x[1])[0];
     if (best) {
       takenOriginals.add(best[0]);
-      reuseFor.set(a.card.ref, best[0]);
+      reuseFor.set(indexOf.get(a)!, best[0]);
     } else {
-      reuseFor.set(a.card.ref, null);
+      reuseFor.set(indexOf.get(a)!, null);
     }
   }
 
   const source = args.cards[0]!;
-  const cards: CuratedCard[] = assignments.map(({ card, lineItemIds }) => {
-    const reuseMenuItemId = reuseFor.get(card.ref) ?? null;
+  const cards: CuratedCard[] = assignments.map(({ card, lineItemIds }, index) => {
+    const reuseMenuItemId = reuseFor.get(index) ?? null;
     const inherited = args.cards.find((c) => c.menuItemId === reuseMenuItemId) ?? source;
     return {
       reuseMenuItemId,

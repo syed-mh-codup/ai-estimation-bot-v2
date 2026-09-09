@@ -317,7 +317,13 @@ export async function lockedStatementTextsMissing(
 
   const missing: Array<{ statementId: string; text: string; lockedById: string }> = [];
   for (const lock of locked) {
-    const text = lock.statement.text;
+    // Trimmed on BOTH sides. Every writer here trims before storing, so a
+    // stored value with surrounding space should not exist — and on the real
+    // database none does, out of 2271 rows. But the AEH-238 backfill inserted
+    // `t."text"` raw, and had one slipped through, a locked statement would
+    // have been unmatchable: every save of its list refused for ever with
+    // "would be reworded or removed", for a line nobody had touched.
+    const text = lock.statement.text.trim();
     const left = remaining.get(text) ?? 0;
     if (left > 0) remaining.set(text, left - 1);
     else missing.push({ statementId: lock.statementId, text, lockedById: lock.lockedById });

@@ -64,14 +64,26 @@ const ORACLE_SOURCES = [
 ];
 
 /**
- * Everything Oracle may write.
+ * Everything Oracle may write, as `model.verb` pairs.
  *
- * The first two are its own. `estimateStatement` is AEH-238's one addition, and
- * it is the narrowest write in the system: a sentence appended to a list, which
- * changes no hours, no cards and no totals. Note what is NOT here and must
- * never be — `menuItem`, `roleLineItem`, `estimate`, `ledgerEdit`.
+ * BY VERB, not by model, and that distinction is the whole guard. The first
+ * cut of AEH-238's addition put `estimateStatement` in a set of allowed
+ * MODELS, which permitted every verb on it — so
+ * `estimateStatement.deleteMany({ where: { estimateId } })` added anywhere in
+ * the Oracle source set would have passed this test untouched, wiping both
+ * statement lists and, through the `StatementLock` cascade, every lock
+ * protecting them.
+ *
+ * What Oracle actually needs is ONE verb on that model: appending a sentence a
+ * person accepted. The narrowest write in the system — it changes no hours, no
+ * cards and no totals. Its own tables keep every verb, because they are its
+ * own.
+ *
+ * Note what is absent and must stay absent: `menuItem`, `roleLineItem`,
+ * `estimate`, `ledgerEdit`, and every verb on `estimateStatement` but one.
  */
-const OWN_MODELS = new Set(['oracleThread', 'oracleMessage', 'estimateStatement']);
+const OWN_TABLES = new Set(['oracleThread', 'oracleMessage']);
+const ALLOWED_PAIRS = new Set(['estimateStatement.create']);
 
 const WRITE = /\b(?:prisma|db|tx)\.([A-Za-z]\w*)\.(create|createMany|update|updateMany|upsert|delete|deleteMany|executeRaw|executeRawUnsafe)\b/g;
 
@@ -98,7 +110,9 @@ describe('Oracle cannot mutate an estimate', () => {
     for (const { path, source } of present()) {
       for (const match of source.matchAll(WRITE)) {
         const [, model, method] = match;
-        if (!OWN_MODELS.has(model!)) offences.push(`${path}: ${model}.${method}`);
+        if (OWN_TABLES.has(model!)) continue;
+        if (ALLOWED_PAIRS.has(`${model}.${method}`)) continue;
+        offences.push(`${path}: ${model}.${method}`);
       }
     }
 
@@ -113,6 +127,18 @@ describe('Oracle cannot mutate an estimate', () => {
       .map((f) => f.path);
 
     expect(offences).toEqual([]);
+  });
+
+  it('would catch a DELETE on the model it allows a create on', () => {
+    // The guard's own guard. `estimateStatement` is allowed exactly one verb,
+    // and this proves the check is per pair rather than per model — the
+    // difference between "Oracle may append a sentence" and "Oracle may empty
+    // both lists and take every lock with them".
+    const hostile = `await prisma.estimateStatement.deleteMany({ where: { estimateId } });`;
+    const offences = [...hostile.matchAll(WRITE)]
+      .map(([, model, method]) => `${model}.${method}`)
+      .filter((pair) => !OWN_TABLES.has(pair.split('.')[0]!) && !ALLOWED_PAIRS.has(pair));
+    expect(offences).toEqual(['estimateStatement.deleteMany']);
   });
 
   it('keeps the one allowed write to a single function in a single module', () => {

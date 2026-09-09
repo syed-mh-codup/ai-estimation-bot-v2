@@ -138,8 +138,25 @@ function EditActivityList() {
   const settled = (e: LedgerEditDTO): boolean =>
     e.status === 'REVERTED' || e.status === 'DISCARDED';
 
-  const titleOf = (cardIds: string[]): string => {
-    const names = cardIds
+  /**
+   * What an edit was aimed at, in one phrase.
+   *
+   * A statement revision is asked FIRST, because it pins no cards at all: its
+   * write set is `statementIds` and `pinnedCardIds` is empty by construction.
+   * Read as a card list, that came out as "a card that is no longer here" —
+   * every assumption rewrite in the panel reading as an edit against something
+   * deleted. The data to say it properly was already on the DTO and had no
+   * consumer.
+   */
+  const subjectOf = (e: LedgerEditDTO): string => {
+    if (e.mode === 'REVISE_STATEMENTS') {
+      const n = e.statementIds.length;
+      const what = e.scope === 'STATEMENT_LIST' ? 'the whole list' : `${n} line${n === 1 ? '' : 's'}`;
+      // The kind is not on the DTO, and inventing "assumption" or "narrative"
+      // from a scope word would be a guess. `declaredScope` is what is known.
+      return `${what} of prose`;
+    }
+    const names = e.cardIds
       .map((id) => items.find((i) => i.id === id)?.title)
       .filter((t): t is string => Boolean(t));
     if (names.length === 0) return 'a card that is no longer here';
@@ -198,9 +215,12 @@ function EditActivityList() {
             >
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="num text-[11px] font-bold tracking-[0.06em] text-ink-3 uppercase">
-                  {e.roles.join(' ')}
+                  {/* A statement revision has no roles — a sentence is not
+                      DEV or QA work — so it says what it is rather than
+                      rendering an empty chip. */}
+                  {e.mode === 'REVISE_STATEMENTS' ? 'Prose' : e.roles.join(' ')}
                 </span>
-                <span className="text-[12.5px] text-ink-2">{titleOf(e.cardIds)}</span>
+                <span className="text-[12.5px] text-ink-2">{subjectOf(e)}</span>
                 <span
                   className={cn(
                     'num ml-auto text-[11.5px]',

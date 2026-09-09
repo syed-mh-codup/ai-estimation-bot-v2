@@ -58,6 +58,53 @@ const CARD: CuratableCard = {
 const ARGS = { cards: [CARD], instruction: 'split payment from receipts', ledgerContext: '- other' };
 
 describe('runCurator', () => {
+  it('does not collapse two proposals that give themselves the same ref', async () => {
+    // `ref` is the model's own numbering and the schema only requires a
+    // positive integer — nothing makes it unique. Keyed by ref, the second
+    // proposal's reuse overwrote the first's, every line landed on one card,
+    // and the original the first should have reused was left empty and deleted
+    // by `applyRestructure`: a split silently became a merge that lost a card.
+    const out = await runCurator(
+      {
+        ...ARGS,
+        cards: [
+          { ...CARD, lines: CARD.lines.slice(0, 2) },
+          {
+            ...CARD,
+            menuItemId: 'card-2',
+            title: 'Receipts',
+            // Its own rows: spreading CARD's would give two cards the same
+            // line ids, and the numbering the model answers against is one
+            // flat list across both.
+            lines: [
+              { lineItemId: 'li-5', role: 'DEV', description: 'receipt pdf', hours: 3 },
+              { lineItemId: 'li-6', role: 'QA', description: 'receipt checks', hours: 1 },
+            ],
+          },
+        ],
+      },
+      ctxWith({
+        cards: [
+          { ref: 1, title: 'Payment', lines: [1, 2] },
+          { ref: 1, title: 'Receipts', lines: [3, 4] },
+
+        ],
+      }),
+    );
+
+    expect(out.cards).toHaveLength(2);
+    // Two proposals, two DIFFERENT existing cards reused — not one card twice.
+    const reused = out.cards.map((c) => c.reuseMenuItemId);
+    expect(new Set(reused).size).toBe(2);
+    // And every line still assigned exactly once.
+    expect(out.cards.flatMap((c) => c.lineItemIds).sort()).toEqual([
+      'li-1',
+      'li-2',
+      'li-5',
+      'li-6',
+    ]);
+  });
+
   it('assigns the lines it was told to, and resolves them to real ids', async () => {
     const out = await runCurator(
       ARGS,

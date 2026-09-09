@@ -169,6 +169,31 @@ const WIDE_READ_SELECT = {
 
 type WideReadCard = Prisma.MenuItemGetPayload<{ select: typeof WIDE_READ_SELECT }>;
 
+/**
+ * What a pinned row is read as, and it is the WHOLE row for a reason.
+ *
+ * The carry-through path below re-pushes rows the council could not price, and
+ * it claimed to pass them through unchanged. Read through a five-column
+ * select, it did not: `notes`, `meta`, `touchesFrontend` and `touchesBackend`
+ * were never fetched, so a carried row lost the requirement id, the complexity
+ * tier, `aiAssistApplied`, `dependsOn` and `anchorPresetIds` that every reader
+ * renders, lost the DEV frontend/backend split, and had a hand-typed row's
+ * HUMAN provenance restamped as STEERED. "Carried through unchanged" has to
+ * mean unchanged.
+ */
+const PINNED_SELECT = {
+  id: true,
+  menuItemId: true,
+  role: true,
+  title: true,
+  baseHours: true,
+  notes: true,
+  provenance: true,
+  touchesFrontend: true,
+  touchesBackend: true,
+  meta: true,
+} as const;
+
 /** The council's output as rows for one card, ready for the ledger. */
 function toProposedRows(
   outputs: SpecialistOutput[],
@@ -457,14 +482,7 @@ export async function runLedgerEdit(
 
   const pinned = await db.roleLineItem.findMany({
     where: { id: { in: edit.pinnedLineItemIds } },
-    select: {
-      id: true,
-      menuItemId: true,
-      role: true,
-      title: true,
-      baseHours: true,
-      provenance: true,
-    },
+    select: PINNED_SELECT,
   });
 
   const { allCards, ledgerContext } = await loadWideRead(db, edit.estimateId, edit.pinnedCardIds);
@@ -679,14 +697,7 @@ export async function runLedgerEdit(
       ? pinned
       : await db.roleLineItem.findMany({
           where: { id: { in: edit.pinnedLineItemIds } },
-          select: {
-            id: true,
-            menuItemId: true,
-            role: true,
-            title: true,
-            baseHours: true,
-            provenance: true,
-          },
+          select: PINNED_SELECT,
         });
 
   // One unit of work per (card, role) — the envelope's own granularity.
@@ -742,7 +753,10 @@ export async function runLedgerEdit(
         `${card.title} (${slice.role}): left untouched — this card is not tied to a requirement from the run, so there is nothing to re-price it against.`,
       );
       // Its existing rows are carried through unchanged so the write does not
-      // silently delete them.
+      // silently delete them — and UNCHANGED means every column, not just the
+      // hours. See `PINNED_SELECT`: read through a narrower select this path
+      // quietly stripped the envelope meta, the notes and the frontend/backend
+      // split off every row it claimed to be preserving.
       for (const row of grouped.filter(
         (p) => p.menuItemId === slice.cardId && p.role === slice.role,
       )) {
@@ -751,6 +765,13 @@ export async function runLedgerEdit(
           role: slice.role,
           title: row.title ?? '',
           baseHours: row.baseHours,
+          notes: row.notes,
+          touchesFrontend: row.touchesFrontend,
+          touchesBackend: row.touchesBackend,
+          // A carried row keeps the provenance it had: it was not re-priced,
+          // so calling it STEERED would record a decision nobody made.
+          provenance: row.provenance,
+          ...(row.meta === null ? {} : { meta: row.meta as never }),
         });
       }
       done += 1;

@@ -127,11 +127,18 @@ export async function reconcileStatements(
   });
 
   // First unclaimed row with this exact text keeps its identity.
+  //
+  // Keyed on the TRIMMED stored text, to match the trimmed submitted list. No
+  // writer here stores untrimmed text and the real database has none, but the
+  // AEH-238 backfill inserted raw values: one with a trailing space would
+  // never have matched, so the row would be deleted and recreated on the next
+  // blur, losing its id, its provenance and any lock pointing at it.
   const unclaimed = new Map<string, StatementRow[]>();
   for (const row of existing) {
-    const bucket = unclaimed.get(row.text);
+    const key = row.text.trim();
+    const bucket = unclaimed.get(key);
     if (bucket) bucket.push(row);
-    else unclaimed.set(row.text, [row]);
+    else unclaimed.set(key, [row]);
   }
 
   const keep: Array<{ id: string; order: number }> = [];

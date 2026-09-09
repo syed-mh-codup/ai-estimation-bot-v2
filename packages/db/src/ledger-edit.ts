@@ -136,6 +136,16 @@ export type ProposedRow = {
   touchesBackend?: boolean;
   /** Envelope structure (complexity tier, requirement id, anchors). */
   meta?: Prisma.InputJsonValue;
+  /**
+   * What this row's number IS, when it is not the council's steered output.
+   *
+   * Defaults to `STEERED`, which is right for everything the council actually
+   * re-priced. The exception is a row carried through untouched because its
+   * card had no requirement to price against: it was not re-priced, so
+   * stamping it `STEERED` would record a re-assessment nobody made and, on a
+   * hand-typed row, overwrite the `HUMAN` flag that says a person set it.
+   */
+  provenance?: LineProvenance;
 };
 
 /**
@@ -220,23 +230,49 @@ export async function applyRegionReplace(
     reasoning = null,
   } = args;
 
-  // Outside the transaction: a lock is a refusal, so there is nothing to do
-  // atomically with it, and reporting it needs no snapshot.
-  const locked = await db.ledgerLock.findMany({
-    where: { lineItemId: { in: pinnedLineItemIds } },
-    select: { lineItemId: true },
-  });
-  if (locked.length > 0) {
-    await db.ledgerEdit.update({
+  /**
+   * Refuse when anything in the write set is locked.
+   *
+   * Called twice: once here, cheaply, so a refusal costs no snapshot and no
+   * transaction — and again INSIDE the transaction below, which is the one that
+   * matters.
+   *
+   * The reason it has to be inside is a window this code used to leave open. A
+   * `lockRegion` call landing between the check and the `deleteMany` inserts a
+   * `LedgerLock` row, and the fingerprint comparison cannot see it —
+   * `ledgerLock.createMany` touches neither `RoleLineItem.updatedAt` nor
+   * `MenuItem.updatedAt`, so `moved` stays false. The delete then ran and took
+   * the lock with it by cascade: no error, no `LockEvent`, a lock nobody
+   * removed. Exactly the failure the in-transaction fingerprint check exists
+   * to close, on a table the fingerprint does not cover.
+   */
+  const lockedIn = async (client: Prisma.TransactionClient): Promise<string[]> =>
+    (
+      await client.ledgerLock.findMany({
+        where: { lineItemId: { in: pinnedLineItemIds } },
+        select: { lineItemId: true },
+      })
+    ).map((l) => l.lineItemId);
+
+  const refuseLocked = async (
+    client: Prisma.TransactionClient,
+    lockedLineItemIds: string[],
+  ): Promise<ApplyOutcome> => {
+    await client.ledgerEdit.update({
       where: { id: editId },
       data: {
         status: 'FAILED',
-        error: `${locked.length} line${
-          locked.length === 1 ? '' : 's'
+        error: `${lockedLineItemIds.length} line${
+          lockedLineItemIds.length === 1 ? '' : 's'
         } in this selection were locked while the edit was running, so nothing was written. Unlock them and ask again.`,
       },
     });
-    return { kind: 'REFUSED_LOCKED', lockedLineItemIds: locked.map((l) => l.lineItemId) };
+    return { kind: 'REFUSED_LOCKED', lockedLineItemIds };
+  };
+
+  const lockedEarly = await lockedIn(db as unknown as Prisma.TransactionClient);
+  if (lockedEarly.length > 0) {
+    return refuseLocked(db as unknown as Prisma.TransactionClient, lockedEarly);
   }
 
   // An empty proposal over a non-empty region. Refused, never applied.
@@ -279,8 +315,9 @@ export async function applyRegionReplace(
       notes: p.notes ?? null,
       // The council re-priced this against the requirement with a person
       // steering, which is neither the crew's own number nor one somebody
-      // typed. See LineProvenance.
-      provenance: 'STEERED' as LineProvenance,
+      // typed. See LineProvenance — and `ProposedRow.provenance` for the one
+      // case that overrides it.
+      provenance: p.provenance ?? ('STEERED' as LineProvenance),
       touchesFrontend: p.touchesFrontend ?? false,
       touchesBackend: p.touchesBackend ?? false,
       ...(p.meta === undefined ? {} : { meta: p.meta }),
@@ -291,6 +328,10 @@ export async function applyRegionReplace(
 
   const outcome = await db.$transaction(
     async (tx) => {
+      // The check that actually holds. See `lockedIn`.
+      const lockedNow = await lockedIn(tx);
+      if (lockedNow.length > 0) return refuseLocked(tx, lockedNow);
+
       if (!overwriteConflict) {
         const observed = await regionFingerprint(tx as unknown as PrismaClient, {
           cardIds: pinnedCardIds,
