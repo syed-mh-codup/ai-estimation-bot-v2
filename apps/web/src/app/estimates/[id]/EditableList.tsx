@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Lock, LockOpen, Plus, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AskOracleButton } from './AskOracleButton';
 import { useLedger } from './ledger-context';
 import { StatementLockBadge } from './LockControls';
+import { createSerialSaver } from './serial-save';
 import type { StatementDTO } from './statement-dto';
 
 /**
@@ -60,7 +61,6 @@ export function EditableList({
 }) {
   const [items, setItems] = useState<StatementDTO[]>(initialItems);
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
   const {
     locks,
     lockBusy,
@@ -70,33 +70,75 @@ export function EditableList({
     toggleStatementSelected,
   } = useLedger();
 
-  const persist = (next: StatementDTO[]) => {
-    const prev = items;
+  /**
+   * The list as it stands, readable synchronously.
+   *
+   * A ref beside the state because `items` in a handler is the value from the
+   * render that created it. Deleting two lines before React re-renders had
+   * BOTH handlers compute from the same original list, so the second undid the
+   * first — and each fired its own whole-list save, so N writes raced and the
+   * last to arrive won. One deletion survived out of however many you made,
+   * which is what "I delete multiple, refresh, only one is gone" was.
+   */
+  const latest = useRef<StatementDTO[]>(initialItems);
+  /** The last list the server ACCEPTED. What a failed save falls back to. */
+  const confirmed = useRef<StatementDTO[]>(initialItems);
+  /**
+   * One writer at a time, always ending on the latest list.
+   *
+   * The sequencing lives in `serial-save.ts` so it can be tested — there is no
+   * DOM renderer here, and a concurrency contract nothing can assert is one
+   * that breaks again. See that file for what went wrong without it.
+   */
+  const saver = useMemo(
+    () =>
+      createSerialSaver<StatementDTO[]>({
+        read: () => latest.current,
+        send: (list) =>
+          action(
+            estimateId,
+            list.map((it) => it.text),
+          ),
+        onSaved: (list) => {
+          confirmed.current = list;
+          setError(null);
+        },
+        onFailed: (e) => {
+          // Back to what the server last accepted — not to "the list before
+          // this change", which is meaningless once several changes have
+          // coalesced into one write.
+          latest.current = confirmed.current;
+          setItems(confirmed.current);
+          setError(e instanceof Error ? e.message : 'Could not save');
+        },
+      }),
+    [action, estimateId],
+  );
+
+  /**
+   * The one way this list changes.
+   *
+   * Every mutation computes from the REF, never from the render's `items`, and
+   * updates both together. `save: false` is for changes a save should not chase
+   * — a keystroke, an empty new line — which are picked up by the next one
+   * that does.
+   */
+  const mutate = (fn: (prev: StatementDTO[]) => StatementDTO[], persist: boolean): void => {
+    const next = fn(latest.current);
+    latest.current = next;
     setItems(next);
-    startTransition(async () => {
-      try {
-        await action(
-          estimateId,
-          next.map((it) => it.text),
-        );
-      } catch (e) {
-        setItems(prev);
-        setError(e instanceof Error ? e.message : 'Could not save');
-      }
-    });
+    if (persist) saver.schedule();
   };
 
   const editAt = (i: number, value: string) =>
-    setItems((prev) => prev.map((x, j) => (j === i ? { ...x, text: value } : x)));
-  const commit = () => {
-    setError(null);
-    persist(items);
-  };
-  const removeAt = (i: number) => persist(items.filter((_, j) => j !== i));
+    mutate((prev) => prev.map((x, j) => (j === i ? { ...x, text: value } : x)), false);
+  const commit = () => mutate((prev) => prev, true);
+  const removeAt = (i: number) => mutate((prev) => prev.filter((_, j) => j !== i), true);
   // A new line has no row yet, so no id. It gets one when the save returns and
-  // the page is next drawn; until then it cannot be locked or ticked.
-  const add = () =>
-    setItems((prev) => [...prev, { id: null, text: '', provenance: 'HUMAN' }]);
+  // the page is next drawn; until then it cannot be locked or ticked. Not
+  // saved on its own: an empty line is dropped by `cleanList` anyway, so the
+  // write happens when it has something in it and blurs.
+  const add = () => mutate((prev) => [...prev, { id: null, text: '', provenance: 'HUMAN' }], false);
 
   const lockOf = (id: string | null) => (id === null ? undefined : locks.statements[id]);
   const listLocked = locks.listsFullyLocked.includes(kind);

@@ -1,0 +1,2821 @@
+{
+  "estimateId": "cmttz637i0001zz9inlyxtuwm",
+  "takenAt": "2026-09-09T14:27:09.434Z",
+  "locks": 0,
+  "rows": [
+    {
+      "id": "93d933a9-3ce5-491d-89ca-ba05bf6942ed",
+      "order": 0,
+      "provenance": "CREW",
+      "text": "High data volume necessitates dedicated PM risk tracking around catalog indexing and rule evaluation performance."
+    },
+    {
+      "id": "e2d71569-aa74-4827-8703-bbabcb994816",
+      "order": 1,
+      "provenance": "CREW",
+      "text": "High data volume necessitates dedicated coordination around test data readiness and performance acceptance gates."
+    },
+    {
+      "id": "544d9cdb-939f-4db8-aa28-7af83976d58b",
+      "order": 2,
+      "provenance": "CREW",
+      "text": "High data volume necessitates explicit database indexing and bulk write optimization on the database layer."
+    },
+    {
+      "id": "4c09bda2-5c60-4231-99cf-30cf19c91995",
+      "order": 3,
+      "provenance": "CREW",
+      "text": "High data volume necessitates strict governance and validation checkpoints to prevent accidental mass unpublishing."
+    },
+    {
+      "id": "a2917763-7aff-42a4-93d4-40e86ce410f5",
+      "order": 4,
+      "provenance": "CREW",
+      "text": "High data volume optimization relies on standard database indexing and optimized SQL aggregations within Shopware criteria"
+    },
+    {
+      "id": "81605a4b-7689-4ff1-9ce7-035ab3551e4b",
+      "order": 5,
+      "provenance": "CREW",
+      "text": "High data volume performance validation is coordinated within standard sprint testing cycles rather than requiring a dedicated cross-vendor workstream"
+    },
+    {
+      "id": "111b7aa5-f4c9-49fb-a03c-47ffd9c11e19",
+      "order": 6,
+      "provenance": "CREW",
+      "text": "High data volume requirement is addressed via native Shopware indexing optimizations and database indexes on custom entity foreign keys."
+    },
+    {
+      "id": "276b3e41-0dd3-429c-b270-83f9142ee4ce",
+      "order": 7,
+      "provenance": "CREW",
+      "text": "High data volume requirement mandates background asynchronous message queue processing with appropriate chunk size tuning."
+    },
+    {
+      "id": "8d604500-6d97-459d-ade3-3818dfc43715",
+      "order": 8,
+      "provenance": "CREW",
+      "text": "High data volume requirement mandates server-side index tuning and response payload stripping to maintain sub-100ms autocomplete responses."
+    },
+    {
+      "id": "3d8957c0-5f9f-49f4-9bd3-e8b69272dad5",
+      "order": 9,
+      "provenance": "CREW",
+      "text": "High data volume requirement necessitates indexing hooks for catalog visibility to prevent runtime performance degradation."
+    },
+    {
+      "id": "aefcd63e-ffd2-406f-80a5-6a880b3a7610",
+      "order": 10,
+      "provenance": "CREW",
+      "text": "High data volume requires custom indexing and query caching strategies on price rule resolution to prevent cart latency degradation."
+    },
+    {
+      "id": "06f24157-a36a-4e54-aaed-bd40d402fb44",
+      "order": 11,
+      "provenance": "CREW",
+      "text": "High data volume requires explicit functional requirements around indexing, pagination, and multi-supplier lookup constraints."
+    },
+    {
+      "id": "d7908b9c-4026-4395-8e77-e9819522a20c",
+      "order": 12,
+      "provenance": "CREW",
+      "text": "High data volume testing will utilize representative, sanitized sample sets provided by the client team"
+    },
+    {
+      "id": "7e0b7f47-8da5-4c99-bc16-d62b35f065af",
+      "order": 13,
+      "provenance": "CREW",
+      "text": "High-volume synthetic or staging data is accessible for queue throughput and deferred indexing verification"
+    },
+    {
+      "id": "e5f32d94-16ab-4236-89df-1cc6e573d216",
+      "order": 14,
+      "provenance": "CREW",
+      "text": "Hosting provider and target cloud/bare-metal platform have been pre-selected; effort covers specification and acceptance criteria rather than vendor selection."
+    },
+    {
+      "id": "dc17d005-af05-4066-8c55-b60cba1dbfd8",
+      "order": 15,
+      "provenance": "CREW",
+      "text": "Identity validation relies on internal validation logic and manual review flags rather than a third-party real-time verification API integration"
+    },
+    {
+      "id": "3c26acba-2c18-4c4b-8e92-d13d8f969d9b",
+      "order": 16,
+      "provenance": "CREW",
+      "text": "Indexability rules and canonical requirements are documented prior to test case authoring"
+    },
+    {
+      "id": "45fc2c28-cd72-4403-ba1f-74bb805c038b",
+      "order": 17,
+      "provenance": "CREW",
+      "text": "Integration count is 0, so no external connector or ETL sync testing is budgeted in this requirement."
+    },
+    {
+      "id": "6d8bc576-01af-414e-b46e-3455503e0758",
+      "order": 18,
+      "provenance": "CREW",
+      "text": "Integration count is 0; external identity provider (IdP) and third-party credit check workflows are out of scope."
+    },
+    {
+      "id": "94a8c2e1-91ea-4d9c-9a70-3d75a665e31c",
+      "order": 19,
+      "provenance": "CREW",
+      "text": "Integration is scoped entirely within the Shopware registration flow without complex external ERP hooks"
+    },
+    {
+      "id": "4489f066-3441-4379-9b12-cd176b57c890",
+      "order": 20,
+      "provenance": "CREW",
+      "text": "Integration testing across third-party extensions or backend ERP endpoints is excluded as integration_count is 0."
+    },
+    {
+      "id": "78380156-b949-457b-8fa1-d30124d72d4d",
+      "order": 21,
+      "provenance": "CREW",
+      "text": "Internal data must be strictly shielded from Storefront API and Sales Channel contexts via Shopware ACL and API permission specifications."
+    },
+    {
+      "id": "cccb9a23-c0f9-4180-a398-79af147f8948",
+      "order": 22,
+      "provenance": "CREW",
+      "text": "Inventory data volume does not require multi-source location logic definition within this requirement scope"
+    },
+    {
+      "id": "fc0875ed-ca5c-4bb1-9348-3c1babfc666a",
+      "order": 23,
+      "provenance": "CREW",
+      "text": "Kroll provides a complete data dump (CSV/JSON/XML) representing the full 100,000 SKU catalog scope early in the foundation phase."
+    },
+    {
+      "id": "cb883a3d-2f18-4b8a-8aba-52bc8f9b25aa",
+      "order": 24,
+      "provenance": "CREW",
+      "text": "Kroll supplier contacts or client catalog owners are responsive within agreed SLA for unmapped attribute escalations."
+    },
+    {
+      "id": "d9727706-0b71-476b-b53f-b3d6cab336cd",
+      "order": 25,
+      "provenance": "CREW",
+      "text": "Legacy site crawling and raw asset extraction are supported by client access without access governance delays"
+    },
+    {
+      "id": "901382a0-23e9-4ecc-95ff-71347e8e70be",
+      "order": 26,
+      "provenance": "CREW",
+      "text": "Legacy site is crawlable and provides accessible sitemaps or database exports for content extraction"
+    },
+    {
+      "id": "3a40cad3-e24b-445f-b559-fecacabc82b1",
+      "order": 27,
+      "provenance": "CREW",
+      "text": "Legal and compliance stakeholders provide the definitive attribute rules determining restriction classifications prior to specification sign-off"
+    },
+    {
+      "id": "543aaff1-aa02-4dbb-a8e6-78e9e22be7c1",
+      "order": 28,
+      "provenance": "CREW",
+      "text": "Load testing execution windows and environment freezes require dedicated cross-stakeholder alignment to prevent disruptions."
+    },
+    {
+      "id": "f77c6aad-18b4-427b-b2cd-16c5187aae79",
+      "order": 29,
+      "provenance": "CREW",
+      "text": "Load testing tooling (e.g., k6, JMeter, or Locust) and adequate injector infrastructure are provided without scope overhead for initial infrastructure setup."
+    },
+    {
+      "id": "d16159f7-46b6-4c98-b8ed-885e370399ab",
+      "order": 30,
+      "provenance": "CREW",
+      "text": "Logging is limited to internal administrative/API updates and does not require external third-party SIEM integration."
+    },
+    {
+      "id": "fb5f993b-e977-431c-9e7d-20f9f185e2c9",
+      "order": 31,
+      "provenance": "CREW",
+      "text": "Logs are intended to be immutable and will not expose mutation or deletion interfaces via the administration panel."
+    },
+    {
+      "id": "3acac692-16e4-43db-b1d6-c9117368429d",
+      "order": 32,
+      "provenance": "CREW",
+      "text": "Low data volume assumes fewer than 1,000 unique URLs requiring 301 verification"
+    },
+    {
+      "id": "8ce353a4-a908-4d9e-8b10-5db3e0e24a50",
+      "order": 33,
+      "provenance": "CREW",
+      "text": "Managed cloud services (e.g., AWS RDS/OpenSearch/ElastiCache or equivalent) or equivalent containerized/virtualized platforms are utilized rather than bare-metal manual compilation."
+    },
+    {
+      "id": "1d81dddb-74f5-4aca-966c-b0fe69a05a2f",
+      "order": 34,
+      "provenance": "CREW",
+      "text": "Manual review and sign-off of page mapping matrix is handled outside DEV hours"
+    },
+    {
+      "id": "5e4c242d-bc11-4d66-939c-8a8186af883d",
+      "order": 35,
+      "provenance": "CREW",
+      "text": "Marketing content authors participate directly in acceptance and demo review sessions."
+    },
+    {
+      "id": "0ba6949b-7823-4800-b691-281177a6ef6a",
+      "order": 36,
+      "provenance": "CREW",
+      "text": "Marketing copy, asset creation, and final content entry will be handled by content editors; dev work covers components, layout templates, and starter configuration."
+    },
+    {
+      "id": "32d75736-a6db-4abc-99df-d121df060b19",
+      "order": 37,
+      "provenance": "CREW",
+      "text": "Media assets (images and PDFs) are reachable over HTTP/HTTPS with sufficient bandwidth from the origin host."
+    },
+    {
+      "id": "7a3fabb8-71a0-482c-9cab-cd2d81d3b8d5",
+      "order": 38,
+      "provenance": "CREW",
+      "text": "Media assets (images, PDFs) are hosted in an accessible repository with deterministic naming or direct URL references in the source data."
+    },
+    {
+      "id": "cac8c4a5-7ded-4fba-ab4e-d31bc16954af",
+      "order": 39,
+      "provenance": "CREW",
+      "text": "Media assets are hosted externally and accessible via HTTP/HTTPS URLs without requiring manual binary asset extraction."
+    },
+    {
+      "id": "1a8d6d57-ba78-47e3-a23a-75a09df0f62c",
+      "order": 40,
+      "provenance": "CREW",
+      "text": "Media files and PDF specifications are stored securely such that direct media server or CDN URLs cannot bypass Shopware ACL logic."
+    },
+    {
+      "id": "ed8f4a7b-6499-4b16-a615-d6b31ec29dbd",
+      "order": 41,
+      "provenance": "CREW",
+      "text": "Media files referenced by URLs will be ingested by Shopware or a staging CDN; pipeline covers validation, header checks, and URL mapping rather than binary asset hosting."
+    },
+    {
+      "id": "19615dc1-379a-45bd-8d6e-35abb88ed508",
+      "order": 42,
+      "provenance": "CREW",
+      "text": "Merchant administration interface for quote management uses standard Shopware B2B extension capabilities without external ERP sync in this phase"
+    },
+    {
+      "id": "f1e6a2f8-ba3f-4795-b932-abf51ff28549",
+      "order": 43,
+      "provenance": "CREW",
+      "text": "Merchant quote review process relies on native Shopware administration capabilities without third-party ERP synchronization."
+    },
+    {
+      "id": "4dd337d8-b734-4e97-8ea6-19133f955413",
+      "order": 44,
+      "provenance": "CREW",
+      "text": "Mock datasets representing up to 100K SKUs with varying update payloads (price changes, stock deltas) are generated or supplied."
+    },
+    {
+      "id": "0e0291de-1bdf-4903-91b3-803ee44c79ed",
+      "order": 45,
+      "provenance": "CREW",
+      "text": "Modifications made by approvers do not require re-initiation by the original requester unless specified by client during discovery."
+    },
+    {
+      "id": "cde27dc7-c72b-4fb6-a890-c6a7804b25be",
+      "order": 46,
+      "provenance": "CREW",
+      "text": "Multi-currency and multi-language requirements follow standard Shopware sub-shop or domain routing structures"
+    },
+    {
+      "id": "310bec87-e419-4118-a21d-3bea6f6f4e7c",
+      "order": 47,
+      "provenance": "CREW",
+      "text": "Multi-currency scenarios adhere to standard Shopware conversion logic unless explicitly defined in custom price lists"
+    },
+    {
+      "id": "22ab8a8b-f877-432f-bbfb-dc0615ed8f19",
+      "order": 48,
+      "provenance": "CREW",
+      "text": "Multi-language/localization requirements for attributes and taxonomy are addressed under a separate requirement if applicable"
+    },
+    {
+      "id": "7d58351b-be0c-49e7-b723-dd57d4d26a5b",
+      "order": 49,
+      "provenance": "CREW",
+      "text": "Multi-language/localization rules for typo tolerance and query highlighting follow default storefront locale configurations."
+    },
+    {
+      "id": "c7966874-f61b-4582-b4ab-ed3fe3975ef6",
+      "order": 50,
+      "provenance": "CREW",
+      "text": "Multi-storefront / multi-language domain mapping is handled by standard Shopware sales channel domain configuration."
+    },
+    {
+      "id": "de33b9e3-0721-4688-ae13-1679f62775d0",
+      "order": 51,
+      "provenance": "CREW",
+      "text": "Native Shopware 6 B2B Suite or commercial Rule Builder advanced pricing constructs serve as the base extension point."
+    },
+    {
+      "id": "6178c51d-283e-4189-bf9c-88de410a121d",
+      "order": 52,
+      "provenance": "CREW",
+      "text": "Native Shopware 6 Rule Builder features provide sufficient condition flexibility without requiring custom PHP Rule classes or custom entity extensions."
+    },
+    {
+      "id": "ca148cc5-d8f7-4108-9884-f5232aa557b8",
+      "order": 53,
+      "provenance": "CREW",
+      "text": "Native Shopware 6 search and listing abstractions are utilized without third-party external search engine integration"
+    },
+    {
+      "id": "4af47987-2d42-4595-9623-dcbeadf00fb2",
+      "order": 54,
+      "provenance": "CREW",
+      "text": "Native Shopware B2B Suite or commercial B2B account capabilities provide the underlying baseline data models."
+    },
+    {
+      "id": "03b860c0-e64d-4269-b7aa-cfb886dc4a7f",
+      "order": 55,
+      "provenance": "CREW",
+      "text": "Native Shopware Import/Export extension framework is used as the base foundation rather than building a custom import engine from scratch."
+    },
+    {
+      "id": "7b7a5c33-b4cb-4ee3-9ee5-5c36523f3b06",
+      "order": 56,
+      "provenance": "CREW",
+      "text": "Native Shopware customer group segmentation is leveraged to distinguish public visitors from authenticated B2B customers"
+    },
+    {
+      "id": "3cd641db-10f6-417c-af34-49554b4c4daa",
+      "order": 57,
+      "provenance": "CREW",
+      "text": "Native Shopware quote entities or an existing B2B plugin provide the core quotation data structures without external ERP integration"
+    },
+    {
+      "id": "533c36a3-ae60-4e15-929a-42bc45e87b88",
+      "order": 58,
+      "provenance": "CREW",
+      "text": "Native Shopware quote management capabilities or verified plugin interfaces are accessible in staging with pre-seeded B2B customer accounts."
+    },
+    {
+      "id": "7219dae5-8509-41f8-8fc6-35b3f326d977",
+      "order": 59,
+      "provenance": "CREW",
+      "text": "Native Shopware tax tables are maintained as the offline fallback mechanism in case of AvaTax API latency or outage."
+    },
+    {
+      "id": "6d175ab8-3294-4486-beac-1c0378c67ddd",
+      "order": 60,
+      "provenance": "CREW",
+      "text": "Native or commercial Shopware B2B Suite / commercial features are utilized rather than custom data modeling from scratch"
+    },
+    {
+      "id": "c8cee735-0f04-4bba-ad52-9f804f3c76e1",
+      "order": 61,
+      "provenance": "CREW",
+      "text": "Native theme inheritance uses Shopware default storefront base without headless architecture (PWA/Storefront API decouple)."
+    },
+    {
+      "id": "dd7467da-baee-471b-9b81-07fb282d07a4",
+      "order": 62,
+      "provenance": "CREW",
+      "text": "Near-match suggestions utilize native Shopware search capabilities without external third-party search engine integrations"
+    },
+    {
+      "id": "5602cc15-18e4-415d-976f-fcd72ed23c93",
+      "order": 63,
+      "provenance": "CREW",
+      "text": "Near-match suggestions will be driven by native Shopware search algorithms or existing search indexing rather than an external third-party search service."
+    },
+    {
+      "id": "ffa496f4-5c4a-49e8-85e4-9cc507e5ee6a",
+      "order": 64,
+      "provenance": "CREW",
+      "text": "Network simulation tools or mock proxies are accessible to test API latency, dropouts, and HTTP error responses during checkout."
+    },
+    {
+      "id": "6f28b9fb-1e1a-471a-96e4-dffce3a1c3d3",
+      "order": 65,
+      "provenance": "CREW",
+      "text": "No automated E2E test script authoring is included; items cover manual test design, execution, and verification."
+    },
+    {
+      "id": "b8b97085-004d-4cbb-8eff-e85abccadd4f",
+      "order": 66,
+      "provenance": "CREW",
+      "text": "No custom customer-facing frontend UI work is needed; products are delisted via standard sales channel visibility and active status toggles."
+    },
+    {
+      "id": "b8b155f8-2d12-4037-8692-5f70e8df1b01",
+      "order": 67,
+      "provenance": "CREW",
+      "text": "No external 3rd-party CRM integration testing is required in scope (routing is within Shopware admin/mail system per integration_count=0)."
+    },
+    {
+      "id": "4349145e-27cb-40a9-959e-e44b228b290f",
+      "order": 68,
+      "provenance": "CREW",
+      "text": "No external 3rd-party search engine integration coordination required as integration_count is 0"
+    },
+    {
+      "id": "e6be3e4d-4cb8-468b-95ba-5395c3245ddc",
+      "order": 69,
+      "provenance": "CREW",
+      "text": "No external ERP or CRM integration testing is required within this specific scope."
+    },
+    {
+      "id": "3e58301d-cb6d-4533-9b80-fe86452d5b39",
+      "order": 70,
+      "provenance": "CREW",
+      "text": "No external ERP or third-party inventory sync integrations are in scope; all stock figures originate from local Shopware inventory tables."
+    },
+    {
+      "id": "fae3a0c1-40ed-4ee1-b802-3a4229449ec0",
+      "order": 71,
+      "provenance": "CREW",
+      "text": "No external ERP sync coordination is required within this requirement scope (integration_count=0)."
+    },
+    {
+      "id": "b55b2511-5b87-4624-9884-9a5623a134f2",
+      "order": 72,
+      "provenance": "CREW",
+      "text": "No external ERP sync integration testing is required under REQ-029 directly (integration_count=0)."
+    },
+    {
+      "id": "b10ac55e-f886-46f0-b4a9-ade55a2eb9f7",
+      "order": 73,
+      "provenance": "CREW",
+      "text": "No external ERP-driven permission synchronization is required under REQ-023"
+    },
+    {
+      "id": "7e55a495-e93e-4313-af27-7315c97f63af",
+      "order": 74,
+      "provenance": "CREW",
+      "text": "No external ERP/CRM integration verification is required as integration_count is 0; test data resides entirely within Shopware."
+    },
+    {
+      "id": "c5ad6b94-263e-4a06-9e30-536779369df7",
+      "order": 75,
+      "provenance": "CREW",
+      "text": "No external ERP/CRM sync boundaries are included in this requirement scope (integration_count=0)."
+    },
+    {
+      "id": "365bc6f3-01f0-451a-806a-139df23e6745",
+      "order": 76,
+      "provenance": "CREW",
+      "text": "No external ERP/CRM synchronization is required for company hierarchy in this requirement scope (integration_count=0)"
+    },
+    {
+      "id": "55a875dc-47bc-4fbc-a419-19eaadcfbf82",
+      "order": 77,
+      "provenance": "CREW",
+      "text": "No external identity verification or credit check integration is in scope for the OEM inquiry form."
+    },
+    {
+      "id": "e5eea9d2-3ca6-41bb-b5de-629827cabe09",
+      "order": 78,
+      "provenance": "CREW",
+      "text": "No external middleware or integration platform dependencies are involved; coordination is confined to Shopware native import/export profiles"
+    },
+    {
+      "id": "914ee24c-3fa3-4a28-843e-eea280808421",
+      "order": 79,
+      "provenance": "CREW",
+      "text": "No external real-time carrier rating API integration is in scope (integration_count is 0)."
+    },
+    {
+      "id": "3fe72a7b-4f05-45a4-8ff1-3fd3c883d816",
+      "order": 80,
+      "provenance": "CREW",
+      "text": "No external third-party API calls are executed during page render; data is queried from local database and cache"
+    },
+    {
+      "id": "656674ed-7355-435e-836c-60daccaadad7",
+      "order": 81,
+      "provenance": "CREW",
+      "text": "No external third-party ERP integration boundaries require PM cross-team synchronization under REQ-031."
+    },
+    {
+      "id": "47b0428c-29dc-449b-bdea-cd011e5946d0",
+      "order": 82,
+      "provenance": "CREW",
+      "text": "No external third-party ERP integration is involved in approving or synchronizing cart edits at this stage."
+    },
+    {
+      "id": "76db4b80-c77e-492c-a7f7-04deac76004b",
+      "order": 83,
+      "provenance": "CREW",
+      "text": "No external third-party ERP integration is required in this scope; tier prices and MOQs are managed natively or via standard API/import fixtures."
+    },
+    {
+      "id": "803a0ace-90fd-4fe6-821d-b1900d6a0c36",
+      "order": 84,
+      "provenance": "CREW",
+      "text": "No external third-party ERP integration sync is in scope for this requirement."
+    },
+    {
+      "id": "d5077886-5fc1-470f-9760-9c490a7a09e8",
+      "order": 85,
+      "provenance": "CREW",
+      "text": "No external third-party carrier API integration is required as configuration relies natively on Shopware Rule Builder."
+    },
+    {
+      "id": "b67f9802-384e-4bf7-a95d-c3a15fae7cfe",
+      "order": 86,
+      "provenance": "CREW",
+      "text": "No external third-party credential verification APIs are in scope for this specific requirement."
+    },
+    {
+      "id": "a0136561-f2d2-45a5-bfdf-d64a387cb653",
+      "order": 87,
+      "provenance": "CREW",
+      "text": "No external third-party integration boundaries are present, keeping cross-team coordination internal to Shopware platform operations."
+    },
+    {
+      "id": "ae416c82-fcf4-466c-b315-577d6b1b6ec6",
+      "order": 88,
+      "provenance": "CREW",
+      "text": "No external third-party integrations are in scope for verification under REQ-049; testing is restricted to internal service infrastructure and intra-cluster communication."
+    },
+    {
+      "id": "aaa94e75-fecb-4094-a6ca-5ce7f5e8b286",
+      "order": 89,
+      "provenance": "CREW",
+      "text": "No external third-party search integration boundaries (e.g., Algolia, Klevu) are within scope; standard platform-level search capabilities are utilized."
+    },
+    {
+      "id": "9e7030e6-9a51-4d9d-b5d0-b2ec597990b3",
+      "order": 90,
+      "provenance": "CREW",
+      "text": "No high-volume automated load testing is required given low data volume scope"
+    },
+    {
+      "id": "8df5fbe1-740a-4429-bc39-b5fe41a33bac",
+      "order": 91,
+      "provenance": "CREW",
+      "text": "No historical preset analogue (coverage: none); effort is estimated from first principles based on high data volume and complex business logic requirements."
+    },
+    {
+      "id": "999e3d78-dd26-49a0-a9e2-597f2e4e5c31",
+      "order": 92,
+      "provenance": "CREW",
+      "text": "No historical preset analogue applies (coverage: none); estimates are derived from first principles for multi-tier caching and load validation."
+    },
+    {
+      "id": "4105f070-3010-4b2d-982b-abeeaa04704f",
+      "order": 93,
+      "provenance": "CREW",
+      "text": "No historical preset analogue available; estimates derived from first principles for Shopware 6 theme architecture."
+    },
+    {
+      "id": "f0570cfc-7eae-4f7e-a18f-611af5f8f044",
+      "order": 94,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); effort is estimated from first principles for Shopware 6, Varnish, and OpenSearch performance engineering requirements."
+    },
+    {
+      "id": "b3e4d075-e54c-4260-9b3c-39e54518c677",
+      "order": 95,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimate is built from first principles for Shopware 6 custom entity architecture."
+    },
+    {
+      "id": "22d1eb23-e17c-4e63-aec3-8ad9d717b5bc",
+      "order": 96,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimate is constructed from first principles for audit-grade compliance in Shopware."
+    },
+    {
+      "id": "fff76807-ede8-4e7e-bbdf-4b1e52d1aa2e",
+      "order": 97,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates are derived from first principles for custom document generation logic."
+    },
+    {
+      "id": "39e4055e-cc98-49d9-bfcb-dd8f6ace736d",
+      "order": 98,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates are derived from first-principles analysis of granular role-based access control and Shopware asset protection."
+    },
+    {
+      "id": "22dc7aad-a34a-4fb5-8a05-c3bc14685240",
+      "order": 99,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates are established from first principles for Shopware 6 document architecture."
+    },
+    {
+      "id": "2eecc9e8-52dc-4e83-bd59-7dbd0b57e929",
+      "order": 100,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates are established from first principles for Shopware guest checkout and PCI-compliant payment integration."
+    },
+    {
+      "id": "19f1ba1e-3e93-476f-95f8-1bf2cc7ba1e6",
+      "order": 101,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates are established from first-principles analysis for custom Shopware entity definition."
+    },
+    {
+      "id": "ca98f958-ffb9-42e6-960d-d091de5e550a",
+      "order": 102,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates derived from first principles for high-complexity core commerce logic redaction."
+    },
+    {
+      "id": "ee66238d-ea83-451c-b5f1-fbc2dcfc0d0b",
+      "order": 103,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimates derived from first-principles QA decomposition of 5 distinct dynamic frontend states."
+    },
+    {
+      "id": "0ef8e1ec-8a2f-42ed-9839-fad563ed8e3c",
+      "order": 104,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimation is built entirely from first principles reflecting complexity 5/5 and high data volume."
+    },
+    {
+      "id": "83f6e426-68ab-4a76-8e7e-d75fc7bf3b11",
+      "order": 105,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); estimation was derived from first principles based on Shopware Twig/JS architecture and Varnish caching boundaries."
+    },
+    {
+      "id": "454d3f0f-1765-4ed2-9836-5342b90d8ed7",
+      "order": 106,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists (coverage: none); sizing is derived from first-principles analysis of decoupled cache/hydration requirements."
+    },
+    {
+      "id": "33c360bf-f817-4ac0-a115-d4d9e78027f3",
+      "order": 107,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for documentation/training QA in the preset library; estimate is derived from first-principles QA verification of operational documentation and training environments."
+    },
+    {
+      "id": "93060247-0f14-4b1e-acd6-ca282d00a579",
+      "order": 108,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this contract-pricing model; estimation is derived from first-principles analysis for custom Shopware B2B logic."
+    },
+    {
+      "id": "69500305-de32-402b-bdde-9fbca6c72285",
+      "order": 109,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this contract-pricing resolver requirement; estimates are derived from first principles software delivery coordination for complex Shopware B2B pricing logic."
+    },
+    {
+      "id": "a6555388-c6cc-416c-8780-825648aa04d8",
+      "order": 110,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this contract-scoped browse and checkout suppression pattern; estimates derived from first principles for high-complexity (5/5) Mid-market delivery."
+    },
+    {
+      "id": "1ee05b8b-b46c-45ef-a104-84c624676a88",
+      "order": 111,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this custom multi-supplier backend entity requirement; PM effort is estimated from first principles based on high data volume and 5/5 architectural complexity."
+    },
+    {
+      "id": "f91c4685-d89f-489f-84a7-74dae80437cf",
+      "order": 112,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this dual-state PDP architecture; PM effort is built from first principles for a high-complexity architectural feature."
+    },
+    {
+      "id": "6c33de2a-a947-4cb7-9acf-75809a1271cb",
+      "order": 113,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; decomposition is established from first principles for Shopware 6 extension development."
+    },
+    {
+      "id": "b0c55510-e321-4975-a081-4f90ba398285",
+      "order": 114,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimate is built from first principles for multi-tier platform infrastructure coordination."
+    },
+    {
+      "id": "0b8948ff-7252-4778-a6ca-86d8c63ba5ea",
+      "order": 115,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimate is synthesized from first principles based on Shopware B2B customer administration complexity."
+    },
+    {
+      "id": "efe89415-f110-49cf-9e9d-539edc2507c1",
+      "order": 116,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are derived from first principles for Shopware 6 extension architecture."
+    },
+    {
+      "id": "5601ec08-dfe0-46f7-85b6-631429e38f15",
+      "order": 117,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are derived from first principles for Shopware admin audit logging."
+    },
+    {
+      "id": "99cc72d4-fd53-4aa2-b2bf-0cb3f2ca750c",
+      "order": 118,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are derived from first principles for a mid-market Shopware theme build with complexity score 5/5."
+    },
+    {
+      "id": "cd8ac3de-47bb-46e3-808e-afe8ba369f6e",
+      "order": 119,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are derived from first principles for complex B2B commerce catalog state management."
+    },
+    {
+      "id": "4c3323f9-24fd-4531-b16b-67e30d0e8483",
+      "order": 120,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are derived from first principles reflecting high-complexity (5/5) B2B security and authorization logic."
+    },
+    {
+      "id": "90eac04c-fa83-49c1-b7dc-8c566bd03669",
+      "order": 121,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are derived from first principles targeting Shopware 6 Store-API and DAL architecture."
+    },
+    {
+      "id": "a00ea805-f202-4755-b9f5-2efc59d9ce1b",
+      "order": 122,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this requirement; estimates are established from first-principles engineering and technical enablement standards."
+    },
+    {
+      "id": "11b8986f-1d69-4e49-be54-cab60a00f620",
+      "order": 123,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this scope; hours are derived from first principles based on high data volume and complex business logic."
+    },
+    {
+      "id": "f4f15fdd-118a-4ecc-b6b1-2ab82c7f7ec8",
+      "order": 124,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this specialized Varnish cache segmentation and load testing scope; estimates are derived from first principles."
+    },
+    {
+      "id": "2d47ff52-4299-4811-9edf-f47bef95dfdc",
+      "order": 125,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists for this specific automated delisting rule; estimates are derived from first principles for high-volume commerce logic."
+    },
+    {
+      "id": "437aeda0-a7a1-42f0-bcfa-e7af6bd34788",
+      "order": 126,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists in the preset library; estimate is derived from first principles for a custom Shopware 6 plugin/bundle."
+    },
+    {
+      "id": "4eddf88c-bf12-44b7-896d-d6fcd56884ca",
+      "order": 127,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists; PM estimate is built from first principles for a high-complexity (5/5) checkout flow."
+    },
+    {
+      "id": "e36225e9-cec0-4b1e-bdfd-b467ea6b1809",
+      "order": 128,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists; QA scope was derived strictly from first principles based on custom Shopware entity architecture and data security constraints."
+    },
+    {
+      "id": "ee48641b-4534-44d0-8b03-9af9597252f1",
+      "order": 129,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists; estimate is constructed from first principles for Shopware 6 / Twig storefront architecture."
+    },
+    {
+      "id": "99ef69c8-1c24-44d7-995d-b9f08aee1363",
+      "order": 130,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists; estimate is constructed from first principles for a custom Shopware B2B pricing resolver."
+    },
+    {
+      "id": "3b16c4fa-3357-462b-a5a6-c45f31fae653",
+      "order": 131,
+      "provenance": "CREW",
+      "text": "No historical preset analogue exists; estimate is derived from first principles software testing practices for public sector directory components."
+    },
+    {
+      "id": "14e4394a-14da-4090-8f1f-2f07c3fe98d1",
+      "order": 132,
+      "provenance": "CREW",
+      "text": "No historical preset analogue is available for this requirement; PM effort is estimated from first principles software delivery practices."
+    },
+    {
+      "id": "6f4a0682-c66b-42f9-91a3-adda85527630",
+      "order": 133,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was applicable; estimates derived from first principles software-delivery coordination effort."
+    },
+    {
+      "id": "3cb32bb9-bb6e-4919-8a09-6d50b584283a",
+      "order": 134,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was applicable; scope was estimated from first principles for Shopware 6, Varnish 6/7, and OpenSearch architectures."
+    },
+    {
+      "id": "06d02881-fb33-40f5-adab-f6e5c67df968",
+      "order": 135,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was available (coverage: none); effort is estimated from first principles for a mid-market custom theme and complex B2B component scope."
+    },
+    {
+      "id": "361566d4-ff95-4b04-91c4-b26d78cdd8e4",
+      "order": 136,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was available; estimates are derived from first-principles PM coordination for high-impact catalog state changes."
+    },
+    {
+      "id": "90d9522d-2cdf-4000-98bb-08b8db32a3e7",
+      "order": 137,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was available; estimates are derived from first-principles engineering analysis for Shopware 6 B2B Suite / Dynamic Access mechanics."
+    },
+    {
+      "id": "0045078b-5868-470e-bae3-ba53421367c2",
+      "order": 138,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was available; estimates were constructed from first principles for Shopware B2B Dynamic Access configuration."
+    },
+    {
+      "id": "895bbefc-ea6b-454a-81c4-fba91521cb38",
+      "order": 139,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was available; estimation was derived from first principles based on high data volume and complex access control logic."
+    },
+    {
+      "id": "ebcdf4a5-ed93-400a-85d1-132f0bb1c486",
+      "order": 140,
+      "provenance": "CREW",
+      "text": "No historical preset analogue was used; estimates derived from first principles for a mid-market Shopware payment integration."
+    },
+    {
+      "id": "c8426ceb-747b-4ec1-acba-936db482b215",
+      "order": 141,
+      "provenance": "CREW",
+      "text": "No historical preset anchor available; effort is derived from first-principles architectural decomposition."
+    },
+    {
+      "id": "af94f8ca-0299-4558-beb0-a6b6cf169e53",
+      "order": 142,
+      "provenance": "CREW",
+      "text": "No historical preset anchor available; estimates derived from first principles for Shopware Dynamic Access rule engine complexity."
+    },
+    {
+      "id": "82051cfc-892c-42bc-915f-992f3234b9db",
+      "order": 143,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists (coverage: none); estimate derived from first-principles analysis of multi-tier infrastructure requirements."
+    },
+    {
+      "id": "6d9f5125-f1d8-4653-9069-ec2cf4a238e9",
+      "order": 144,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists for Shopware custom theme development; QA scope is modeled from first principles based on design system and storefront component verification requirements."
+    },
+    {
+      "id": "ef1e52bd-6b06-495c-b20a-4f62f65ad8f7",
+      "order": 145,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists for client training and SOP delivery (coverage: none); estimates are derived from first principles software delivery coordination."
+    },
+    {
+      "id": "fb69efeb-c723-42d5-a3db-cb2b3543ee97",
+      "order": 146,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists for client training and multi-workflow SOP generation (coverage: none); decomposed from first principles."
+    },
+    {
+      "id": "4c7cc8f9-d11e-4a5b-92e5-86a23e8c962e",
+      "order": 147,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists for government contract vehicle directories; effort has been derived from first principles."
+    },
+    {
+      "id": "962d7691-7d93-4270-b38c-71e794375403",
+      "order": 148,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists for this complex multi-entity sync; estimates are derived from first principles."
+    },
+    {
+      "id": "73db0f7e-a92d-4096-b845-b17392ead386",
+      "order": 149,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists for this custom SD Bridge to Shopware sync; hours are estimated from first principles for complex multi-entity B2B data synchronization."
+    },
+    {
+      "id": "71f7f106-4b66-45cb-9849-88eee2cb71b3",
+      "order": 150,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists; effort is estimated from first principles based on high data volume and 5/5 security/logic complexity."
+    },
+    {
+      "id": "404c996e-76a8-46cb-92dd-438231db8bd4",
+      "order": 151,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists; estimate is constructed from first principles for Shopware 6 pricing architecture."
+    },
+    {
+      "id": "bba9bbb6-f16c-48fc-8544-46d90773e52c",
+      "order": 152,
+      "provenance": "CREW",
+      "text": "No historical preset anchor exists; estimate is constructed from first-principles engineering decomposition."
+    },
+    {
+      "id": "43ab9c45-dbca-4a16-a9d4-4d5162547ee4",
+      "order": 153,
+      "provenance": "CREW",
+      "text": "No historical preset anchor was available (coverage: none); dev estimate is synthesized from first principles for high-volume Shopware Sync API ingestion."
+    },
+    {
+      "id": "fbd3f83b-bbe5-4b79-806e-182182ad5168",
+      "order": 154,
+      "provenance": "CREW",
+      "text": "No live external API sync is required; data ingestion is driven entirely via file upload through the Shopware admin interface."
+    },
+    {
+      "id": "93a8aa2f-231f-4a54-a3fe-3ce689e004bc",
+      "order": 155,
+      "provenance": "CREW",
+      "text": "No preset analogue exists for this dual-state rendering architecture; estimate is derived from first principles across Shopware 6 HTTP cache configuration, Store-API extensions, and Twig/vanilla JS hydration."
+    },
+    {
+      "id": "b436de00-4716-4d92-9905-f4fd4c1b2830",
+      "order": 156,
+      "provenance": "CREW",
+      "text": "No preset analogue exists for this specific administrative logging requirement; effort is estimated from first principles."
+    },
+    {
+      "id": "dd3266e0-ff29-4ad9-8025-ac2fd027bde0",
+      "order": 157,
+      "provenance": "CREW",
+      "text": "No preset analogue exists in the historical library (coverage: none); estimates derived from first-principles decomposition for complex B2B role-assignment workflows."
+    },
+    {
+      "id": "779bbf9d-1a42-4921-9123-78acba1a77e7",
+      "order": 158,
+      "provenance": "CREW",
+      "text": "No real-time bi-directional sync integration is required; scope covers batch initial and delta cutover migration."
+    },
+    {
+      "id": "01b23840-750d-4a58-8c05-dd400a95ddbc",
+      "order": 159,
+      "provenance": "CREW",
+      "text": "No server-side Google Analytics (Measurement Protocol) integration is required for this requirement"
+    },
+    {
+      "id": "41159c03-a847-4ef2-afe0-e6a3c4371d74",
+      "order": 160,
+      "provenance": "CREW",
+      "text": "No third-party ERP/CRM customer hierarchy integration is in scope for this requirement"
+    },
+    {
+      "id": "8175ff0f-6c5e-4574-b6c5-829e5f95fb53",
+      "order": 161,
+      "provenance": "CREW",
+      "text": "No third-party middleware is in scope; ingestion runs directly against the Shopware platform."
+    },
+    {
+      "id": "945c2a7d-7b8f-4598-9a0d-cd99e920c8d7",
+      "order": 162,
+      "provenance": "CREW",
+      "text": "No third-party real-time external API calls are required at PDP render time"
+    },
+    {
+      "id": "f9e95d34-0bdc-4c96-b8e0-32efe6687a2a",
+      "order": 163,
+      "provenance": "CREW",
+      "text": "Non-technical usability testing covers standard Shopware admin UI import/export modules without custom external portal interfaces."
+    },
+    {
+      "id": "00aa6d79-7367-459e-8d62-dab817ddcdfe",
+      "order": 164,
+      "provenance": "CREW",
+      "text": "Non-technical validation error reporting generates localized, human-readable error summaries rather than raw database or ORM exceptions."
+    },
+    {
+      "id": "8c369df0-54db-4293-bb89-6966377a5d84",
+      "order": 165,
+      "provenance": "CREW",
+      "text": "Notification delivery (email/in-app) triggers are verified as part of the state transition flows."
+    },
+    {
+      "id": "a14f4bb4-32f7-4575-9c7b-d5510e5dfbe3",
+      "order": 166,
+      "provenance": "CREW",
+      "text": "Notification delivery (emails/alerts) for approval requests is covered as part of standard approval routing validation."
+    },
+    {
+      "id": "f2f9a2f7-26dd-4344-9958-9d7041fe5eca",
+      "order": 167,
+      "provenance": "CREW",
+      "text": "Notification emails or alerts triggered by quote status changes follow standard Shopware mail templates and do not require third-party ESP integration"
+    },
+    {
+      "id": "e08380ad-a364-4470-b8fa-dcffba83fa0e",
+      "order": 168,
+      "provenance": "CREW",
+      "text": "Notifications rely on Shopware default email template events without external CRM or ticketing integration."
+    },
+    {
+      "id": "d4187681-8603-4963-b721-0665377d3eb8",
+      "order": 169,
+      "provenance": "CREW",
+      "text": "OpenSearch cluster infrastructure and networking to Shopware are already provisioned and accessible."
+    },
+    {
+      "id": "0db862b9-f6ec-4310-8357-9e2570defe5a",
+      "order": 170,
+      "provenance": "CREW",
+      "text": "OpenSearch cluster sizing and administrative provisioning are pre-configured; only indexing logic and queueing are in scope."
+    },
+    {
+      "id": "2a469f6a-acd1-4c4e-8442-026c48bd9730",
+      "order": 171,
+      "provenance": "CREW",
+      "text": "OpenSearch infrastructure deployment is managed by client DevOps or existing platform team, requiring PM interface and dependency management rather than direct infrastructure provisioning"
+    },
+    {
+      "id": "91b8c499-8b22-4fe8-92a1-a4b0f107ae10",
+      "order": 172,
+      "provenance": "CREW",
+      "text": "Overall PM effort accounts for approximately 12-15% of estimated total engineering and QA effort for this capability."
+    },
+    {
+      "id": "df6aee02-76f3-4fb7-bb6f-b49bb6b3d93f",
+      "order": 173,
+      "provenance": "CREW",
+      "text": "P04 has historically needed a discovery spike before delivery."
+    },
+    {
+      "id": "83914406-9128-44e4-869c-59a6b49a61f8",
+      "order": 174,
+      "provenance": "CREW",
+      "text": "P04 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "c7c9f16f-c912-4220-bdef-b19848c7e900",
+      "order": 175,
+      "provenance": "CREW",
+      "text": "P04: Klevu sandbox required. Subscription must cover 90k+ SKUs if applicable."
+    },
+    {
+      "id": "3e6ce0e9-6d2e-417f-8ae7-ffdcdad71f9a",
+      "order": 176,
+      "provenance": "CREW",
+      "text": "P10 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "af418729-5ee5-4b94-a687-b24348270d75",
+      "order": 177,
+      "provenance": "CREW",
+      "text": "P10: P21 order intake endpoint must be available. Returns/RMAs are out of scope."
+    },
+    {
+      "id": "d587a27e-0b42-4acb-aae1-c424169a6e97",
+      "order": 178,
+      "provenance": "CREW",
+      "text": "P11 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "e524c348-266b-4829-b9e1-4fe6a41f740f",
+      "order": 179,
+      "provenance": "CREW",
+      "text": "P11: Attribute mapping decisions owned by client; Codup implements once decisions are final."
+    },
+    {
+      "id": "5b537c74-068c-4ba0-bb70-e830e97958bd",
+      "order": 180,
+      "provenance": "CREW",
+      "text": "P12 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "feb7287b-dfd4-481e-b223-51e5b163d497",
+      "order": 181,
+      "provenance": "CREW",
+      "text": "P12: Magento attribute data must be exportable as CSV/JSON before ingestion begins. Simple products only."
+    },
+    {
+      "id": "8f0ab0b6-8fa2-4bd8-ad27-a148ffb56faf",
+      "order": 182,
+      "provenance": "CREW",
+      "text": "P13 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "c86274f1-43cc-415b-a5b5-e6e0a37acb98",
+      "order": 183,
+      "provenance": "CREW",
+      "text": "P13: Manual data remediation is client-owned; scripts cover automated validation only."
+    },
+    {
+      "id": "13b8d400-094a-4fd8-b675-67b2ab2cefe4",
+      "order": 184,
+      "provenance": "CREW",
+      "text": "P14 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "b629e75e-e566-4047-9c57-b810a55a90d8",
+      "order": 185,
+      "provenance": "CREW",
+      "text": "P14: PIM schema must be finalised before this integration is built."
+    },
+    {
+      "id": "9c719efe-fa71-44ce-9280-c5beab30364a",
+      "order": 186,
+      "provenance": "CREW",
+      "text": "P19: Scope fixed at 8–10 components. Expansion is a change request."
+    },
+    {
+      "id": "51fadbfb-382d-47f9-b952-82ba9fa3a119",
+      "order": 187,
+      "provenance": "CREW",
+      "text": "P21: Act-On credentials and form endpoint required. GDPR/consent copy is client-owned."
+    },
+    {
+      "id": "217f1ab9-016d-4104-a394-79c2090bb071",
+      "order": 188,
+      "provenance": "CREW",
+      "text": "P23: NoIndex rules and breadcrumb taxonomy signed off by client before build."
+    },
+    {
+      "id": "e0aa26f5-8caa-43e9-be0a-943e780f0e34",
+      "order": 189,
+      "provenance": "CREW",
+      "text": "P24 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "9aeb331a-2e8d-4600-8e01-a6109a375d9b",
+      "order": 190,
+      "provenance": "CREW",
+      "text": "P24: Redirect list must be provided as structured data. High data-volume preset — not applicable to SMB."
+    },
+    {
+      "id": "904180ec-b68e-4662-a2b1-1d498351d552",
+      "order": 191,
+      "provenance": "CREW",
+      "text": "P26 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "54ee4b03-c8ea-4f79-b012-08e705fda0a9",
+      "order": 192,
+      "provenance": "CREW",
+      "text": "P26: Shopify Plus B2B plan must be provisioned and active."
+    },
+    {
+      "id": "9af79b94-1871-48c7-9e0c-77089c91f3ed",
+      "order": 193,
+      "provenance": "CREW",
+      "text": "P29: List price must be clearly identifiable in P21 source data."
+    },
+    {
+      "id": "4af9d58e-6b8f-436b-9d4f-1196a404ae05",
+      "order": 194,
+      "provenance": "CREW",
+      "text": "P30: P21 must respond within acceptable latency. Caching layer is a change request if needed."
+    },
+    {
+      "id": "cd892c85-002a-4c24-beb5-9af2c4475609",
+      "order": 195,
+      "provenance": "CREW",
+      "text": "P31: Location data must be synced to Shopify before end-to-end testing."
+    },
+    {
+      "id": "e48225f7-acdc-4c0a-abdb-c31a41de7c82",
+      "order": 196,
+      "provenance": "CREW",
+      "text": "P32 has not been delivered in parallel with other work."
+    },
+    {
+      "id": "4ca0ec1d-2323-4e88-8e06-0c56d5f75b54",
+      "order": 197,
+      "provenance": "CREW",
+      "text": "P32: P21 rules must be synced to Shopify metafields before cart logic can be wired."
+    },
+    {
+      "id": "75a06f23-2f42-43eb-a086-a083a15dddd7",
+      "order": 198,
+      "provenance": "CREW",
+      "text": "P33: P21 order history API endpoint must be available and accessible."
+    },
+    {
+      "id": "e0cc537d-d0a4-45d9-b4ce-808c5f7fc029",
+      "order": 199,
+      "provenance": "CREW",
+      "text": "P35: Carrier API credentials must be available before work starts."
+    },
+    {
+      "id": "59678439-0a95-4a2c-b7b6-de5bfea744d0",
+      "order": 200,
+      "provenance": "CREW",
+      "text": "P36: Tax rules and exemption logic must be signed off by client before implementation."
+    },
+    {
+      "id": "f554edab-a11c-4630-8c72-44e1b971658c",
+      "order": 201,
+      "provenance": "CREW",
+      "text": "P40: Shopify Plus required. Extensions limited to Shopify extension points."
+    },
+    {
+      "id": "78688322-f5e1-4204-b196-fb4cd09e1d3f",
+      "order": 202,
+      "provenance": "CREW",
+      "text": "P42: Klevu must be indexed before PLP can be tested. Facet taxonomy signed off before build."
+    },
+    {
+      "id": "8587bd24-31b9-4b20-958b-eb0463cbec72",
+      "order": 203,
+      "provenance": "CREW",
+      "text": "P43: Klevu indexing must be live. Content layout models must be finalised in Contentful first."
+    },
+    {
+      "id": "bc674a13-0027-4cdb-8747-302094037f99",
+      "order": 204,
+      "provenance": "CREW",
+      "text": "P45: Template/component-level only. Formal external audit is excluded."
+    },
+    {
+      "id": "c32ba9b9-be65-4db6-b8d6-df9a793caa9c",
+      "order": 205,
+      "provenance": "CREW",
+      "text": "PDF generation leverages Shopware's built-in PDF rendering engine (e.g., dompdf/wkhtmltopdf) without requiring external microservice infrastructure."
+    },
+    {
+      "id": "4ae4e776-661b-43c8-8175-7c0db6699c08",
+      "order": 206,
+      "provenance": "CREW",
+      "text": "PM allocation is limited to REQ-007 specific scoping, coordination, and slice acceptance"
+    },
+    {
+      "id": "0797fdc2-4a5c-4252-bbac-d51838aae941",
+      "order": 207,
+      "provenance": "CREW",
+      "text": "PM effort covers sprint-level delivery ceremonies, edge-case risk tracking, and client sign-off coordination for this pricing slice."
+    },
+    {
+      "id": "a9e6aa88-116d-4c4e-8a4f-2bd2d7ca8c3e",
+      "order": 208,
+      "provenance": "CREW",
+      "text": "PM effort focuses strictly on delivery coordination, risk tracking, and release management specific to REQ-008."
+    },
+    {
+      "id": "7d585743-9ae8-43cd-8b7a-ed70e1605f05",
+      "order": 209,
+      "provenance": "CREW",
+      "text": "PM effort focuses strictly on delivery coordination, risk/dependency tracking, and release management rather than direct engineering or QA scripting execution."
+    },
+    {
+      "id": "f9d10e27-c2a4-4ed3-9b53-1a190dadac22",
+      "order": 210,
+      "provenance": "CREW",
+      "text": "PM effort focuses strictly on governance, cross-functional delivery coordination, security alignment, and milestone approvals."
+    },
+    {
+      "id": "2f0dfaad-76d0-48c7-a589-2aeae65a52f4",
+      "order": 211,
+      "provenance": "CREW",
+      "text": "PM oversight covers approximately one dedicated sprint cycle for the search UI feature delivery."
+    },
+    {
+      "id": "12627155-3c7a-4931-b4c3-7c1bc780d504",
+      "order": 212,
+      "provenance": "CREW",
+      "text": "PO number field is surfaced via standard Shopware checkout extension points without external third-party ERP validation dependencies in this phase"
+    },
+    {
+      "id": "e58015f0-6dd0-4f9d-9dd5-18c388b5562f",
+      "order": 213,
+      "provenance": "CREW",
+      "text": "Partial fragment search is constrained to prefix/edge n-grams rather than full arbitrary sub-string n-grams to manage index size."
+    },
+    {
+      "id": "407da253-a7c0-4823-bbe7-dc288904795a",
+      "order": 214,
+      "provenance": "CREW",
+      "text": "Payment gateway sandbox environment supports tokenized card testing, 3DS verification, and simulated decline/failure scenarios."
+    },
+    {
+      "id": "1ff3c518-54d3-4116-bcc7-4921b0037d74",
+      "order": 215,
+      "provenance": "CREW",
+      "text": "Performance acceptance benchmarks (rendering under 100k SKU catalog) are defined upfront with client stakeholders"
+    },
+    {
+      "id": "c905ccf3-9c2b-4679-bfd4-6bd021c9d5c7",
+      "order": 216,
+      "provenance": "CREW",
+      "text": "Performance benchmarking milestones are established to validate tokenization memory footprint before full production rollout"
+    },
+    {
+      "id": "2156fb79-6086-406d-a46e-accfed133cf0",
+      "order": 217,
+      "provenance": "CREW",
+      "text": "Performance testing is limited to cart responsiveness under high catalog rule counts, not global load/stress infrastructure testing"
+    },
+    {
+      "id": "b9a94979-c585-4a1d-b9c5-d1b7bc8b496a",
+      "order": 218,
+      "provenance": "CREW",
+      "text": "Preset P14 covers backend data fetching patterns; storefront template implementation is built up from first principles"
+    },
+    {
+      "id": "6c12815a-a048-4da1-b027-7ce8ea72784b",
+      "order": 219,
+      "provenance": "CREW",
+      "text": "Preset P30 was anchored at 24h base for real-time inventory API, but covers only partial logic; decoupled queueing and deferred indexing are built up from first principles."
+    },
+    {
+      "id": "7264e8eb-43a1-4e8c-a9aa-bcba19a7e734",
+      "order": 220,
+      "provenance": "CREW",
+      "text": "Preset P31 covered location selector UI; corporate hierarchy data modeling, sub-user provisioning, and permission handling were estimated from first principles."
+    },
+    {
+      "id": "b550e3d5-55a2-4cf3-9ba4-ee4ddbb152c3",
+      "order": 221,
+      "provenance": "CREW",
+      "text": "Preset P36 only covered baseline native tax table configurations; all real-time connector logic, address normalization, exemption validation, and failover handlers are estimated from first principles."
+    },
+    {
+      "id": "d35e6bf5-e9bf-4f7f-ba2b-4604d054aaf1",
+      "order": 222,
+      "provenance": "CREW",
+      "text": "Preset P45 covered keyboard navigation and contrast; remaining hours address full WCAG 2.2 AA delta (focus appearance, target size, redundant entry, live error regions)."
+    },
+    {
+      "id": "9423084c-a5fa-4b30-8bce-f7bb932fb8ba",
+      "order": 223,
+      "provenance": "CREW",
+      "text": "Pricing and margin scrubbing rules are formally reviewed in a single alignment loop with client stakeholders"
+    },
+    {
+      "id": "fc01bc80-f40e-4457-bef5-0052f7cb2ed6",
+      "order": 224,
+      "provenance": "CREW",
+      "text": "Pricing display changes apply to standard Storefront templates without requiring headless CMS custom integrations."
+    },
+    {
+      "id": "2232f987-60ef-4a3f-9262-40385bf65190",
+      "order": 225,
+      "provenance": "CREW",
+      "text": "Pricing rules and MOQ enforcement rely solely on native Shopware rule builder capabilities without external ERP sync during QA execution"
+    },
+    {
+      "id": "a663da23-879b-46c8-bb19-e69f7021c457",
+      "order": 226,
+      "provenance": "CREW",
+      "text": "Product attributes, media, and download associations are already defined and populated within Shopware data structures"
+    },
+    {
+      "id": "4837217f-0fe2-41fb-ba17-e76ef4ab3fc6",
+      "order": 227,
+      "provenance": "CREW",
+      "text": "Product entities, custom fields, and media relations are already modeled and populated in Shopware 6"
+    },
+    {
+      "id": "fd6bccc4-2c41-4b7b-a615-f5b5c736840e",
+      "order": 228,
+      "provenance": "CREW",
+      "text": "Product images are hosted locally or on accessible S3 storage with available thumbnails, avoiding large file download overheads during render."
+    },
+    {
+      "id": "10259f7a-ef88-43aa-9bef-74bb69841915",
+      "order": 229,
+      "provenance": "CREW",
+      "text": "Product variant structures and core taxonomies (categories, properties) are already established in Shopware"
+    },
+    {
+      "id": "16b2935d-8c25-43cb-aff8-c0c730d69926",
+      "order": 230,
+      "provenance": "CREW",
+      "text": "Project governance and overall program overhead are accounted for in program-level management cards; these hours cover REQ-003 delivery tracking specifically."
+    },
+    {
+      "id": "2d81f182-7c5b-4362-b116-b5e6e425942c",
+      "order": 231,
+      "provenance": "CREW",
+      "text": "Project management activities are distributed across a standard two-week sprint iteration."
+    },
+    {
+      "id": "733b8c2e-a273-45a8-8e75-5baa35831831",
+      "order": 232,
+      "provenance": "CREW",
+      "text": "Project management activities reflect requirement-level coordination embedded within an overall sprint delivery lifecycle."
+    },
+    {
+      "id": "b58eded6-172a-4361-9867-e8075c62624d",
+      "order": 233,
+      "provenance": "CREW",
+      "text": "Public pages follow standard Shopware Storefront theming conventions and Twig component hierarchy."
+    },
+    {
+      "id": "46e5b64e-0b8f-48cd-9d03-682ce66adade",
+      "order": 234,
+      "provenance": "CREW",
+      "text": "QA load verification and business sign-off execution are estimated separately by QA specialists; line items cover engineering implementation and test harness validation."
+    },
+    {
+      "id": "8e518c3d-7b3e-4563-8497-0fae48768cae",
+      "order": 235,
+      "provenance": "CREW",
+      "text": "QA scope is limited to technical and operational verification of documentation accuracy and training scenario reproducibility, not delivering the live training sessions."
+    },
+    {
+      "id": "cc69ff54-c3da-4d69-a591-d7f0f2fd1062",
+      "order": 236,
+      "provenance": "CREW",
+      "text": "Queue monitoring telemetry and log aggregation (e.g., Grafana/CloudWatch/RabbitMQ Management API) are accessible to QA for backpressure and queue-depth validation."
+    },
+    {
+      "id": "6737c358-5800-4cb0-aa48-ce2e1a2e94ed",
+      "order": 237,
+      "provenance": "CREW",
+      "text": "Quote data (line items, pricing, notes) is already stored on the Shopware order/quote entity and does not require third-party ERP retrieval during generation."
+    },
+    {
+      "id": "f7c2451f-4785-42e0-8058-59ed9b5e50ac",
+      "order": 238,
+      "provenance": "CREW",
+      "text": "Quote entities exist natively or within standard B2B extensions and only require project-specific aggregation and access controls."
+    },
+    {
+      "id": "78067f58-37a8-4510-808d-636bff79f1d3",
+      "order": 239,
+      "provenance": "CREW",
+      "text": "Quote generation relies on native Shopware document infrastructure with Twig rendering; external PDF microservices or integrations are out of scope."
+    },
+    {
+      "id": "c5a1834a-28af-4d62-b751-f21af9d907f0",
+      "order": 240,
+      "provenance": "CREW",
+      "text": "RabbitMQ exchange topology details are available from infrastructure teams during requirements elaboration"
+    },
+    {
+      "id": "77009f89-969e-407b-ae4c-f12ca0e932a4",
+      "order": 241,
+      "provenance": "CREW",
+      "text": "RabbitMQ infrastructure provisioning and credentials are provided prior to integration milestone tracking"
+    },
+    {
+      "id": "6b40de4d-f83d-4022-9314-526a7026d66b",
+      "order": 242,
+      "provenance": "CREW",
+      "text": "Raw catalog feed from Kroll is accessible via flat files (CSV/XML) or direct export dumps without requiring live API crawler construction."
+    },
+    {
+      "id": "92c55e31-d92e-4127-93f4-ee1b981c7ea9",
+      "order": 243,
+      "provenance": "CREW",
+      "text": "Recent searches are stored client-side via LocalStorage or session cookies"
+    },
+    {
+      "id": "6233d1d9-ee45-4816-9fbf-a0b57446ec62",
+      "order": 244,
+      "provenance": "CREW",
+      "text": "Recent searches are stored strictly client-side per device/browser via localStorage and not synced across customer devices."
+    },
+    {
+      "id": "c8417eee-ede7-42a8-a4c1-91f2567abc27",
+      "order": 245,
+      "provenance": "CREW",
+      "text": "Recent searches will be persisted client-side (local storage) without requiring cross-device user profile persistence."
+    },
+    {
+      "id": "358a4cc8-b84f-4f41-bc1a-1585df59393a",
+      "order": 246,
+      "provenance": "CREW",
+      "text": "Redaction logic is implemented strictly at the Shopware core/API serializer layer, requiring payload audits across multiple endpoint variants."
+    },
+    {
+      "id": "be53c9f5-39a7-42df-ae08-254288b0fa95",
+      "order": 247,
+      "provenance": "CREW",
+      "text": "Redaction requirements apply strictly to the presentation/Store-API boundary without requiring redesign of back-office administration interfaces."
+    },
+    {
+      "id": "0fbab2e1-9a99-43b3-9a1a-c20e6f37cd04",
+      "order": 248,
+      "provenance": "CREW",
+      "text": "Redaction strictly targets unauthenticated guests; authenticated B2B users with appropriate customer group permissions retain visibility to commercial data."
+    },
+    {
+      "id": "d279c165-8525-4a05-a34c-8fc04556ef72",
+      "order": 249,
+      "provenance": "CREW",
+      "text": "Redirect execution will occur at the edge or web-server layer rather than executing in PHP application runtime for performance"
+    },
+    {
+      "id": "6423ce83-459f-40dd-b3e2-baf96bab6d98",
+      "order": 250,
+      "provenance": "CREW",
+      "text": "Redirect verification follows standard deployment stages and does not require custom edge-proxy governance meetings"
+    },
+    {
+      "id": "a356e2ee-b805-4c35-bc51-4f68768a9a2a",
+      "order": 251,
+      "provenance": "CREW",
+      "text": "Registration templates are rendered using server-side Twig with client-side dynamic field toggling"
+    },
+    {
+      "id": "62f03ebe-e1fc-494b-999e-68ffd30b9370",
+      "order": 252,
+      "provenance": "CREW",
+      "text": "Representative catalog sample including edge-case part numbers and NSN formats is provided prior to analysis."
+    },
+    {
+      "id": "97b59d86-5784-49f7-afca-8b803fd42645",
+      "order": 253,
+      "provenance": "CREW",
+      "text": "Requirement has no preset library anchor and is estimated from first principles for Shopware 6 enterprise B2B architecture."
+    },
+    {
+      "id": "a977dacf-48b5-4a9d-8d9a-3087cf32eb0e",
+      "order": 254,
+      "provenance": "CREW",
+      "text": "Restricted catalog attribute tags and Dynamic Access rules are configured in the Shopware test environment."
+    },
+    {
+      "id": "751e84c9-4630-4fd8-ad01-8a6e8fae7d24",
+      "order": 255,
+      "provenance": "CREW",
+      "text": "SD Bridge provides REST or webhook endpoints supporting pagination or delta extraction using updated-at timestamps."
+    },
+    {
+      "id": "2192d499-ee97-4035-a422-043f620416a0",
+      "order": 256,
+      "provenance": "CREW",
+      "text": "SD Bridge stakeholders and SMEs will be available to clarify undocumented legacy database schemas, extraction formats, and delta sync trigger capabilities."
+    },
+    {
+      "id": "9b986184-9dc0-43a3-92c7-fc8ce96a928e",
+      "order": 257,
+      "provenance": "CREW",
+      "text": "SD Nexus catalog interface and handoff parameters are already specified and require coordination rather than greenfield technical discovery."
+    },
+    {
+      "id": "423c2b31-433e-45ba-871d-34552a39b022",
+      "order": 258,
+      "provenance": "CREW",
+      "text": "SD Nexus handoff operates via direct authenticated URL/deep link redirect and requires no bidirectional API integrations."
+    },
+    {
+      "id": "a2c7ef9f-8526-4543-b05f-498ccba18146",
+      "order": 259,
+      "provenance": "CREW",
+      "text": "SEO canonical rules disallow multi-facet combinations from being indexed while allowing single primary category paths"
+    },
+    {
+      "id": "002cb888-c032-4017-8280-76a036aaefee",
+      "order": 260,
+      "provenance": "CREW",
+      "text": "SEO requirements follow standard Shopware canonical and robots index/noindex patterns for faceted URLs"
+    },
+    {
+      "id": "f7b22f56-f42e-4de4-9606-aa32e5152568",
+      "order": 261,
+      "provenance": "CREW",
+      "text": "Sample high-volume dataset of industrial PPE product data is provided or generated for schema load validation."
+    },
+    {
+      "id": "b2253f7b-f8bc-463f-82da-06f281f9b96d",
+      "order": 262,
+      "provenance": "CREW",
+      "text": "Sample legacy supplier data is provided or generated via synthetic scripts for high-volume execution."
+    },
+    {
+      "id": "d10a276f-8556-47b7-aced-7852c73a65fb",
+      "order": 263,
+      "provenance": "CREW",
+      "text": "Sampling methodologies will be utilized for asset visual checks alongside automated HTTP status checks for 100% of media URLs"
+    },
+    {
+      "id": "2f3ef573-f46e-4028-8be6-95937e0fc0f2",
+      "order": 264,
+      "provenance": "CREW",
+      "text": "Scope assumes all configuration entities (customer groups, catalog entitlements, price lists, payment terms) are pre-seeded and managed natively within Shopware without third-party ERP sync dependencies."
+    },
+    {
+      "id": "f1d16c7c-7193-487e-9182-eabffd34789a",
+      "order": 265,
+      "provenance": "CREW",
+      "text": "Scope covers one third-party PCI-compliant hosted/tokenized card payment gateway integration with Shopware."
+    },
+    {
+      "id": "4f73a2c0-754d-4d10-9e28-717c7eec0b85",
+      "order": 266,
+      "provenance": "CREW",
+      "text": "Scope excludes external third-party integration coordination since integration count is zero."
+    },
+    {
+      "id": "d4f23884-e1d8-4389-a57b-0ff5dfbbac30",
+      "order": 267,
+      "provenance": "CREW",
+      "text": "Scope is limited to custom storefront presentation and components; no external backend data integration mapping is required."
+    },
+    {
+      "id": "686b190c-b384-4df7-bf64-6b8f54161def",
+      "order": 268,
+      "provenance": "CREW",
+      "text": "Scope is limited to prices maintained within Shopware (no third-party ERP integration feeds included in test scope)."
+    },
+    {
+      "id": "4ee8bd93-db7b-450c-b33b-84fc6b80627c",
+      "order": 269,
+      "provenance": "CREW",
+      "text": "Scope is limited to standard Shopware administration capabilities and documented custom workflows, excluding custom developer code walkthroughs."
+    },
+    {
+      "id": "d53a7612-10bf-4dfb-8f21-f063bd4693e0",
+      "order": 270,
+      "provenance": "CREW",
+      "text": "Screen reader testing is focused on primary combinations: NVDA/Chrome on Windows and VoiceOver/Safari on macOS/iOS."
+    },
+    {
+      "id": "aba1ce2e-dad3-4da6-b97c-f61fee158b14",
+      "order": 271,
+      "provenance": "CREW",
+      "text": "Search context passing (query string / category context) into the form state is handled client-side."
+    },
+    {
+      "id": "71459a81-6b0a-440e-92fd-6702c8bbf3d2",
+      "order": 272,
+      "provenance": "CREW",
+      "text": "Search endpoint access or Shopware UI is configured to route directly to the custom analyzer cluster for testing."
+    },
+    {
+      "id": "9ac6b86f-549e-4340-a68f-64b9213db285",
+      "order": 273,
+      "provenance": "CREW",
+      "text": "Search engine / index backend (e.g. Shopware default or integrated search engine) natively provides typo correction and scoring payloads, limiting BA scope to configuration rules, behavior specifications, and UI contracts."
+    },
+    {
+      "id": "237a3011-81a2-496a-b0ca-eb9795cf21ac",
+      "order": 274,
+      "provenance": "CREW",
+      "text": "Search near-match and category logic leverages existing Shopware search configuration without new external search vendor dependencies."
+    },
+    {
+      "id": "64a57614-6a96-4fda-80d8-d6ea2f8010eb",
+      "order": 275,
+      "provenance": "CREW",
+      "text": "Search runs on Shopware's native or configured search engine without requiring an external 3rd-party SaaS provider (e.g. Algolia/Klevu)."
+    },
+    {
+      "id": "75318a15-5a09-4986-97f7-dd39d5ab3c2e",
+      "order": 276,
+      "provenance": "CREW",
+      "text": "Search terms yielding zero results can be programmatically captured and pre-populated into the sourcing request payload"
+    },
+    {
+      "id": "8d6a3856-e4e4-48aa-bad7-0e0edeba5e57",
+      "order": 277,
+      "provenance": "CREW",
+      "text": "Section 508 / WCAG 2.1 AA compliance verification is required given the public government procurement focus."
+    },
+    {
+      "id": "74497891-1455-44a6-a8fc-5dcfeb14c888",
+      "order": 278,
+      "provenance": "CREW",
+      "text": "Security and PCI audit formal certifications are handled by the payment gateway provider (SAQ A/A-EP level burden on merchant)."
+    },
+    {
+      "id": "deeb7a52-e2e7-4e8c-9d42-b396d3f09bad",
+      "order": 279,
+      "provenance": "CREW",
+      "text": "Security and legal compliance requirements for document retention do not require net-new enterprise vendor agreements"
+    },
+    {
+      "id": "127d3b2e-1f15-4918-9a4b-5cd222b13ce4",
+      "order": 280,
+      "provenance": "CREW",
+      "text": "Security/compliance baseline policies (e.g., SOC2, PCI-DSS) are already established and available as reference inputs."
+    },
+    {
+      "id": "bb9cb221-2346-47ef-9983-5049a5a80e65",
+      "order": 281,
+      "provenance": "CREW",
+      "text": "Self-service administration is limited to standard two-tier role structures (Admin and Buyer/Member)"
+    },
+    {
+      "id": "6a362faa-399d-46ed-ab6f-f56a09601c60",
+      "order": 282,
+      "provenance": "CREW",
+      "text": "Sensitive fields (margin, cost, supplier identity) reside in Shopware 6 custom entities or custom fields rather than external microservices."
+    },
+    {
+      "id": "f7f32da3-c565-430c-a58b-bad3ae95c8a7",
+      "order": 283,
+      "provenance": "CREW",
+      "text": "Server-side checkout suppression requires thorough API and negative testing to ensure no cart endpoints or buy buttons are reachable."
+    },
+    {
+      "id": "cefb1d29-5b20-40f8-b373-332e726ad33b",
+      "order": 284,
+      "provenance": "CREW",
+      "text": "Shipping calculation relies solely on native Shopware Rule Builder logic and does not require real-time carrier rating API integrations."
+    },
+    {
+      "id": "55866067-1223-499e-a4aa-224610538dfc",
+      "order": 285,
+      "provenance": "CREW",
+      "text": "Shopware 6 Admin UI extension suffices for internal user management; no external third-party ERP integration pipeline is included in scope (integration_count=0)."
+    },
+    {
+      "id": "6495fd5d-7ee5-46dd-99bf-cb8bb8ee981c",
+      "order": 286,
+      "provenance": "CREW",
+      "text": "Shopware 6 Flow Builder and standard Mailer service will handle internal notification routing without requiring third-party CRM connectors under integration_count=0."
+    },
+    {
+      "id": "c20fdc8b-9c88-401d-9688-9ebfad0b67f0",
+      "order": 287,
+      "provenance": "CREW",
+      "text": "Shopware 6 Shopping Experiences (Erlebniswelten) will be used as the underlying CMS engine."
+    },
+    {
+      "id": "9b79071b-325c-4ffa-89db-1539e7d2c0a8",
+      "order": 288,
+      "provenance": "CREW",
+      "text": "Shopware 6 core sitemap indexing mechanism serves as the foundation, customized to avoid timeout/memory limits at 100K scale."
+    },
+    {
+      "id": "f079ec63-a66c-448a-a3bd-5abaa05638b7",
+      "order": 289,
+      "provenance": "CREW",
+      "text": "Shopware 6 enterprise B2B suite modules are provisioned in target dev/staging environments without scope blockers."
+    },
+    {
+      "id": "ead3896a-83c8-4566-ab37-ab72daaf22f9",
+      "order": 290,
+      "provenance": "CREW",
+      "text": "Shopware 6 enterprise/commercial B2B features or equivalent rule structure is available in the target environment."
+    },
+    {
+      "id": "4085ed28-ca95-461d-a2a4-34104b97e634",
+      "order": 291,
+      "provenance": "CREW",
+      "text": "Shopware 6 enterprise/commercial B2B framework or equivalent entity structures are in place as baseline extension points."
+    },
+    {
+      "id": "a3b4c69e-be4e-4abd-9aeb-b898bfe3b5a0",
+      "order": 292,
+      "provenance": "CREW",
+      "text": "Shopware 6 instance is provisioned with asynchronous message queue workers (e.g., Redis/RabbitMQ) to prevent memory exhaustion during bulk indexing."
+    },
+    {
+      "id": "51d8543b-a695-4f26-9545-71a809e8b091",
+      "order": 293,
+      "provenance": "CREW",
+      "text": "Shopware 6 instance is running with an external reverse proxy (Varnish) where session cookies can be bypassed for pure GET requests on product detail page URLs."
+    },
+    {
+      "id": "c55ffef5-e5ca-4d06-8520-f4bd0e79c6b2",
+      "order": 294,
+      "provenance": "CREW",
+      "text": "Shopware 6 multi-channel visibility and product active status are the primary targets for unpublishing and delisting controls."
+    },
+    {
+      "id": "f84a7f18-0b50-4e60-ae13-acb852e13dc9",
+      "order": 295,
+      "provenance": "CREW",
+      "text": "Shopware 6 native Rule Builder and B2B customer group primitives will be leveraged for assignment targets without external ERP synchronization."
+    },
+    {
+      "id": "46af914f-bf99-4361-bfee-34053c033ffe",
+      "order": 296,
+      "provenance": "CREW",
+      "text": "Shopware 6.5+ environment using standard Store-API and default session management."
+    },
+    {
+      "id": "f2d4a78a-48bf-4c3c-bd13-60d2df32f30e",
+      "order": 297,
+      "provenance": "CREW",
+      "text": "Shopware Admin Sync API (/api/_action/sync) batch sizes will require dynamic tuning to prevent database transaction deadlocks during high-concurrency ingestion."
+    },
+    {
+      "id": "8e057761-e194-4259-bad9-dfb45dd7735c",
+      "order": 298,
+      "provenance": "CREW",
+      "text": "Shopware Admin interface and standard import/export profiles are already configured and functional prior to training preparation."
+    },
+    {
+      "id": "f459e188-217b-4e91-995e-9e2ba49bdf7f",
+      "order": 299,
+      "provenance": "CREW",
+      "text": "Shopware B2B Components / B2B Suite individual pricing module is used as the base capability without bespoke core pricing engine rewrites."
+    },
+    {
+      "id": "200ad7c9-e201-4c14-b3d3-b2521456c62a",
+      "order": 300,
+      "provenance": "CREW",
+      "text": "Shopware B2B Components Individual Pricing extension is licensed and accessible for the environment without procurement delays."
+    },
+    {
+      "id": "190e60a5-66a6-480e-9a52-e7c07b68bfb2",
+      "order": 301,
+      "provenance": "CREW",
+      "text": "Shopware B2B Components extension license is active and compatible with target Shopware 6 minor version."
+    },
+    {
+      "id": "ab0bf8c9-46dd-432e-80ea-31ec8c5d30db",
+      "order": 302,
+      "provenance": "CREW",
+      "text": "Shopware B2B Components individual pricing extension is standard and does not require custom ERP pricing middleware for this requirement"
+    },
+    {
+      "id": "55c143f9-090a-49b8-b34a-6474f9a4e6cb",
+      "order": 303,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite / Rule Builder payment routing rules and customer account groups are configured and test accounts pre-staged for each tier prior to test execution"
+    },
+    {
+      "id": "ebe035e8-3111-4584-a642-16fb1aa19e0c",
+      "order": 304,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or commercial B2B components are available as a foundation, or native Shopware 6 entity extensions are used to model company hierarchies."
+    },
+    {
+      "id": "09850ad8-8f5a-4d45-a2dd-db6063824a8e",
+      "order": 305,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or commercial B2B components provide baseline multi-user organization capabilities requiring configuration and specification rather than net-new custom architecture"
+    },
+    {
+      "id": "6d4f1694-af5f-44b3-9ae5-818ba8eb2f36",
+      "order": 306,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or core Enterprise B2B capabilities are not being used off-the-shelf; functionality is built natively via standard Shopware 6 plugin architecture."
+    },
+    {
+      "id": "296a0659-1e3a-413b-8fc3-5ad4388c23fa",
+      "order": 307,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or core commercial extension licensing does not provide turnkey RFQ cart conversion, requiring custom entity and Store-API implementation."
+    },
+    {
+      "id": "557fdea0-6307-4791-abbc-fdaae6d04e0c",
+      "order": 308,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or core organizational capabilities require standard extension configuration rather than custom architectural overhaul"
+    },
+    {
+      "id": "c75c5d7c-424e-48f4-a225-1484a8cb9ab7",
+      "order": 309,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or enterprise quote management plugin baseline is utilized or extended rather than fully custom build from scratch."
+    },
+    {
+      "id": "4f1daeb5-abdf-4821-8af3-d3b3319e9c5b",
+      "order": 310,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or native Rule Builder features will serve as the architectural foundation for business role and payment eligibility mapping."
+    },
+    {
+      "id": "8451865c-6d21-4f6b-ac1d-ea5a8467a487",
+      "order": 311,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or native enterprise B2B features provide the foundational role hierarchy framework"
+    },
+    {
+      "id": "44baff32-e8de-4ae1-a1a0-d26dd27e97c3",
+      "order": 312,
+      "provenance": "CREW",
+      "text": "Shopware B2B Suite or native enterprise capabilities will serve as the architectural baseline for organizational hierarchy and roles."
+    },
+    {
+      "id": "9ce09be1-21aa-4bfd-b9c9-c0ab85bc924a",
+      "order": 313,
+      "provenance": "CREW",
+      "text": "Shopware CMS Shopping Experiences (Erlebniswelten) will be used without bespoke third-party CMS integrations."
+    },
+    {
+      "id": "945c63b9-7e2b-4d90-8ee2-d516590dbcfd",
+      "order": 314,
+      "provenance": "CREW",
+      "text": "Shopware CMS layout engine handles underlying rendering; QA focuses on front-facing rendering and authoring validation of targeted page types."
+    },
+    {
+      "id": "54542182-67db-4a07-90f6-29dc1c6d4e85",
+      "order": 315,
+      "provenance": "CREW",
+      "text": "Shopware Commercial / Dynamic Access extension core tables are available and extensible via standard Shopware 6 Rule Builder patterns."
+    },
+    {
+      "id": "b49280af-38b1-4cec-9b15-7db62e08391f",
+      "order": 316,
+      "provenance": "CREW",
+      "text": "Shopware Commercial B2B / Admin Sync API endpoints and license entitlements are provisioned and accessible for schema verification."
+    },
+    {
+      "id": "5a6fa519-5847-41e2-8a5a-6695100a2aad",
+      "order": 317,
+      "provenance": "CREW",
+      "text": "Shopware Commercial Dynamic Access or native Rule Builder features are available and licensed in the environment."
+    },
+    {
+      "id": "8f6f8bb9-655a-44ae-aaca-d56c12a1449b",
+      "order": 318,
+      "provenance": "CREW",
+      "text": "Shopware Commercial customer-specific pricing and custom contract entity structures are installed and available in the target Shopware instance."
+    },
+    {
+      "id": "66ef1b66-d12d-476f-ac71-cb63152688db",
+      "order": 319,
+      "provenance": "CREW",
+      "text": "Shopware HTTP caching/reverse proxy rules require dedicated verification to avoid public cache poisoning with accurate stock data."
+    },
+    {
+      "id": "eb83ff72-1ac3-4118-93cb-62e091096b63",
+      "order": 320,
+      "provenance": "CREW",
+      "text": "Shopware Rule Builder and Customer Groups core modules are utilized without third-party ERP integration in this scope."
+    },
+    {
+      "id": "2beecf4b-1edc-41be-8486-5dce53767cf9",
+      "order": 321,
+      "provenance": "CREW",
+      "text": "Shopware Rule Builder configuration is internal; no live third-party carrier API integration testing is required"
+    },
+    {
+      "id": "1c3e0340-ea7b-4611-94a5-b5e5f1eb2324",
+      "order": 322,
+      "provenance": "CREW",
+      "text": "Shopware Storefront standard event hooks are accessible and not overridden by conflicting proprietary plugins"
+    },
+    {
+      "id": "2d48c2c5-b486-4e2b-a581-c3b17974a9da",
+      "order": 323,
+      "provenance": "CREW",
+      "text": "Shopware admin extension interfaces require coordination between UI/UX, backend logic, and admin access control validation."
+    },
+    {
+      "id": "135a95a8-2d4a-41f7-84ac-03defb72f7bd",
+      "order": 324,
+      "provenance": "CREW",
+      "text": "Shopware and SD Bridge API rate limits and webhook/event capacities are documented and accessible"
+    },
+    {
+      "id": "e030e78f-537a-4cea-92de-aace1cd6407a",
+      "order": 325,
+      "provenance": "CREW",
+      "text": "Shopware and Varnish infrastructure configuration is handled within the core project team without external third-party system integrator dependencies."
+    },
+    {
+      "id": "9d76f075-9158-4b1f-8afb-441aa617fd2a",
+      "order": 326,
+      "provenance": "CREW",
+      "text": "Shopware application code deployment pipeline itself is out of scope; line items cover infrastructure provisioning, runtime config, and service readiness."
+    },
+    {
+      "id": "a59e3294-b09a-4483-896d-925545c88600",
+      "order": 327,
+      "provenance": "CREW",
+      "text": "Shopware cache invalidation and Twig rendering performance on public uncached hits are covered within standard functional passes."
+    },
+    {
+      "id": "01215ab8-08c9-4a59-a0eb-fcdbda161eee",
+      "order": 328,
+      "provenance": "CREW",
+      "text": "Shopware catalog sync is treated as the single integration boundary for this requirement"
+    },
+    {
+      "id": "bfc4a1e6-ee3f-47a1-94ab-05daf4a8f18f",
+      "order": 329,
+      "provenance": "CREW",
+      "text": "Shopware category structure and custom field definitions are finalized or bounded during mapping workshops."
+    },
+    {
+      "id": "f65fd8db-64a2-46a7-926c-3f7ea1374b10",
+      "order": 330,
+      "provenance": "CREW",
+      "text": "Shopware category tree structures and dynamic property mappings are finalized during initial sprint planning decomposition"
+    },
+    {
+      "id": "52acf27c-7a79-43ee-b16d-739762a59f89",
+      "order": 331,
+      "provenance": "CREW",
+      "text": "Shopware core rule builder handles the standard customer group structures without custom ERP connector overhead."
+    },
+    {
+      "id": "fc2ef0b8-4718-497d-a9d6-06cb6470736a",
+      "order": 332,
+      "provenance": "CREW",
+      "text": "Shopware custom entities or CMS layout mechanisms are sufficient to support defined contract vehicle metadata without headless microservice orchestration."
+    },
+    {
+      "id": "079fcb85-bd57-42a9-b971-cf74b6bfa907",
+      "order": 333,
+      "provenance": "CREW",
+      "text": "Shopware default document generation engine is sufficient for quote PDF formatting without third-party PDF services."
+    },
+    {
+      "id": "0f18cbf2-9e1e-499e-8601-f69468910c8b",
+      "order": 334,
+      "provenance": "CREW",
+      "text": "Shopware default document generation framework (Twig / PDF renderer) is leveraged rather than an external third-party PDF service."
+    },
+    {
+      "id": "b6076ea5-58bb-4c24-8320-7e1bd6f8fd58",
+      "order": 335,
+      "provenance": "CREW",
+      "text": "Shopware default entity capabilities (property groups, custom fields) will be leveraged where feasible before introducing net-new custom entities"
+    },
+    {
+      "id": "9d177de7-2ad6-49d7-8e4e-61799b15c670",
+      "order": 336,
+      "provenance": "CREW",
+      "text": "Shopware default entity fields provide required product attributes (SKU, price, availability, brand) without custom ERP mapping dependencies"
+    },
+    {
+      "id": "54485c9b-9662-47a2-94b3-f37b3d0912a9",
+      "order": 337,
+      "provenance": "CREW",
+      "text": "Shopware default import/export profile capabilities will be utilized without requiring bespoke third-party middleware"
+    },
+    {
+      "id": "b400614a-a8cb-42cf-b1dc-cd512114809b",
+      "order": 338,
+      "provenance": "CREW",
+      "text": "Shopware default mailing/notification handler is sufficient for enquiry form verification without external CRM integration testing"
+    },
+    {
+      "id": "1f392e25-7a0e-4cef-bdbe-f194a0890212",
+      "order": 339,
+      "provenance": "CREW",
+      "text": "Shopware default message queue and background worker infrastructure are functional and available in the test environment."
+    },
+    {
+      "id": "2a83e79a-b8a8-4157-9336-b79fe8801df8",
+      "order": 340,
+      "provenance": "CREW",
+      "text": "Shopware default registration can be extended to support multi-file attachments and asynchronous verification workflows."
+    },
+    {
+      "id": "1e629d48-9d17-4a8a-9790-65d3303296aa",
+      "order": 341,
+      "provenance": "CREW",
+      "text": "Shopware default search engine (MySQL/Elasticsearch) supports fuzzy query capabilities without requiring third-party SaaS search providers"
+    },
+    {
+      "id": "192cbe7b-6393-4a3e-a63f-e4136c9bc9f5",
+      "order": 342,
+      "provenance": "CREW",
+      "text": "Shopware default search template is extensible without requiring third-party search engine plugin modifications"
+    },
+    {
+      "id": "c6548f5e-bc5d-449c-8c63-93aad9dbc74d",
+      "order": 343,
+      "provenance": "CREW",
+      "text": "Shopware entity indexing can be decoupled from standard synchronous doctrine events via custom message handlers."
+    },
+    {
+      "id": "54dc81a0-02f1-402b-832c-e76b1c429a5d",
+      "order": 344,
+      "provenance": "CREW",
+      "text": "Shopware integration mapping uses standard catalog product fields with dedicated custom attributes for NSN and manufacturer part numbers."
+    },
+    {
+      "id": "fe000c15-5603-4a25-9416-c229c486bdd9",
+      "order": 345,
+      "provenance": "CREW",
+      "text": "Shopware native Rule Builder and Customer Groups provide the foundation without custom entity architecture required for tiers"
+    },
+    {
+      "id": "215db199-b728-4448-a955-feb6902d5e19",
+      "order": 346,
+      "provenance": "CREW",
+      "text": "Shopware native Rule Builder and Flow Builder capabilities will serve as the core rule execution engine rather than external custom pricing tables."
+    },
+    {
+      "id": "563728dd-78b6-4415-bb61-7ad8169f3256",
+      "order": 347,
+      "provenance": "CREW",
+      "text": "Shopware native Rule Builder and advanced pricing structures will serve as the baseline without external ERP pricing engine integration"
+    },
+    {
+      "id": "d05d9ac6-5e80-4856-97d2-ba1f097eab14",
+      "order": 348,
+      "provenance": "CREW",
+      "text": "Shopware native property and category models serve as the baseline without custom engine integration"
+    },
+    {
+      "id": "a66a38ea-3200-445b-bd23-44571265a964",
+      "order": 349,
+      "provenance": "CREW",
+      "text": "Shopware search API backend is operational and pre-populated with test catalog data"
+    },
+    {
+      "id": "f4410a31-b174-47fb-babc-5111ab0c7b3b",
+      "order": 350,
+      "provenance": "CREW",
+      "text": "Shopware staging environment contains a realistic high-volume catalog with populated dynamic properties"
+    },
+    {
+      "id": "7e8d460f-ebff-41fd-b00f-0429b4902ea1",
+      "order": 351,
+      "provenance": "CREW",
+      "text": "Shopware standard B2B account structures will serve as the base entity model with custom custom fields for tier-specific attributes"
+    },
+    {
+      "id": "8449240a-e3c3-4635-8f9b-54f16d619e34",
+      "order": 352,
+      "provenance": "CREW",
+      "text": "Shopware standard Shopping Experiences (CMS) capabilities will be utilized without third-party form builders or external headless CMS integrations"
+    },
+    {
+      "id": "40aace7b-4f3c-4a56-8155-f2f6a33100c9",
+      "order": 353,
+      "provenance": "CREW",
+      "text": "Shopware target URL structure and Shopping Experiences layout templates are established prior to final mapping sign-off"
+    },
+    {
+      "id": "e815590b-b1e1-4d3a-8074-d6d303a3b629",
+      "order": 354,
+      "provenance": "CREW",
+      "text": "Shopware target information architecture and page templates are defined in parallel and not blocked by content inventory"
+    },
+    {
+      "id": "5ec7a57b-f0d2-4954-821c-0daa0499a867",
+      "order": 355,
+      "provenance": "CREW",
+      "text": "Shopware target staging environment has sufficient storage and bandwidth to host all media assets and PDFs during testing"
+    },
+    {
+      "id": "c9214d01-226c-41e3-a30b-f6a6ff723257",
+      "order": 356,
+      "provenance": "CREW",
+      "text": "Shopware template inventory is defined early in discovery, limiting scope to core storefront customer journeys and standard Twig templates"
+    },
+    {
+      "id": "a9b5a3b8-1f31-4af6-8b8c-ff13f18abba5",
+      "order": 357,
+      "provenance": "CREW",
+      "text": "Shopware test environment contains representative catalog subsets with high-density and minimal attribute SKU examples"
+    },
+    {
+      "id": "7b6a82c6-a802-40f1-a5fe-c5032057d9f4",
+      "order": 358,
+      "provenance": "CREW",
+      "text": "Sign-off gates for sample batches occur asynchronously within 48 business hours."
+    },
+    {
+      "id": "3e76afcb-102a-42ad-9826-027edc13e25d",
+      "order": 359,
+      "provenance": "CREW",
+      "text": "Sign-off workflows follow standard single-tier stakeholder approval."
+    },
+    {
+      "id": "e63791c5-b3bd-4a42-acb5-a5240088c7b8",
+      "order": 360,
+      "provenance": "CREW",
+      "text": "Single approval round for the visual output template included prior to UAT sign-off."
+    },
+    {
+      "id": "368348a9-5525-4c52-8c04-09dcd348b336",
+      "order": 361,
+      "provenance": "CREW",
+      "text": "Single-currency and single-language quote generation is in scope; multi-currency or multi-language localization is excluded."
+    },
+    {
+      "id": "cc1d71b9-be46-44f4-9c1f-6d6ae8837bc9",
+      "order": 362,
+      "provenance": "CREW",
+      "text": "Sitemap index files will partition product URLs below standard search engine limits (50,000 URLs / 50MB per uncompressed file)"
+    },
+    {
+      "id": "0977802e-d103-4056-8ba2-acc2fdeea3ae",
+      "order": 363,
+      "provenance": "CREW",
+      "text": "Source data exports are provided in accessible formats (e.g., CSV/JSON) with defined source schemas."
+    },
+    {
+      "id": "71380747-dd1b-4948-beca-110b12c1c2cc",
+      "order": 364,
+      "provenance": "CREW",
+      "text": "Source data extracts are accessible in a queryable format for automated parity checks against Shopware database or API"
+    },
+    {
+      "id": "7d25464f-e9b2-4da5-a943-741008a47d5d",
+      "order": 365,
+      "provenance": "CREW",
+      "text": "Source data files (CSV/JSON) and digital assets are provided by the client in consolidated accessible locations."
+    },
+    {
+      "id": "9723722a-bb34-42bc-8bd6-b4e1f2d6e571",
+      "order": 366,
+      "provenance": "CREW",
+      "text": "Source data from Kroll will be delivered in batch files accessible via script or database dump rather than real-time API queries."
+    },
+    {
+      "id": "86983cc2-befa-4734-8726-d0bd6d7c18ac",
+      "order": 367,
+      "provenance": "CREW",
+      "text": "Source data is provided in structured CSV/JSON dumps or accessible via static storage buckets."
+    },
+    {
+      "id": "de3f503d-aa55-4a72-85a1-30b67b386db8",
+      "order": 368,
+      "provenance": "CREW",
+      "text": "Source site content audit can be extracted via standard crawler tooling without access restrictions or anti-bot blockers"
+    },
+    {
+      "id": "e252cfbd-68c3-4ecd-8c43-3a326aaedd16",
+      "order": 369,
+      "provenance": "CREW",
+      "text": "Source site content inventory and destination 301 mapping sheet are finalized prior to test execution"
+    },
+    {
+      "id": "b3acf2e7-783b-4ea6-ac73-df6f7d7eff81",
+      "order": 370,
+      "provenance": "CREW",
+      "text": "Sourcing assistance form data will be dispatched via standard Shopware mail templates to internal merchant email without requiring external CRM integration"
+    },
+    {
+      "id": "2d8251c2-ee50-41fc-a052-d7d7f7b8eceb",
+      "order": 371,
+      "provenance": "CREW",
+      "text": "Sourcing assistance form dispatches notifications via standard platform mailer or native customer inquiry handler"
+    },
+    {
+      "id": "31409d4b-4eea-45d5-88a9-0d118e23daf8",
+      "order": 372,
+      "provenance": "CREW",
+      "text": "Sourcing assistance form submissions will utilize Shopware standard contact form/notification handling without third-party CRM integrations."
+    },
+    {
+      "id": "02d0e6e1-6f25-4ddb-bee6-89b46e6a692d",
+      "order": 373,
+      "provenance": "CREW",
+      "text": "Sourcing inquiries are captured natively in Shopware or routed via standard transactional email without external CRM integration"
+    },
+    {
+      "id": "c610cf16-3d93-4936-80ee-5920a3e44318",
+      "order": 374,
+      "provenance": "CREW",
+      "text": "Sourcing requests will be stored internally in Shopware custom entities rather than synced to an external marketing automation tool or CRM (integration_count=0)"
+    },
+    {
+      "id": "bc072a28-903a-444e-91b6-69a97c215b20",
+      "order": 375,
+      "provenance": "CREW",
+      "text": "Sprint ceremonies and cross-functional coordination are sized proportionally to a mid-market delivery team."
+    },
+    {
+      "id": "73ff4ac1-05d6-4eb8-86ec-648fb6cba709",
+      "order": 376,
+      "provenance": "CREW",
+      "text": "Sprint iterations and ceremonies are sized proportionally to a 2-week delivery cycle"
+    },
+    {
+      "id": "80aaf851-8724-4968-8215-3552e0e18dc3",
+      "order": 377,
+      "provenance": "CREW",
+      "text": "Staging environment includes an active Varnish cache instance mirroring production caching policies."
+    },
+    {
+      "id": "b8868bf4-f1b8-460d-ba66-67fdf19d49fe",
+      "order": 378,
+      "provenance": "CREW",
+      "text": "Stakeholder compliance requirements for audit logging can be finalized within standard sprint discovery ceremonies without protracted legal review."
+    },
+    {
+      "id": "1d73dafd-d2ac-4388-a657-2a32c1b9980c",
+      "order": 379,
+      "provenance": "CREW",
+      "text": "Stakeholder provides timely validation criteria for Schema.org and canonical rules."
+    },
+    {
+      "id": "701eaa1c-9064-4d23-9155-2458ba883b74",
+      "order": 380,
+      "provenance": "CREW",
+      "text": "Stakeholder reviews and acceptance sign-offs occur within standard sprint iteration cycles."
+    },
+    {
+      "id": "cd689d24-ee38-4ce9-9671-cb86f4cc330e",
+      "order": 381,
+      "provenance": "CREW",
+      "text": "Stakeholder reviews and routing approvals are consolidated into standard sprint review cadence without requiring separate steering committees."
+    },
+    {
+      "id": "823560f3-011b-4d69-a3b3-26ad92db36e5",
+      "order": 382,
+      "provenance": "CREW",
+      "text": "Stakeholder reviews will follow defined slice acceptance criteria without substantial scope creep regarding custom typo tolerance algorithms."
+    },
+    {
+      "id": "00654f93-689f-4a97-b069-547d35b80b21",
+      "order": 383,
+      "provenance": "CREW",
+      "text": "Stakeholder teams will supply specific marketing copy, imagery, and brand guidelines; BA effort covers structural taxonomy, matrix mapping, and functional rules."
+    },
+    {
+      "id": "45ccd673-3c84-40c3-8a5b-e099ce68d2a4",
+      "order": 384,
+      "provenance": "CREW",
+      "text": "Stakeholders are available to define and approve tiered inventory threshold definitions without extended governance delays."
+    },
+    {
+      "id": "6d6eb9b1-1ef6-4715-9e6d-f72a91831f0a",
+      "order": 385,
+      "provenance": "CREW",
+      "text": "Stakeholders from both SD Bridge and Shopware platforms are accessible for architecture coordination within scheduled iteration ceremonies"
+    },
+    {
+      "id": "87c1c0a2-6268-4279-bcf8-bde822a00199",
+      "order": 386,
+      "provenance": "CREW",
+      "text": "Stakeholders provide a consolidated matrix of shipping rates, zones, and tier perk rules prior to sprint kickoff."
+    },
+    {
+      "id": "de593e68-4cb8-405a-bae5-557af175140b",
+      "order": 387,
+      "provenance": "CREW",
+      "text": "Stakeholders provide existing product data samples and safety compliance documentation prior to discovery"
+    },
+    {
+      "id": "d1472cd7-ed69-4893-a96e-1c864ae88596",
+      "order": 388,
+      "provenance": "CREW",
+      "text": "Standard Avalara AvaTax connector or documented API endpoints for Shopware are available and documented."
+    },
+    {
+      "id": "56ae8afd-5ec4-4cfc-b299-79b03faa9592",
+      "order": 389,
+      "provenance": "CREW",
+      "text": "Standard Shopware 6 Rule Builder, Customer Group, Price List, and Payment Terms data entities exist and do not require bespoke modeling."
+    },
+    {
+      "id": "091375de-2145-4079-ba39-f7cbe4ed20be",
+      "order": 390,
+      "provenance": "CREW",
+      "text": "Standard Shopware form handling/mail templates are sufficient for the enquiry form component without custom backend CRM integrations"
+    },
+    {
+      "id": "4eab1864-8365-4cbc-a67d-865ae470f7df",
+      "order": 391,
+      "provenance": "CREW",
+      "text": "Standard Shopware honeypot and CSRF protection mechanisms are sufficient for submission security"
+    },
+    {
+      "id": "8999f665-77f6-4a14-b9a7-004467824e10",
+      "order": 392,
+      "provenance": "CREW",
+      "text": "Standard Shopware order statuses and quotation state transitions do not require custom complex multi-tier approval workflows beyond the specified requirements"
+    },
+    {
+      "id": "0d8cf4ef-1a0d-4bbc-8dc1-0f471a472c94",
+      "order": 393,
+      "provenance": "CREW",
+      "text": "Standard currency and tax rules apply to requested line prices without multi-tier approval hierarchy requirements in this phase."
+    },
+    {
+      "id": "95494c07-b5fb-49f5-b0fa-49f4b98aa2ef",
+      "order": 394,
+      "provenance": "CREW",
+      "text": "Standard customer accounts without approval rules remain unaffected and follow normal checkout paths."
+    },
+    {
+      "id": "431391c3-9a80-4984-a922-ab6c0487c4f1",
+      "order": 395,
+      "provenance": "CREW",
+      "text": "Standard customer group entity is leveraged; custom attributes on customer groups handle tiered entitlement metadata."
+    },
+    {
+      "id": "88c98205-eeb4-4e77-b1fe-5a3461b9b3e3",
+      "order": 396,
+      "provenance": "CREW",
+      "text": "Standard monitoring/alerting endpoints are provisioned and accessible for QA validation."
+    },
+    {
+      "id": "b0a45235-aada-46e2-8055-28d46005a309",
+      "order": 397,
+      "provenance": "CREW",
+      "text": "Standard pricing engine logic remains fallback when an RFQ is rejected or abandoned"
+    },
+    {
+      "id": "94600f14-b59c-4e5b-876f-4e8f0174d22b",
+      "order": 398,
+      "provenance": "CREW",
+      "text": "Standard supported browsers include modern desktop Chrome, Firefox, Safari, and Edge."
+    },
+    {
+      "id": "6c0c3e35-5281-4921-a2d3-6555ea239bf8",
+      "order": 399,
+      "provenance": "CREW",
+      "text": "Standard theme baseline styles apply; multi-theme or multi-sales-channel layout variations are not required"
+    },
+    {
+      "id": "f025f2d5-8e57-4d27-bbd8-ca453fc67838",
+      "order": 400,
+      "provenance": "CREW",
+      "text": "Standard transactional email transport in Shopware is functional for Contact form dispatch without external CRM integrations."
+    },
+    {
+      "id": "9783a5cb-e5a8-452f-b3a3-19dce43545e3",
+      "order": 401,
+      "provenance": "CREW",
+      "text": "Storefront rendering and search UI verification are excluded and covered under separate frontend requirements."
+    },
+    {
+      "id": "bed80399-0001-4887-a5f4-42834d896ca7",
+      "order": 402,
+      "provenance": "CREW",
+      "text": "Supplier catalog feeds will be manually or semi-manually formatted into the designated standard CSV template prior to ingestion"
+    },
+    {
+      "id": "62fe12a7-db02-4f66-a3de-20c983000728",
+      "order": 403,
+      "provenance": "CREW",
+      "text": "Supplier feed data ingestion into staging tables/entities is handled by an upstream process; this requirement focuses on processing those feed flags and executing unpublishing/delisting logic in Shopware 6."
+    },
+    {
+      "id": "63cdedc0-fa39-4a4f-9dc3-e97ff090ea73",
+      "order": 404,
+      "provenance": "CREW",
+      "text": "Supplier feed delivery mechanism and schema are pre-established; BA scope focuses strictly on status flag interpretation and Shopware catalog behavior rather than feed transport protocols."
+    },
+    {
+      "id": "f4e216a1-b06f-4093-86d8-854b6789448c",
+      "order": 405,
+      "provenance": "CREW",
+      "text": "Supplier feed delivery mechanism itself is assumed functional or tested upstream; scope focus is on feed ingestion logic, flag parsing, and product state mutation in Shopware."
+    },
+    {
+      "id": "38bbdf6e-6955-403a-9efb-da7851550bc5",
+      "order": 406,
+      "provenance": "CREW",
+      "text": "Sync operations run asynchronously via Symfony Messenger / Shopware background message bus to avoid PHP timeout limits."
+    },
+    {
+      "id": "7a80cc19-3d7e-4684-be0b-9cc074eb9b5f",
+      "order": 407,
+      "provenance": "CREW",
+      "text": "Tag verification and QA review occur across a single staging environment prior to production rollout"
+    },
+    {
+      "id": "9d5857ae-962d-4d26-bf93-0ab8345fcc51",
+      "order": 408,
+      "provenance": "CREW",
+      "text": "Target Shopware 6 instance has baseline category structure and default currency/language contexts pre-configured."
+    },
+    {
+      "id": "0a971439-bb31-427e-9fca-02970aa281a7",
+      "order": 409,
+      "provenance": "CREW",
+      "text": "Target environment infrastructure allows configuration and deployment of custom VCL rules and OpenSearch cluster parameters."
+    },
+    {
+      "id": "9747874a-b8e2-44d0-9552-0b0590ee2dca",
+      "order": 410,
+      "provenance": "CREW",
+      "text": "Target prices submitted are non-binding requests requiring explicit merchant approval before checkout can proceed."
+    },
+    {
+      "id": "865a00a8-b503-4dd4-b03a-2bd5689ee838",
+      "order": 411,
+      "provenance": "CREW",
+      "text": "Target viewport breakpoints and supported browser matrix are defined prior to QA execution."
+    },
+    {
+      "id": "82658c07-ac95-4135-a6a2-e7eaea16aacc",
+      "order": 412,
+      "provenance": "CREW",
+      "text": "Tax calculations inherit standard Shopware context rules once contract unit price is resolved."
+    },
+    {
+      "id": "480ee125-3517-45cc-8447-2c6b61548ff0",
+      "order": 413,
+      "provenance": "CREW",
+      "text": "Tax calculations will rely on native Shopware tax rules or an existing tax integration engine, requiring only trigger-point definition."
+    },
+    {
+      "id": "48851eab-2a09-499c-86ee-719608983977",
+      "order": 414,
+      "provenance": "CREW",
+      "text": "Taxation rules per tier follow standard Shopware customer group gross/net settings"
+    },
+    {
+      "id": "68ff4299-a5b4-4810-9a49-b759c74947a9",
+      "order": 415,
+      "provenance": "CREW",
+      "text": "Technical PDFs are stored on a filesystem/storage adapter supported by Shopware's private/protected filesystem strategy rather than purely public CDN URLs."
+    },
+    {
+      "id": "5cb367a2-8976-4cd3-84c3-b030c1028d48",
+      "order": 416,
+      "provenance": "CREW",
+      "text": "Technical cluster infrastructure sizing and OpenSearch hardware memory allocation are handled by DEV/DevOps roles, while BA defines functional query constraints."
+    },
+    {
+      "id": "3b128c00-2327-49e5-aca2-18fd53f017c4",
+      "order": 417,
+      "provenance": "CREW",
+      "text": "Technical implementation of VCL scripts, JMeter/k6 scripts, and infrastructure sizing is estimated separately under DEV and QA workstreams."
+    },
+    {
+      "id": "8f46db8e-131c-4c27-b59f-2e398ffc9261",
+      "order": 418,
+      "provenance": "CREW",
+      "text": "Technical implementation of Varnish configurations and API endpoint performance tuning are scoped separately under DEV roles."
+    },
+    {
+      "id": "c91b6bb3-c37c-4c5d-8dec-f76f48a5ba49",
+      "order": 419,
+      "provenance": "CREW",
+      "text": "Template styling adheres to an existing Shopware design system or UI kit without requiring separate UI/UX discovery sessions"
+    },
+    {
+      "id": "ca4a1b9c-56f4-46df-9f95-93ed42139bf1",
+      "order": 420,
+      "provenance": "CREW",
+      "text": "Test customer accounts with varying permission groups (e.g., standard, law enforcement verified, contract-bound) will be seeded in staging."
+    },
+    {
+      "id": "1957f8cb-d7aa-4cac-83ca-ea0bccb824da",
+      "order": 421,
+      "provenance": "CREW",
+      "text": "Test data sets for customer groups and SKU tiered pricing will be seeded or provided prior to test cycle start"
+    },
+    {
+      "id": "20968177-3225-4c2e-a1bc-1037f98c309d",
+      "order": 422,
+      "provenance": "CREW",
+      "text": "Test execution occurs directly within Shopware 6 administration and API interfaces since no external integrations are scoped."
+    },
+    {
+      "id": "9bc6c41c-c72d-49df-a968-459e746e4adc",
+      "order": 423,
+      "provenance": "CREW",
+      "text": "Test fixtures containing bulk customer records and rule sets will be generated using automated seeding scripts."
+    },
+    {
+      "id": "4e677969-65b9-48a7-b77c-dae98888f917",
+      "order": 424,
+      "provenance": "CREW",
+      "text": "Test fixtures with representative high-volume customer accounts and price rules can be generated via CLI/API scripts"
+    },
+    {
+      "id": "54356a31-807d-4623-8151-c4bd7019b32d",
+      "order": 425,
+      "provenance": "CREW",
+      "text": "Test payment gateways/sandboxes are operational and accessible for Credit Card and ACH transaction simulation"
+    },
+    {
+      "id": "799151f7-4ce2-4b1e-bc23-7e4aba910faa",
+      "order": 426,
+      "provenance": "CREW",
+      "text": "Testing assumes standard Shopware B2B account grouping and session contexts are operational."
+    },
+    {
+      "id": "ff29641a-5ca1-4fe8-89ab-f500888e1e69",
+      "order": 427,
+      "provenance": "CREW",
+      "text": "Testing covers standard viewports and evergreen browsers; legacy browsers such as IE11 are excluded"
+    },
+    {
+      "id": "a799783e-9aa0-43c2-a38f-0e7ccd006b12",
+      "order": 428,
+      "provenance": "CREW",
+      "text": "Testing focuses on core cart and checkout calculations across predefined standard shipping matrices"
+    },
+    {
+      "id": "94663940-5403-4ebe-a64d-11deedd7f53c",
+      "order": 429,
+      "provenance": "CREW",
+      "text": "Testing focuses on dataLayer pushes and network payload accuracy; downstream analytics dashboard configuration is excluded from this scope."
+    },
+    {
+      "id": "e3f727f9-d28f-4117-b88f-f6b0b98ae669",
+      "order": 430,
+      "provenance": "CREW",
+      "text": "Testing targets standard Shopware responsive storefront templates (desktop and mobile viewports)."
+    },
+    {
+      "id": "544e77f3-d6bb-49ea-845c-81fdad3b8b25",
+      "order": 431,
+      "provenance": "CREW",
+      "text": "Testing will be conducted directly against Shopware B2B organizational hierarchy modules using configured test user accounts."
+    },
+    {
+      "id": "df1c44b6-170b-4ddc-baf4-001e20857c4e",
+      "order": 432,
+      "provenance": "CREW",
+      "text": "The SD Nexus/Catalog system accepts standard deep-linking URL parameters and does not require complex bi-directional SSO token handshakes within the scope of this requirement."
+    },
+    {
+      "id": "fc33140b-d058-4500-95e0-14ac64eb7a40",
+      "order": 433,
+      "provenance": "CREW",
+      "text": "The external SD Nexus handoff is validated via client redirect and payload construction, without executing full end-to-end integration flows across third-party infrastructure."
+    },
+    {
+      "id": "05d68ea0-09ef-4d10-a102-82840e538c50",
+      "order": 434,
+      "provenance": "CREW",
+      "text": "Third-party ERP/CRM identity integrations are out of scope as integration_count is 0"
+    },
+    {
+      "id": "04b020b4-cdfa-4458-a174-b1906547e790",
+      "order": 435,
+      "provenance": "CREW",
+      "text": "Third-party SD Bridge technical stakeholders will be reasonably available for scheduled weekly syncs and interface definition reviews."
+    },
+    {
+      "id": "3d1ab487-cc85-4eaf-ac0d-dc0bbc23385d",
+      "order": 436,
+      "provenance": "CREW",
+      "text": "Third-party apps/plugins injected into the storefront may require separate scoped remediation if markup is not extensible."
+    },
+    {
+      "id": "dd4aadf2-4272-4788-bc5f-570e51fc2343",
+      "order": 437,
+      "provenance": "CREW",
+      "text": "Third-party external embedded iframes or unmanaged payment vendor portals are excluded from internal template remediations."
+    },
+    {
+      "id": "6471e687-fbbb-403e-9bd7-99e7748a3047",
+      "order": 438,
+      "provenance": "CREW",
+      "text": "Third-party external embedded widgets outside Shopware templates are excluded from WCAG 2.2 AA remediation scope."
+    },
+    {
+      "id": "9bb8802f-fdac-446e-9797-1fe04a86ca90",
+      "order": 439,
+      "provenance": "CREW",
+      "text": "Third-party external license verification APIs are out of scope as integration_count is 0."
+    },
+    {
+      "id": "a8cba170-d0c4-4f63-82c1-e072d96df0d0",
+      "order": 440,
+      "provenance": "CREW",
+      "text": "Third-party external search engine integration is out of scope (Shopware native search UI layer only)"
+    },
+    {
+      "id": "4193ed63-e188-4142-99bf-7227e4d85fc6",
+      "order": 441,
+      "provenance": "CREW",
+      "text": "Third-party integrations (e.g., external search engines or PIM feeds) are out of scope for QA verification based on integration_count=0."
+    },
+    {
+      "id": "355d4aca-0aac-4818-a6db-6cb13a148ab6",
+      "order": 442,
+      "provenance": "CREW",
+      "text": "Third-party integrations are out of scope (integration_count=0), isolating QA to frontend Shopware/Twig presentation and session routing logic."
+    },
+    {
+      "id": "1b9ee25b-8f24-4936-8980-5a268b48ff95",
+      "order": 443,
+      "provenance": "CREW",
+      "text": "Third-party search or integration plugins are out of scope as integration_count is 0"
+    },
+    {
+      "id": "a3a0927c-8e12-4379-a63d-517034eb14f0",
+      "order": 444,
+      "provenance": "CREW",
+      "text": "Training sessions are conducted remotely across two distinct blocks to accommodate attendee scheduling."
+    },
+    {
+      "id": "fbfbb550-2ef7-470e-96bd-75a8fafec3b2",
+      "order": 445,
+      "provenance": "CREW",
+      "text": "Training sessions will be conducted remotely via web conference and recorded for client reference."
+    },
+    {
+      "id": "7e934c61-604f-46aa-9717-ccc90fc6fb65",
+      "order": 446,
+      "provenance": "CREW",
+      "text": "Training sessions will be conducted remotely with recorded sessions and shared digital documentation."
+    },
+    {
+      "id": "7243e2fb-5fca-4cf8-8a57-b24b3754f26a",
+      "order": 447,
+      "provenance": "CREW",
+      "text": "Transactional email infrastructure (SMTP/mail service) is already provisioned and operational in the test environment."
+    },
+    {
+      "id": "541217ab-208a-497f-b2b2-eba415fce1a2",
+      "order": 448,
+      "provenance": "CREW",
+      "text": "Transactional rollback verification requires direct inspection of database state or admin API payloads to guarantee no orphaned assignment records upon mid-process failure."
+    },
+    {
+      "id": "359aaa7f-86e3-452e-9673-adedcfbc99b3",
+      "order": 449,
+      "provenance": "CREW",
+      "text": "UAT and client sign-off run across a single scheduled feedback cycle with consolidated revisions"
+    },
+    {
+      "id": "3201f4c8-5eea-47fc-81ba-4af6c6a9cb62",
+      "order": 450,
+      "provenance": "CREW",
+      "text": "UAT spans standard mid-market validation cycles across defined test buyer personas in Shopware."
+    },
+    {
+      "id": "1d4f1bbb-0972-4c18-b19d-558f00e76df4",
+      "order": 451,
+      "provenance": "CREW",
+      "text": "UAT testing occurs within standard sprint cadences across staged customer groups."
+    },
+    {
+      "id": "8b2b6826-0cb5-4c83-89d1-5f5cf70dbb3e",
+      "order": 452,
+      "provenance": "CREW",
+      "text": "Underlying catalog data structure is accessible in Shopware without net-new third-party middleware management"
+    },
+    {
+      "id": "8a9576b0-4e55-4bc8-bdf9-fbdb6a1a7fdb",
+      "order": 453,
+      "provenance": "CREW",
+      "text": "Uploaded documents are stored either in a private local Shopware filesystem or private cloud bucket accessible only to authenticated administrators."
+    },
+    {
+      "id": "432f1791-2f08-46fd-a668-a5f22c095fd1",
+      "order": 454,
+      "provenance": "CREW",
+      "text": "Uploaded documents are stored in private cloud object storage (e.g., S3/Blob) and never exposed publicly."
+    },
+    {
+      "id": "229190e4-d638-4be2-8052-437acddd882b",
+      "order": 455,
+      "provenance": "CREW",
+      "text": "Uses Shopware standard custom field sets or entity extensions without external 3rd-party credit check APIs (integration_count is 0)."
+    },
+    {
+      "id": "24c8d888-fe32-4150-b09c-533887f99d81",
+      "order": 456,
+      "provenance": "CREW",
+      "text": "Vehicle records and agency eligibility mappings are managed natively within Shopware Administration rather than synced from an external ERP or PIM system."
+    },
+    {
+      "id": "cf3c8149-9f56-4177-b120-f462e35d4ba4",
+      "order": 457,
+      "provenance": "CREW",
+      "text": "Virus scanning engine integration handles scan statuses asynchronously without blocking the user registration submission indefinitely."
+    },
+    {
+      "id": "b8d1db8d-2298-4afc-8a70-aacd38e37598",
+      "order": 458,
+      "provenance": "CREW",
+      "text": "Visibility evaluation applies to category listings, product detail pages, and Elasticsearch/search queries without external integration dependencies."
+    },
+    {
+      "id": "18f1f9f4-3699-4f75-b449-c237d8501692",
+      "order": 459,
+      "provenance": "CREW",
+      "text": "Visual assets and thumbnail image source URLs are available in test environments."
+    },
+    {
+      "id": "bf95dc65-0069-4972-be8d-a9df7ceb9f89",
+      "order": 460,
+      "provenance": "CREW",
+      "text": "Work executes within a single standard sprint cycle without external integration blockers."
+    },
+    {
+      "id": "99da7c18-7ebd-462f-98d7-c4bbe99e560a",
+      "order": 461,
+      "provenance": "CREW",
+      "text": "Work is confined entirely to the Shopware platform with zero external integration touchpoints."
+    },
+    {
+      "id": "a94411b5-4f7c-4cb5-85c8-493ba8e36477",
+      "order": 462,
+      "provenance": "CREW",
+      "text": "Work is focused on storefront Twig templates and compiled theme assets, excluding Shopware Administration panel."
+    },
+    {
+      "id": "8a479328-2cc4-436a-b918-374aefc50d5d",
+      "order": 463,
+      "provenance": "CREW",
+      "text": "Work is purely within Shopware 6 data layer and administration schema definitions without external PIM middleware integration."
+    },
+    {
+      "id": "a34a39d9-41dc-40bf-9a90-ebf572053d7a",
+      "order": 464,
+      "provenance": "CREW",
+      "text": "Work proceeds within standard Shopware B2B framework without third-party ERP integration touchpoints required in this scope"
+    },
+    {
+      "id": "1c6fc1fa-00db-4408-aa46-3ceb2a1fb00f",
+      "order": 465,
+      "provenance": "CREW",
+      "text": "Zero integration touchpoints are required, restricting coordination to core Shopware frontend/backend implementation and QA."
+    },
+    {
+      "id": "367f2618-f759-4b33-b4dc-df420b754587",
+      "order": 466,
+      "provenance": "CREW",
+      "text": "Zero third-party integrations (integration_count=0) are in scope, eliminating external vendor coordination overhead."
+    },
+    {
+      "id": "ea73832f-53f9-4349-a01e-baf80f5eee36",
+      "order": 467,
+      "provenance": "CREW",
+      "text": "Zero third-party integrations required; coordination is internal to delivery team and primary client contact."
+    },
+    {
+      "id": "81ba9e49-420c-491e-b569-0745ef1a9869",
+      "order": 468,
+      "provenance": "CREW",
+      "text": "Zero-result recovery page replaces the default empty search state template in the active theme"
+    }
+  ]
+}
