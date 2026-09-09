@@ -363,6 +363,12 @@ export async function runLedgerEdit(
   const restructureNotes: string[] = [];
 
   if (edit.mode !== 'REPRICE') {
+    // Captured before the Curator runs, not after. A snapshot taken once the
+    // reshape has landed records the rows sitting on the cards the reshape
+    // just created and calls that the "before" state — which is what the
+    // KEEP_HOURS path below reports as `rowsBefore` and `hoursBefore`.
+    const beforeReshape = await snapshotRegion(db, edit.pinnedLineItemIds);
+
     await report('Working out the new shape', 20);
     const curatorPrompt = await loadActivePrompt(db, 'CURATOR');
     const curatable: CuratableCard[] = [];
@@ -426,9 +432,10 @@ export async function runLedgerEdit(
     }
 
     if (edit.mode === 'RESTRUCTURE_KEEP_HOURS') {
-      // The hours were carried, not re-opened. Nothing to price, so the edit is
-      // complete — and the snapshot still records what the region looked like.
-      const before = await snapshotRegion(db, edit.pinnedLineItemIds);
+      // The hours were carried, not re-opened. Nothing to price, so the edit
+      // is complete — and the snapshot still records what the region looked
+      // like. Before and after are the same figures on purpose: this mode
+      // moved rows between cards without touching a single number.
       await db.ledgerEdit.update({
         where: { id: editId },
         data: {
@@ -437,11 +444,11 @@ export async function runLedgerEdit(
           pct: 100,
           appliedAt: new Date(),
           reasoning: restructureNotes.join(' ') || null,
-          beforeSnapshot: before as never,
-          rowsBefore: before.rows.length,
-          rowsAfter: before.rows.length,
-          hoursBefore: before.baseHours,
-          hoursAfter: before.baseHours,
+          beforeSnapshot: beforeReshape as never,
+          rowsBefore: beforeReshape.rows.length,
+          rowsAfter: beforeReshape.rows.length,
+          hoursBefore: beforeReshape.baseHours,
+          hoursAfter: beforeReshape.baseHours,
         },
       });
       await report('Reshaped', 100);

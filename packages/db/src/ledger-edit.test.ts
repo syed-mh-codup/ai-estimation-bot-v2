@@ -618,4 +618,38 @@ describe('applyRestructure', () => {
       }),
     ).toEqual({ sectionId: section.id, injected: true, overhead: true, order: 6 });
   });
+
+  it('carves out only the envelope\u2019s role and leaves the rest on the source card', async () => {
+    // THE case the envelope rule exists for. A person ticks DEV on Checkout and
+    // says "split the payment work out": the Curator is only ever shown the DEV
+    // row, so the QA row has to stay where it is \u2014 on a card that must not be
+    // swept up as "emptied by the move" either.
+    const result = await applyRestructure(db, {
+      estimateId,
+      sourceCardIds: [cardId],
+      cards: [
+        {
+          reuseMenuItemId: null,
+          title: 'Payment',
+          taxonomyKey: `${NS}.payment`,
+          category: null,
+          phase: null,
+          lineItemIds: [line['DEV']!],
+        },
+      ],
+    });
+
+    expect(result.cardIds).toHaveLength(1);
+    expect(result.cardIds[0]).not.toBe(cardId);
+    // The source still holds QA, so it is not empty and must survive.
+    expect(result.removedCardIds).toEqual([]);
+    expect(await db.menuItem.count({ where: { id: cardId } })).toBe(1);
+
+    expect(await rowsOn(cardId)).toEqual([
+      { title: 'qa one', role: 'QA', baseHours: 2, taxedHours: 2.4, provenance: 'HUMAN' },
+    ]);
+    expect(await rowsOn(result.cardIds[0]!)).toEqual([
+      { title: 'dev one', role: 'DEV', baseHours: 4, taxedHours: 4, provenance: 'CREW' },
+    ]);
+  });
 });

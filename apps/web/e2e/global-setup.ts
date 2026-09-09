@@ -324,7 +324,10 @@ export default async function globalSetup(config: FullConfig) {
               role,
               baseHours: baseByRole[role],
               taxedHours: taxed[role],
-              edited: false,
+              // Stated rather than left to the column default, because the
+              // provenance badge is what the ledger shows for it. AEH-238
+              // replaced `edited: false` with this.
+              provenance: 'CREW',
             })),
           },
         },
