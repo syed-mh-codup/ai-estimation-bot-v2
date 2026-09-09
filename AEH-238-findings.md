@@ -7,7 +7,8 @@ role-lock work.
 The numbers below are positions in this document, not stable identifiers — they
 renumbered when items moved from outstanding to fixed.
 
-All nineteen are addressed.
+All nineteen are addressed, plus a twentieth found in use afterwards — see 20,
+which was by far the most damaging of the lot and was mine.
 
 One of the nineteen turned out not to be a defect at all — see 16, where the
 review was wrong and my fix for it was worse.
@@ -314,6 +315,53 @@ says which page of what it is showing.
 
 `concurrency: 2` left alone — that is a spend decision, and a one-line change
 whenever you want it.
+
+## Found in use, after the review — and the worst of the lot
+
+### 20. A big assumptions list could not be edited at all *(you found this)* — FIXED
+
+`packages/db/src/estimate-statements.ts`
+
+Reported first as "the assumptions lock is not working", then as "I deleted my
+assumptions, they came back, and my replacements are gone". Neither was the
+lock.
+
+`reconcileStatements` reordered rows with a loop of one `updateMany` per KEPT
+row, inside an interactive transaction on Prisma's default five-second timeout.
+On the estimate it was found on — **485 assumptions** — deleting one line left
+484 sequential round trips. At Neon's latency that blows the timeout: nothing
+commits, the action throws, and the editor's optimistic revert restores the old
+list. So the deleted lines return, and whatever was typed instead was never
+written anywhere.
+
+It is also why the other estimate looked fine: 24 assumptions is 24 round
+trips, comfortably inside the budget, so every lock and every save there
+behaved exactly as intended. Both reports were one bug wearing two faces.
+
+One `UPDATE ... FROM (VALUES ...)` now, still conditional on the order actually
+differing so a renumber does not restamp every row's `updatedAt`, plus an
+explicit generous timeout.
+
+**Nothing typed was recoverable** — there is not one `HUMAN` or `STEERED`
+statement on that estimate, so none of it reached the database. The crew's 485
+are intact.
+
+**Why no test caught it, which matters more than the fix.** Every test in that
+file used two or three lines. I wrote size tests first — 485 rows, delete the
+first, insert at the top, replace them all — and they pass *with the bug still
+in place*, because 484 round trips against local docker take a fraction of a
+second. Wall-clock cannot pin a latency bug on a fast database.
+
+What pins it is the ROUND TRIP COUNT: a Prisma client with query logging,
+asserting the whole reconcile costs under twenty queries. With the loop
+restored it reports **489**. That fails for the right reason on any database at
+any latency.
+
+The same loop shape exists in `applyStatementRevision` and
+`revertStatementRevision`. Neither is broken — both are bounded by what a
+person ticked and both already carry a 60s timeout — but the constraint is now
+written next to each, with what would have to change if a future selection
+could reach a whole list.
 
 ## Answered, no defect
 
