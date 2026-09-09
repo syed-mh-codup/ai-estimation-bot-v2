@@ -5,18 +5,31 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * "No mutation of any estimate is reachable from Oracle" — AEH-259's last
- * acceptance criterion, which the ticket asks be asserted rather than trusted
- * to review. This is that assertion.
+ * acceptance criterion, NARROWED by AEH-238. This file is where that narrowing
+ * is written down, because a guarantee that quietly weakens is worse than one
+ * that never existed.
  *
- * The boundary is the feature. Oracle is a comprehension aid: it reads a
- * client's brief and everything derived from it, and it changes nothing. An
- * estimator has to be able to argue with it, tell it things, ask it to reword a
- * card — and know for certain that none of that moved a number in a document
- * going to a client. The moment one write path exists, that guarantee is gone
- * and no amount of prompt wording restores it.
+ * What AEH-259 asserted, and why: Oracle is a comprehension aid. It reads a
+ * client's brief and everything derived from it and changes nothing, so an
+ * estimator can argue with it, tell it things and ask it to reword a card
+ * knowing that none of it moved a number in a document going to a client. The
+ * original comment here said the moment ONE write path exists the guarantee is
+ * gone and no prompt wording restores it.
+ *
+ * What AEH-238 changed, deliberately and with the reporter's agreement: Oracle
+ * proposes assumptions, and retyping one by hand was friction with no purpose.
+ * It may now append an assumption — one sentence, added to a list, and only
+ * when a person clicks. It still cannot touch an hour, a line item, a card or
+ * the estimate row itself.
+ *
+ * So the guarantee this file now enforces is the half that was protecting
+ * anybody: NO NUMBER A CLIENT SEES CAN MOVE BECAUSE OF ORACLE. That is
+ * checkable, and the cases below check it precisely — the allowed write is
+ * named, it is confined to one module, and that module is asserted to be one
+ * function wide. Anything else still fails.
  *
  * A grep is a blunt instrument and deliberately so: it cannot be argued with in
- * review, it costs nothing, and it fails loudly the day somebody adds a
+ * review, it costs nothing, and it still fails loudly the day somebody adds a
  * convenient `prisma.menuItem.update` to "just fix this one thing".
  */
 
@@ -43,12 +56,22 @@ const ORACLE_SOURCES = [
   'apps/web/src/app/estimates/[id]/oracle-dto.ts',
   'apps/web/src/app/estimates/[id]/Oracle.tsx',
   'apps/web/src/app/estimates/[id]/OracleAdminPanel.tsx',
+  // The one module Oracle may reach that writes anything. In the list so its
+  // contents are checked, not exempt from checking.
+  'apps/web/src/app/estimates/[id]/statement-actions.ts',
   'apps/web/src/app/admin/oracle/page.tsx',
   'apps/web/src/app/admin/oracle/[threadId]/page.tsx',
 ];
 
-/** The only two tables Oracle may write, and they are its own. */
-const OWN_MODELS = new Set(['oracleThread', 'oracleMessage']);
+/**
+ * Everything Oracle may write.
+ *
+ * The first two are its own. `estimateStatement` is AEH-238's one addition, and
+ * it is the narrowest write in the system: a sentence appended to a list, which
+ * changes no hours, no cards and no totals. Note what is NOT here and must
+ * never be — `menuItem`, `roleLineItem`, `estimate`, `ledgerEdit`.
+ */
+const OWN_MODELS = new Set(['oracleThread', 'oracleMessage', 'estimateStatement']);
 
 const WRITE = /\b(?:prisma|db|tx)\.([A-Za-z]\w*)\.(create|createMany|update|updateMany|upsert|delete|deleteMany|executeRaw|executeRawUnsafe)\b/g;
 
@@ -89,6 +112,36 @@ describe('Oracle cannot mutate an estimate', () => {
       .filter(({ source }) => /from\s+'(?:\.{1,2}\/)*actions'/.test(source))
       .map((f) => f.path);
 
+    expect(offences).toEqual([]);
+  });
+
+  it('keeps the one allowed write to a single function in a single module', () => {
+    // The narrowing is only safe while it stays narrow. A second export here,
+    // or a write to anything but EstimateStatement, is the thing this catches.
+    const path = 'apps/web/src/app/estimates/[id]/statement-actions.ts';
+    const source = readFileSync(join(ROOT, path), 'utf8');
+
+    const exported = [...source.matchAll(/export async function (\w+)/g)].map((m) => m[1]!);
+    expect(exported).toEqual(['recordSuggestedAssumption']);
+
+    // It may read the estimate to check it is not finalised; it may write only
+    // a statement. `appendStatement` is the @repo/db helper it goes through.
+    const writes = [...source.matchAll(WRITE)].map((m) => `${m[1]}.${m[2]}`);
+    expect(writes).toEqual([]);
+    expect(source).toContain('appendStatement');
+    expect(source).toContain("kind: 'ASSUMPTION'");
+  });
+
+  it('does not let Oracle reach any OTHER server-action module', () => {
+    // `actions` is checked above by name; this is the general form, so a new
+    // `card-actions` or `scope-actions` cannot be imported quietly.
+    const allowed = new Set(['./statement-actions', './oracle-actions', './oracle-dto']);
+    const offences: string[] = [];
+    for (const { path, source } of present()) {
+      for (const m of source.matchAll(/from\s+'(\.\/[a-z-]*actions)'/g)) {
+        if (!allowed.has(m[1]!)) offences.push(`${path}: ${m[1]}`);
+      }
+    }
     expect(offences).toEqual([]);
   });
 

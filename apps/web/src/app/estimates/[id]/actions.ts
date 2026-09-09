@@ -1,6 +1,6 @@
 'use server';
 
-import { prisma, type RoleKind } from '@repo/db';
+import { prisma, reconcileStatements, type RoleKind } from '@repo/db';
 import {
   isTaxableRole,
   isValidBufferPct,
@@ -585,16 +585,37 @@ export async function setDueAt(id: string, value: string | null): Promise<void> 
   ]);
 }
 
+/**
+ * Save the narrative list.
+ *
+ * `reconcileStatements` rather than a wholesale replace, and the difference is
+ * the point of AEH-238 promoting these to rows. The editor is a list of text
+ * boxes and sends the whole list, but a line whose text has not changed keeps
+ * its id, its provenance and anything pointing at it — so inserting a point at
+ * the top no longer reads as "every point changed".
+ */
 export async function updateNarrative(id: string, items: string[]): Promise<void> {
   await requireSession();
   await assertEditable(id);
-  await prisma.estimate.update({ where: { id }, data: { narrative: cleanList(items) } });
+  await reconcileStatements(prisma, {
+    estimateId: id,
+    kind: 'NARRATIVE',
+    texts: cleanList(items),
+    // Somebody typed into the list, so anything new here is theirs.
+    provenance: 'HUMAN',
+  });
 }
 
+/** Save the assumptions list. See `updateNarrative` for the reconciliation. */
 export async function updateAssumptions(id: string, items: string[]): Promise<void> {
   await requireSession();
   await assertEditable(id);
-  await prisma.estimate.update({ where: { id }, data: { assumptions: cleanList(items) } });
+  await reconcileStatements(prisma, {
+    estimateId: id,
+    kind: 'ASSUMPTION',
+    texts: cleanList(items),
+    provenance: 'HUMAN',
+  });
 }
 
 /** Drop empty trailing entries but keep intentional order. */

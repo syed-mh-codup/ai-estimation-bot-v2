@@ -277,7 +277,7 @@ export default async function globalSetup(config: FullConfig) {
     await prisma.menuItem.deleteMany({ where: { estimateId: COSTED_ESTIMATE.id } });
     await prisma.estimate.upsert({
       where: { id: COSTED_ESTIMATE.id },
-      update: { status: 'REVIEW', narrative: ['Seeded narrative.'], assumptions: ['Seeded assumption.'] },
+      update: { status: 'REVIEW' },
       create: {
         id: COSTED_ESTIMATE.id,
         title: COSTED_ESTIMATE.title,
@@ -285,11 +285,29 @@ export default async function globalSetup(config: FullConfig) {
         status: 'REVIEW',
         configVersion: config.version,
         complexityScore: 3,
-        narrative: ['Seeded narrative.'],
-        assumptions: ['Seeded assumption.'],
         agentState: {},
         ownerId: users['estimator']!.id,
       },
+    });
+    // The narrative and the assumptions are their own rows since AEH-238.
+    // Replaced rather than upserted, so a re-run of setup leaves exactly one of
+    // each rather than accumulating duplicates.
+    await prisma.estimateStatement.deleteMany({ where: { estimateId: COSTED_ESTIMATE.id } });
+    await prisma.estimateStatement.createMany({
+      data: [
+        {
+          estimateId: COSTED_ESTIMATE.id,
+          kind: 'NARRATIVE',
+          text: 'Seeded narrative.',
+          order: 0,
+        },
+        {
+          estimateId: COSTED_ESTIMATE.id,
+          kind: 'ASSUMPTION',
+          text: 'Seeded assumption.',
+          order: 0,
+        },
+      ],
     });
     const baseByRole = { DEV: 30, QA: 10, PM: 5, BA: 5 } as const;
     const taxed = { DEV: 30, QA: 12, PM: 6, BA: 6 } as const; // matches seeded config %s

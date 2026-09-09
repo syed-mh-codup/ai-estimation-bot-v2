@@ -68,11 +68,15 @@ describe('AEH-228: prisma schema parser', () => {
     // a different message, and was measured during AEH-321 hanging for over
     // nine minutes and never returning. Down, never off — so if a fourth value
     // ever appears here, that is the thing to check it is not.
-    // 35 and 23 since AEH-238, which added LedgerLock, LockEvent and
-    // LedgerEdit, plus five enums — LockScope, LockEventKind, LineProvenance,
-    // LedgerEditStatus and LedgerEditMode — and removed none.
-    expect(schema.models.size).toBe(35);
-    expect(schema.enums.size).toBe(23);
+    // 36 and 24 since AEH-238, which added four models — LedgerLock,
+    // LockEvent, LedgerEdit and EstimateStatement — and six enums: LockScope,
+    // LockEventKind, LineProvenance, LedgerEditStatus, LedgerEditMode and
+    // StatementKind. It removed no model, and removed two COLUMNS:
+    // Estimate.narrative and Estimate.assumptions became EstimateStatement
+    // rows, because a string in an array has no identity to lock, audit or
+    // steer.
+    expect(schema.models.size).toBe(36);
+    expect(schema.enums.size).toBe(24);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {

@@ -42,8 +42,6 @@ beforeAll(async () => {
       sowText: 'Build checkout and auth',
       status: 'REVIEW',
       configVersion: 1,
-      narrative: [],
-      assumptions: [],
       agentState: {},
       ownerId: userId,
     },

@@ -1,4 +1,9 @@
-import { toMenuItemCreateData, type PrismaClient, type AgentKind } from '@repo/db';
+import {
+  replaceStatements,
+  toMenuItemCreateData,
+  type AgentKind,
+  type PrismaClient,
+} from '@repo/db';
 import type {
   IModelProvider,
   IEmbeddingProvider,
@@ -523,6 +528,24 @@ export async function runEstimate(
           });
         }
 
+        // The narrative and the assumptions are their own rows since AEH-238,
+        // so they are replaced here rather than being two columns on the update
+        // below. Replaced, not reconciled: nothing can tell which of two
+        // similar sentences is a human's revision of the crew's, so a re-run
+        // still discards hand-rewritten lines. `provenance` is what makes a
+        // reconciling re-run expressible in future — see AEH-367, where the
+        // same problem is recorded for line items.
+        await replaceStatements(tx, {
+          estimateId,
+          kind: 'NARRATIVE',
+          texts: arch.narrative,
+        });
+        await replaceStatements(tx, {
+          estimateId,
+          kind: 'ASSUMPTION',
+          texts: arch.assumptions,
+        });
+
         await tx.estimate.update({
           where: { id: estimateId },
           data: {
@@ -537,8 +560,7 @@ export async function runEstimate(
             // The overhead cards were just rebuilt at the rates in force, so
             // whatever staleness a buffer tweak recorded is now discharged.
             overheadRatesStale: false,
-            narrative: arch.narrative,
-            assumptions: arch.assumptions,
+
             agentState: {
               librarianOutput: lib,
               detectiveRiskCount: riskFindings.length,

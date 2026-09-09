@@ -20,6 +20,9 @@ import {
   listOracleThreads,
   loadOracleThread,
 } from './oracle-actions';
+// The single write Oracle may reach. Its own module, deliberately one function
+// wide — see the note there, and oracle-no-write.test.ts. AEH-238.
+import { recordSuggestedAssumption } from './statement-actions';
 import {
   renderSegments,
   THREAD_NUDGE_TOKENS,
@@ -407,7 +410,7 @@ export function Oracle({
         {messages.length === 0 && !streaming && <EmptyState />}
 
         {messages.map((m) => (
-          <Turn key={m.id} message={m} onJump={jumpToQuote} />
+          <Turn key={m.id} message={m} onJump={jumpToQuote} estimateId={estimateId} />
         ))}
 
         {streaming !== null && (
@@ -484,7 +487,9 @@ function EmptyState() {
       </p>
       <p className="mt-2">
         Answers quote the document and link back to it. When the documents don&apos;t cover
-        something, Oracle says so rather than guessing. It can&apos;t change the estimate.
+        something, Oracle says so rather than guessing. It can&apos;t change a number on the
+        estimate — the one thing it can do is add an assumption it suggests, when you click to
+        record it.
       </p>
     </div>
   );
@@ -493,9 +498,12 @@ function EmptyState() {
 function Turn({
   message,
   onJump,
+  estimateId,
 }: {
   message: OracleMessageDTO;
   onJump: (quote: string) => void;
+  /** Needed only by the one write Oracle may reach — see statement-actions.ts. */
+  estimateId: string;
 }) {
   if (message.role === 'USER') {
     return (
@@ -517,7 +525,9 @@ function Turn({
             );
           }
           if (seg.type === 'assumption') {
-            return <SuggestedAssumption key={i} wording={seg.value.trim()} />;
+            return (
+              <SuggestedAssumption key={i} wording={seg.value.trim()} estimateId={estimateId} />
+            );
           }
           return (
             <QuoteChip
@@ -604,19 +614,26 @@ function QuoteChip({
 }
 
 /**
- * Wording Oracle suggests recording — as its own block, and copy is all it does.
+ * Wording Oracle suggests recording, with two ways to accept it.
  *
- * Oracle may recommend an assumption; it may not write one. There is no prefill
- * of the assumptions editor, no unsaved row and no server action behind this,
- * and the estimator decides what goes on the estimate every time.
+ * Until AEH-238 copy was all this did, and the comment here said why: Oracle
+ * may recommend an assumption, it may not write one. That has changed
+ * deliberately, and what changed is narrower than it looks. Oracle still cannot
+ * move a number — no hours, no cards, no totals — and the guarantee AEH-259
+ * asserted with a test now asserts exactly that instead of an absolute. The
+ * write is one sentence appended to a list, by a person clicking a button.
  *
- * It copies exactly the proposed sentence, which is why the model marks that
- * sentence up rather than the UI guessing at it. The first version of this
+ * Copy stays, because pasting it somewhere else is a real use.
+ *
+ * Either way it takes exactly the proposed sentence, which is why the model
+ * marks that sentence up rather than the UI guessing at it. The first version
  * copied the whole answer and left the estimator to trim the explanation off —
  * fine for a demo, wrong for something you paste into a client document.
  */
-function SuggestedAssumption({ wording }: { wording: string }) {
+function SuggestedAssumption({ wording, estimateId }: { wording: string; estimateId: string }) {
   const [copied, setCopied] = useState(false);
+  const [recorded, setRecorded] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
   return (
     <span
@@ -650,6 +667,29 @@ function SuggestedAssumption({ wording }: { wording: string }) {
           <Copy className="h-3.5 w-3.5" aria-hidden />
         )}
       </button>
+      <button
+        type="button"
+        disabled={recorded}
+        title="Add this to the estimate's assumptions"
+        aria-label="Record this assumption on the estimate"
+        data-testid="oracle-record-assumption"
+        onClick={() => {
+          setFailed(null);
+          void (async () => {
+            const res = await recordSuggestedAssumption(estimateId, wording);
+            if (res.ok) setRecorded(true);
+            else setFailed(res.reason ?? 'Could not record it');
+          })();
+        }}
+        className="shrink-0 rounded border border-line px-1.5 py-0.5 text-[11px] font-semibold text-ink-3 hover:border-green hover:text-green disabled:border-green disabled:text-green"
+      >
+        {recorded ? 'Recorded' : 'Record it'}
+      </button>
+      {failed && (
+        <span className="w-full text-[11px] text-brick" data-testid="oracle-record-error">
+          {failed}
+        </span>
+      )}
     </span>
   );
 }

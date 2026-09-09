@@ -25,6 +25,7 @@
 import type { PrismaClient } from '@repo/db';
 import type { ChatMessage } from '@repo/providers';
 import { ASSUMPTION_CLOSE, ASSUMPTION_OPEN, QUOTE_CLOSE, QUOTE_OPEN } from '@repo/shared';
+import { loadStatementTexts } from '@repo/db';
 import type { ComplexityOutput, Requirement } from '@repo/shared';
 import { createHash } from 'node:crypto';
 
@@ -115,6 +116,11 @@ export async function buildOracleCorpus(
   });
   if (!estimate) return null;
 
+  // Their own table since AEH-238, so they need their own read. Fetched after
+  // the estimate rather than as an `include` because the corpus wants them
+  // split by kind, which is what `loadStatementTexts` returns.
+  const statements = await loadStatementTexts(db, estimateId);
+
   const sectionTitleById = new Map(estimate.sections.map((s) => [s.id, s.title]));
   const state = (estimate.agentState ?? {}) as Record<string, unknown>;
   const librarian = state['librarianOutput'] as { requirements?: Requirement[] } | undefined;
@@ -126,8 +132,9 @@ export async function buildOracleCorpus(
     sowText: estimate.sowText,
     sowHash: hashSow(estimate.sowText),
     runFinishedAt: estimate.runFinishedAt,
-    narrative: estimate.narrative,
-    assumptions: estimate.assumptions,
+    // Read from EstimateStatement since AEH-238; they were String[] columns.
+    narrative: statements.narrative,
+    assumptions: statements.assumptions,
     complexityScore: estimate.complexityScore,
     complexity: (state['complexity'] as ComplexityOutput | undefined) ?? null,
     requirements: librarian?.requirements ?? [],

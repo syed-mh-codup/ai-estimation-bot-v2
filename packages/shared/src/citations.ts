@@ -111,10 +111,17 @@ export function extractCitations(text: string): string[] {
   return valuesOfType(text, 'quote');
 }
 
-// Note there is deliberately no extractSuggestedAssumptions counterpart. A
-// suggested assumption is never persisted and never acted on — Oracle has no
-// write path — so the only consumer is the transcript, which renders it from
-// splitAnswer along with everything else.
+// Note there is deliberately no extractSuggestedAssumptions counterpart, and
+// the reason has changed since this was written. It used to be that a suggested
+// assumption was never persisted, because Oracle had no write path at all.
+// AEH-238 gave it exactly one: a person can click to record the wording, and it
+// is appended as an EstimateStatement.
+//
+// A batch extractor is still the wrong shape. The transcript renders segments
+// one at a time and the write takes ONE sentence — the one whose button was
+// clicked — so there is no caller that wants every suggestion in an answer at
+// once. `extractCitations` exists because the route stamps every quotation on
+// the message row; nothing stamps assumptions anywhere.
 
 
 // ─── Quote matching ───────────────────────────────────────────────────────────

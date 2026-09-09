@@ -41,8 +41,6 @@ describe('WS1-07: Estimate → MenuItem → 4 RoleLineItems', () => {
         sowText: 'Build a B2B checkout',
         status: 'DRAFT',
         configVersion: 1,
-        narrative: [],
-        assumptions: [],
         agentState: {},
         ownerId: userId,
       },

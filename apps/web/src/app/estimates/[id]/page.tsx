@@ -9,6 +9,7 @@ import type { MenuItem as MenuItemDTO } from '@repo/shared';
 import { auth } from '@/lib/auth';
 import { latestTaxChanges, taxContextFor } from '@/lib/estimate-tax';
 import { loadLockState } from '@/lib/lock-state';
+import { loadStatementTexts } from '@repo/db';
 import { inngest, EVENT_PROMOTE } from '@/lib/inngest';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { SowText } from './SowText';
@@ -242,13 +243,17 @@ export default async function EstimateDetailPage({
   // The buffers in force for THIS estimate — its own overrides where it has
   // them, and the house defaults from the config version it is pinned to
   // otherwise. Not the active config: see lib/estimate-tax.ts. AEH-335.
-  const [tax, taxChanges, lockState] = await Promise.all([
+  const [tax, taxChanges, lockState, statements] = await Promise.all([
     taxContextFor(estimate),
     latestTaxChanges(estimate.id),
     // Read with the page rather than fetched by the editor: which rows are
     // frozen changes how every one of them renders, so it has to be in the
     // first paint or the ledger flashes editable and then locks. AEH-238.
     loadLockState(estimate.id),
+    // Their own rows since AEH-238, so their own read. The editor still works
+    // in whole lists of text; identity is preserved on the way back in by
+    // `reconcileStatements`.
+    loadStatementTexts(prisma, estimate.id),
   ]);
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
@@ -424,7 +429,7 @@ export default async function EstimateDetailPage({
             >
               <EditableList
                 estimateId={estimate.id}
-                initialItems={estimate.narrative}
+                initialItems={statements.narrative}
                 action={updateNarrative}
                 isFinalised={isFinalised}
                 addLabel="Add point"
@@ -442,7 +447,7 @@ export default async function EstimateDetailPage({
             >
               <EditableList
                 estimateId={estimate.id}
-                initialItems={estimate.assumptions}
+                initialItems={statements.assumptions}
                 action={updateAssumptions}
                 isFinalised={isFinalised}
                 addLabel="Add assumption"

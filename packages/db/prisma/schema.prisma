@@ -582,8 +582,6 @@ model Estimate {
   status          EstimateStatus       @default(DRAFT)
   complexityScore Int?
   configVersion   Int
-  narrative       String[]
-  assumptions     String[]
   agentState      Json
   ownerId         String
   owner           User                 @relation("EstimateOwner", fields: [ownerId], references: [id])
@@ -688,6 +686,8 @@ model Estimate {
   lockEvents         LockEvent[]
   /// Every steered edit asked for on this estimate. AEH-238.
   ledgerEdits        LedgerEdit[]
+  /// The narrative and the assumptions, as addressable rows. AEH-238.
+  statements         EstimateStatement[]
 }
 
 /// One change to one of an estimate buffer overrides.
@@ -1047,6 +1047,52 @@ model RoleLineItem {
   updatedAt       DateTime @updatedAt
 
   @@index([menuItemId, role])
+}
+
+/// Which list a statement belongs to. AEH-238.
+enum StatementKind {
+  /// The architecture story the Architect writes.
+  NARRATIVE
+  /// What the estimate takes for granted, and therefore is not costing.
+  ASSUMPTION
+}
+
+/// One line of an estimate's narrative or assumptions. AEH-238.
+///
+/// Was two `String[]` columns on Estimate. A bare string in an ordered array
+/// has no identity, and three things needed one:
+///
+///   locking      "lock assumption 4" would have locked an ARRAY INDEX, which
+///                stops meaning the same thing the moment a line is inserted
+///                above it
+///   the audit    a snapshot could only ever say "the assumptions changed",
+///                never which one, or what it said before
+///   steering     an edit addressed at one assumption had nothing to address
+///
+/// One table with a `kind` rather than two tables, because narrative and
+/// assumptions are structurally identical and every operation on them is the
+/// same operation. A second table would have duplicated every query to record
+/// a distinction one column already makes.
+///
+/// `provenance` is the same enum the line items use, and it earns its place
+/// here for the same reason: the reporter on AEH-367 had hand-rewritten their
+/// assumption set, and a re-run that could not tell their words from the
+/// crew's would discard them without knowing it had.
+model EstimateStatement {
+  id         String         @id @default(cuid())
+  estimateId String
+  estimate   Estimate       @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  kind       StatementKind
+  text       String
+  /// Position within its kind. Ascending, and dense only by convention — a
+  /// reorder rewrites them, a delete leaves a gap, and neither matters because
+  /// nothing addresses a statement by position any more.
+  order      Int            @default(0)
+  provenance LineProvenance @default(CREW)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([estimateId, kind, order])
 }
 
 // ─── Ledger locks ─────────────────────────────────────────────────────────────

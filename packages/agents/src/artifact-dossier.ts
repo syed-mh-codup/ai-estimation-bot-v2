@@ -1,5 +1,6 @@
 import {
   corpusSection,
+  loadStatementTexts,
   partitionCorpusSections,
   type CorpusSectionKey,
   type PrismaClient,
@@ -79,8 +80,6 @@ export async function buildArtifactDossier(
       title: true,
       status: true,
       sowText: true,
-      narrative: true,
-      assumptions: true,
       agentState: true,
       sections: { orderBy: { order: 'asc' }, select: { id: true, title: true } },
       menuItems: {
@@ -292,10 +291,15 @@ export async function buildArtifactDossier(
   }
 
   if (want.has('narrative')) {
+    // Their own table since AEH-238. Read only when this corpus key is asked
+    // for, which is the same discipline the rest of this builder follows.
+    const statements = await loadStatementTexts(db, estimateId);
     const parts: string[] = [];
-    if (estimate.narrative.length) parts.push(`Narrative:\n${estimate.narrative.join('\n')}`);
-    if (estimate.assumptions.length) {
-      parts.push(`Assumptions:\n${estimate.assumptions.map((a) => `- ${a}`).join('\n')}`);
+    if (statements.narrative.length) {
+      parts.push(`Narrative:\n${statements.narrative.join('\n')}`);
+    }
+    if (statements.assumptions.length) {
+      parts.push(`Assumptions:\n${statements.assumptions.map((a) => `- ${a}`).join('\n')}`);
     }
     put('narrative', parts.join('\n\n'));
   }

@@ -87,8 +87,6 @@ beforeAll(async () => {
       sowText: 'x',
       status: 'REVIEW',
       configVersion: 1,
-      narrative: [],
-      assumptions: [],
       // The Librarian's output is where requirement text comes from.
       agentState: {
         librarianOutput: {
@@ -164,8 +162,6 @@ describe('buildScopeCorpus', () => {
         sowText: 'x',
         status: 'DRAFT',
         configVersion: 1,
-        narrative: [],
-        assumptions: [],
         agentState: {},
         ownerId: userId,
       },

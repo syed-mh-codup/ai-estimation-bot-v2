@@ -94,8 +94,6 @@ beforeAll(async () => {
       sowText: 'x',
       status: 'REVIEW',
       configVersion: CONFIG_VERSION,
-      narrative: [],
-      assumptions: [],
       agentState: {},
       ownerId: userId,
     },

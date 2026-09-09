@@ -180,8 +180,6 @@ beforeAll(async () => {
       sowText: 'Build a B2B checkout flow with SSO login and an admin dashboard.',
       status: 'DRAFT',
       configVersion: cfg.version,
-      narrative: [],
-      assumptions: [],
       agentState: {},
       ownerId: userId,
     },
@@ -212,8 +210,6 @@ describe('runEstimate refuses a trivially-empty SOW rather than fabricating one'
         sowText: '',
         status: 'DRAFT',
         configVersion,
-        narrative: [],
-        assumptions: [],
         agentState: {},
         ownerId: userId,
       },
@@ -312,8 +308,12 @@ describe('WS22-02: runEstimate full pipeline (stub LLM)', () => {
     // Estimate moved to REVIEW with narrative + complexity persisted.
     const est = await db.estimate.findUniqueOrThrow({ where: { id: estimateId } });
     expect(est.status).toBe('REVIEW');
-    expect(est.narrative.length).toBeGreaterThan(0);
     expect(est.complexityScore).not.toBeNull();
+    // The narrative is its own rows since AEH-238, written by the same persist
+    // transaction — so a run that stopped writing them fails here.
+    expect(
+      await db.estimateStatement.count({ where: { estimateId, kind: 'NARRATIVE' } }),
+    ).toBeGreaterThan(0);
 
     // Costed Menu Card persisted: 2 items, each with 4 role line items.
     const items = await db.menuItem.findMany({
@@ -437,7 +437,6 @@ const riskyStubModelProvider: IModelProvider = {
       return {
         text: JSON.stringify({
           lineItems: [{ description: 'stub line item', hours: 3.5, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
-          assumptions: [],
           coversRiskFlags: [],
         }),
         model: 'stub/model',
@@ -493,8 +492,6 @@ describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
         sowText: 'Sync orders from Shopify into the warehouse system every fifteen minutes.',
         status: 'DRAFT',
         configVersion,
-        narrative: [],
-        assumptions: [],
         agentState: {},
         ownerId: userId,
       },

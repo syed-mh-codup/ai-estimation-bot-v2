@@ -141,8 +141,12 @@ beforeEach(async () => {
       sowText: 'The client needs an order management system with fulfilment tracking.',
       status: 'REVIEW',
       configVersion: 1,
-      narrative: ['A rebuild in three tranches.'],
-      assumptions: ['The existing payment provider stays.'],
+      statements: {
+        create: [
+          { kind: 'NARRATIVE', text: 'A rebuild in three tranches.', order: 0 },
+          { kind: 'ASSUMPTION', text: 'The existing payment provider stays.', order: 0 },
+        ],
+      },
       agentState: {
         librarianOutput: {
           requirements: [

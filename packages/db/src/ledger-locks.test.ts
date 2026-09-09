@@ -55,8 +55,6 @@ async function makeEstimate(title: string, ownerId: string): Promise<string> {
       sowText: 'x',
       status: 'REVIEW',
       configVersion: 1,
-      narrative: [],
-      assumptions: [],
       agentState: {},
       ownerId,
     },

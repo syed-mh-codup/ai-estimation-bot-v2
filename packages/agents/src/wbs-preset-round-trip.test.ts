@@ -182,8 +182,6 @@ beforeEach(async () => {
       sowText: 'B2B checkout with volume pricing tiers',
       status: 'REVIEW',
       configVersion: 1,
-      narrative: [],
-      assumptions: [],
       agentState: {},
       ownerId: userId,
     },

@@ -82,7 +82,6 @@ const stub: IModelProvider = {
       return {
         text: JSON.stringify({
           lineItems: [{ description: 'stub item', hours: 3, complexity: 'base', aiAssistApplied: false, dependsOn: [] }],
-          assumptions: [],
         }),
         model: 'stub/model',
         usage: null,
@@ -142,8 +141,6 @@ async function makeEstimate(sowText: string): Promise<string> {
       sowText,
       status: 'DRAFT',
       configVersion,
-      narrative: [],
-      assumptions: [],
       agentState: {},
       ownerId,
     },
