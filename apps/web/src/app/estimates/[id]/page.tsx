@@ -29,6 +29,7 @@ import { dueLabel, toDateInputValue } from '@/lib/due-date';
 import { EditableList } from './EditableList';
 import { CollapseAllButton } from './CollapseAllButton';
 import { LedgerProvider } from './ledger-context';
+import { listLedgerEdits } from './edit-actions';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
@@ -243,7 +244,7 @@ export default async function EstimateDetailPage({
   // The buffers in force for THIS estimate — its own overrides where it has
   // them, and the house defaults from the config version it is pinned to
   // otherwise. Not the active config: see lib/estimate-tax.ts. AEH-335.
-  const [tax, taxChanges, lockState, statements] = await Promise.all([
+  const [tax, taxChanges, lockState, statements, edits] = await Promise.all([
     taxContextFor(estimate),
     latestTaxChanges(estimate.id),
     // Read with the page rather than fetched by the editor: which rows are
@@ -255,6 +256,11 @@ export default async function EstimateDetailPage({
     // need the id. The editor still submits whole lists of text; identity is
     // preserved on the way back in by `reconcileStatements`.
     loadStatements(prisma, estimate.id),
+    // In the FIRST paint, like the lock state. `poll()` only ever starts from
+    // inside a steer, so without this an edit that is already running is
+    // invisible after a reload and nothing ever asks about it again — no
+    // progress, no approve/discard on a parked conflict, no revert.
+    listLedgerEdits(estimate.id),
   ]);
   const hasMenu = estimate.menuItems.length > 0;
   // Anyone may open and edit; only the owner or an admin may destroy.
@@ -324,7 +330,18 @@ export default async function EstimateDetailPage({
 
   // Remount the client ledger when the server's set of rows changes underneath
   // it (e.g. a run just produced a whole new menu card).
-  const editorKey = `${sectionDTOs.map((s) => s.id).join(',')}|${itemDTOs.map((i) => i.id).join(',')}`;
+  //
+  // LINE ITEM ids are in the key, not just the cards', and that is what makes a
+  // steered edit visible. `applyRegionReplace` deletes the pinned rows and
+  // creates replacements, so the cards it touched keep their ids while every
+  // row inside them is new. Keyed on cards alone, the provider held its old
+  // state through a refresh and the ledger kept rendering pre-edit hours — the
+  // whole output of the feature, invisible.
+  const editorKey = [
+    sectionDTOs.map((s) => s.id).join(','),
+    itemDTOs.map((i) => i.id).join(','),
+    itemDTOs.flatMap((i) => i.lineItems.map((li) => li.id)).join(','),
+  ].join('|');
 
   // Artifacts. Archived types are excluded — `enabled` is what takes a type out
   // of circulation without breaking the documents already generated from it.
@@ -391,6 +408,7 @@ export default async function EstimateDetailPage({
         taxChanges={taxChanges}
         isFinalised={isFinalised}
         initialLocks={lockState}
+        initialEdits={edits}
         viewerId={viewer.id}
         renderedAt={new Date().toISOString()}
       >
@@ -429,6 +447,7 @@ export default async function EstimateDetailPage({
               data-testid="section-narrative"
             >
               <EditableList
+                key={statementKey(statements.narrative)}
                 estimateId={estimate.id}
                 initialItems={statements.narrative}
                 action={updateNarrative}
@@ -448,6 +467,7 @@ export default async function EstimateDetailPage({
               data-testid="section-assumptions"
             >
               <EditableList
+                key={statementKey(statements.assumptions)}
                 estimateId={estimate.id}
                 initialItems={statements.assumptions}
                 action={updateAssumptions}
@@ -666,6 +686,19 @@ export default async function EstimateDetailPage({
 }
 
 /** Name plus address when we have a name, address alone when we don't. */
+/**
+ * A remount key for one statement list.
+ *
+ * Ids AND text, because a steered revision changes wording in place: the row
+ * keeps its id, so an id-only key would not notice and `EditableList` would
+ * hold its old state through a refresh — the Scribe's output invisible on the
+ * screen that asked for it. Provenance is in there too, so a line going from
+ * the crew's to steered re-renders its badge.
+ */
+function statementKey(rows: Array<{ id: string; text: string; provenance: string }>): string {
+  return rows.map((r) => `${r.id}:${r.provenance}:${r.text}`).join('|');
+}
+
 function userLabel(u: { email: string; name: string | null }): string {
   return u.name ? `${u.name} (${u.email})` : u.email;
 }

@@ -323,6 +323,53 @@ describe('applyRegionReplace', () => {
   });
 });
 
+describe('applyRegionReplace refuses rather than emptying a region', () => {
+  it('writes nothing and FAILS when the proposal is empty', async () => {
+    const fp = await regionFingerprint(db, { cardIds: [cardId], lineItemIds: [line['DEV']!] });
+    const edit = await newEdit([line['DEV']!], [cardId], fp);
+
+    const outcome = await applyRegionReplace(db, {
+      editId: edit.id,
+      pinnedLineItemIds: [line['DEV']!],
+      pinnedCardIds: [cardId],
+      // Reachable: a LINE-scoped edit whose roles omit that line's own role
+      // pins the row and yields no slices, so nothing arrives to write.
+      proposed: [],
+      effective: EFFECTIVE,
+      expectFingerprint: fp,
+    });
+
+    expect(outcome).toEqual({ kind: 'REFUSED_EMPTY', rowsAtRisk: 1 });
+    // THE assertion. Before this guard the row was deleted and the edit was
+    // stamped APPLIED with hoursAfter 0 — a silent loss reported as success.
+    expect(await rowsOn(cardId)).toHaveLength(2);
+    const row = await db.ledgerEdit.findUniqueOrThrow({
+      where: { id: edit.id },
+      select: { status: true, error: true },
+    });
+    expect(row.status).toBe('FAILED');
+    expect(row.error).toMatch(/proposed no lines/);
+  });
+
+  it('still allows an empty write when the region itself is empty', async () => {
+    // The card's own `updatedAt` is part of the region's fingerprint, so the
+    // baseline has to be the real one — passing null here would fail the
+    // concurrency check instead of exercising the guard under test.
+    const fp = await regionFingerprint(db, { cardIds: [cardId], lineItemIds: [] });
+    const edit = await newEdit([], [cardId], fp);
+    const outcome = await applyRegionReplace(db, {
+      editId: edit.id,
+      pinnedLineItemIds: [],
+      pinnedCardIds: [cardId],
+      proposed: [],
+      effective: EFFECTIVE,
+      expectFingerprint: fp,
+    });
+    // Nothing at risk, so nothing to refuse.
+    expect(outcome.kind).toBe('APPLIED');
+  });
+});
+
 describe('revertRegion', () => {
   it('puts the rows back with their original provenance', async () => {
     const fp = await regionFingerprint(db, { cardIds: [cardId], lineItemIds: [line['QA']!] });
@@ -388,6 +435,39 @@ describe('revertRegion', () => {
     ]);
     // ...and QA is back to the human's original.
     expect(rows.filter((r) => r.role === 'QA').map((r) => r.provenance)).toEqual(['HUMAN']);
+  });
+
+  it('refuses when a row it wrote has since been locked', async () => {
+    const fp = await regionFingerprint(db, { cardIds: [cardId], lineItemIds: [line['DEV']!] });
+    const edit = await newEdit([line['DEV']!], [cardId], fp);
+    await applyRegionReplace(db, {
+      editId: edit.id,
+      pinnedLineItemIds: [line['DEV']!],
+      pinnedCardIds: [cardId],
+      proposed: [{ menuItemId: cardId, role: 'DEV', title: 'steered dev', baseHours: 3 }],
+      effective: EFFECTIVE,
+      expectFingerprint: fp,
+    });
+
+    // Somebody settles the new row.
+    const written = await db.roleLineItem.findFirstOrThrow({
+      where: { menuItemId: cardId, role: 'DEV' },
+      select: { id: true },
+    });
+    await lockEnvelope(db, {
+      estimateId,
+      envelope: { target: { scope: 'LINE', id: written.id }, roles: [] },
+      actorId: userId,
+    });
+
+    // A revert is a write, and it was the only one here that did not ask about
+    // locks: the deleteMany would have taken the locked row and cascaded its
+    // lock away.
+    await expect(revertRegion(db, { editId: edit.id, revertedById: userId })).rejects.toThrow(
+      /now locked/,
+    );
+    expect(await db.roleLineItem.count({ where: { id: written.id } })).toBe(1);
+    expect(await db.ledgerLock.count({ where: { lineItemId: written.id } })).toBe(1);
   });
 
   it('refuses to put back anything that was not applied', async () => {

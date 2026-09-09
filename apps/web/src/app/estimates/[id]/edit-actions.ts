@@ -467,9 +467,26 @@ export async function approveLedgerEdit(editId: string): Promise<LedgerEditDTO> 
   return toDTO(row, actor.id);
 }
 
-/** Throw a parked proposal away. The concurrent change stands. */
+/**
+ * Throw a parked proposal away. The concurrent change stands.
+ *
+ * Guarded like its sibling, which it was not. A bare update here accepted ANY
+ * edit's id: pointed at an APPLIED one it left the rows in the ledger while
+ * recording that the proposal was thrown away, and since `isRevertible` only
+ * answers for `APPLIED`, those rows could then never be put back. Pointed at a
+ * QUEUED one it changed a label while the job kept running and wrote anyway.
+ */
 export async function discardLedgerEdit(editId: string): Promise<LedgerEditDTO> {
   const actor = await requireUser();
+  const edit = await prisma.ledgerEdit.findUniqueOrThrow({
+    where: { id: editId },
+    select: { estimateId: true, status: true },
+  });
+  if (edit.status !== 'PENDING_CONFLICT') {
+    throw new Error(`Nothing is waiting on a decision for this edit (it is ${edit.status}).`);
+  }
+  await assertOpen(edit.estimateId);
+
   const row = await prisma.ledgerEdit.update({
     where: { id: editId },
     data: { status: 'DISCARDED', stage: 'Discarded' },

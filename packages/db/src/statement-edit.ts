@@ -251,6 +251,26 @@ export async function revertStatementRevision(
   const snapshot = edit.beforeSnapshot as unknown as StatementSnapshot | null;
   const rows = snapshot?.rows ?? [];
 
+  // Same rule as the hours revert, and the same omission it was fixing: the
+  // upsert below rewrites text and provenance, so a statement locked since this
+  // edit applied would have its wording replaced with a lock still standing
+  // over it.
+  if (rows.length > 0) {
+    const locked = await db.statementLock.findMany({
+      where: { statementId: { in: rows.map((r) => r.id) } },
+      select: { statementId: true },
+    });
+    if (locked.length > 0) {
+      throw new Error(
+        `${locked.length} line${
+          locked.length === 1 ? ' this edit changed is' : 's this edit changed are'
+        } now locked, so putting it back would overwrite settled wording. Unlock ${
+          locked.length === 1 ? 'it' : 'them'
+        } first.`,
+      );
+    }
+  }
+
   await db.$transaction(
     async (tx) => {
       for (const row of rows) {

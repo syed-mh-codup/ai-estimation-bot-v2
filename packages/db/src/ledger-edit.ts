@@ -160,6 +160,16 @@ function normaliseHours(baseHours: number): number {
 export type ApplyOutcome =
   | { kind: 'APPLIED'; rowsWritten: number; baseHours: number }
   /**
+   * The region has rows and the council proposed none, so there is nothing to
+   * write and deleting is not the answer.
+   *
+   * Its own outcome rather than an empty APPLIED, because the two are opposite
+   * news. An edit that produced nothing is a failure to report; a delete of
+   * everything it was pointed at, recorded as success, is the loudest possible
+   * way for this feature to lose somebody's work.
+   */
+  | { kind: 'REFUSED_EMPTY'; rowsAtRisk: number }
+  /**
    * A row in the write set is now locked. Not offered for approval: approving
    * would be a lock bypass with none of the override ceremony, so the edit is
    * failed and the person is told which rows and who holds them.
@@ -227,6 +237,33 @@ export async function applyRegionReplace(
       },
     });
     return { kind: 'REFUSED_LOCKED', lockedLineItemIds: locked.map((l) => l.lineItemId) };
+  }
+
+  // An empty proposal over a non-empty region. Refused, never applied.
+  //
+  // The path that gets here is real: `rolesInPlay` intersects the pinned rows'
+  // roles with the declared ones, and `resolveTarget` documents that a LINE
+  // target ignores `roles` — so a LINE-scoped edit whose roles omit that line's
+  // own role pins the row, yields no slices, and arrives with nothing to write.
+  // The council returning no line items for every slice reaches the same place.
+  // Without this, the delete below ran and the edit was stamped APPLIED with
+  // `hoursAfter: 0`.
+  if (proposed.length === 0 && pinnedLineItemIds.length > 0) {
+    await db.ledgerEdit.update({
+      where: { id: editId },
+      data: {
+        status: 'FAILED',
+        stage: 'Nothing to write',
+        pct: 100,
+        error: `The council proposed no lines for this selection, so nothing was written — the ${
+          pinnedLineItemIds.length
+        } line${
+          pinnedLineItemIds.length === 1 ? '' : 's'
+        } it covers are untouched. Check that the roles you ticked are the ones this selection actually has.`,
+        reasoning,
+      },
+    });
+    return { kind: 'REFUSED_EMPTY', rowsAtRisk: pinnedLineItemIds.length };
   }
 
   const before = await snapshotRegion(db, pinnedLineItemIds);
@@ -521,6 +558,27 @@ export async function revertRegion(
   const rows = snapshot?.rows ?? [];
   const after = edit.afterSnapshot as unknown as { writtenLineItemIds?: string[] } | null;
   const writtenLineItemIds = after?.writtenLineItemIds ?? [];
+
+  // A revert is a WRITE, and it was the only one in this feature that did not
+  // ask about locks. The sequence that matters: an edit applies, a reviewer
+  // locks one of the rows it wrote, somebody puts the edit back — the
+  // `deleteMany` below would take the locked row with it and the lock would
+  // cascade away. No error, no LockEvent, a lock nobody removed.
+  if (writtenLineItemIds.length > 0) {
+    const locked = await db.ledgerLock.findMany({
+      where: { lineItemId: { in: writtenLineItemIds } },
+      select: { lineItemId: true },
+    });
+    if (locked.length > 0) {
+      throw new Error(
+        `${locked.length} line${
+          locked.length === 1 ? ' this edit wrote is' : 's this edit wrote are'
+        } now locked, so putting it back would destroy settled work. Unlock ${
+          locked.length === 1 ? 'it' : 'them'
+        } first.`,
+      );
+    }
+  }
 
   await db.$transaction(
     async (tx) => {

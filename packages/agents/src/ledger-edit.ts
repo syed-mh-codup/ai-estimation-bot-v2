@@ -382,7 +382,17 @@ async function runStatementEdit(
     reasoning: scribed.notes,
   });
 
-  await report(outcome.kind === 'APPLIED' ? 'Applied' : 'Waiting on a decision', 100);
+  // Three endings, not two. A refusal — locked mid-run, or nothing to write —
+  // is not a decision waiting on anybody; the applier has already recorded why
+  // on the row, and telling the person to decide about it would be a lie.
+  await report(
+    outcome.kind === 'APPLIED'
+      ? 'Applied'
+      : outcome.kind === 'CONFLICT'
+        ? 'Waiting on a decision'
+        : 'Refused',
+    100,
+  );
 
   return { outcome, cardsReassessed: 0, reasoning: scribed.notes ?? '' };
 }
@@ -513,6 +523,14 @@ export async function runLedgerEdit(
   // have to move, and they move by being re-priced against the requirement
   // rather than by the reshape guessing at them.
   let cardIdsAfterRestructure = edit.pinnedCardIds;
+  /**
+   * The region's fingerprint as the reshape left it.
+   *
+   * Null when no reshape happened, which is also what a region with no rows
+   * fingerprints to — and null compares equal to null, so neither case reports
+   * a spurious conflict.
+   */
+  let reshapeFingerprint: Date | null = null;
   const restructureNotes: string[] = [];
 
   if (edit.mode !== 'REPRICE') {
@@ -565,16 +583,50 @@ export async function runLedgerEdit(
 
     if (curated.cards.length > 0) {
       await report('Reshaping the cards', 35);
-      const result = await applyRestructure(db, {
-        estimateId: edit.estimateId,
-        sourceCardIds: edit.pinnedCardIds,
-        cards: curated.cards,
+      // ONE step, and this is load-bearing rather than tidy.
+      //
+      // Inngest replays the function body from the top at every step boundary.
+      // Left outside a step, this reshape re-ran on each invocation: it
+      // re-created every card whose `reuseMenuItemId` was null, giving them
+      // FRESH cuids, and deleted the previous invocation's cards as "emptied"
+      // — because `pinnedCardIds` had been overwritten, so they now looked
+      // like sources. The re-cost steps below are keyed `reassess:<cardId>:
+      // <role>`, so a new cuid every time meant a step id that never matched a
+      // memoized result: a paid model call, a replay, and round again until the
+      // step cap killed the job with the ledger already reshaped.
+      //
+      // Memoizing the ids is what breaks that. The `pinnedCardIds` write is
+      // inside the same step because it is part of the same fact: what this
+      // reshape decided the cards are.
+      const result = await step('reshape', async () => {
+        const applied = await applyRestructure(db, {
+          estimateId: edit.estimateId,
+          sourceCardIds: edit.pinnedCardIds,
+          cards: curated.cards,
+        });
+        await db.ledgerEdit.update({
+          where: { id: editId },
+          data: { pinnedCardIds: applied.cardIds },
+        });
+        // Captured HERE, inside the memoized step, and this is the whole
+        // concurrency answer for a reshape. The fingerprint the job was
+        // dispatched with is guaranteed stale — the reshape has just written to
+        // these cards — but the fix is a NEW baseline, not switching the check
+        // off. Computed on a replay instead, it would take a colleague's
+        // meanwhile-edit as the baseline and hide exactly the conflict it is
+        // meant to catch.
+        //
+        // An ISO string, not a Date: a memoized step result comes back through
+        // JSON, so a Date would arrive as a string on the second invocation and
+        // compare unequal to itself.
+        const after = await regionFingerprint(db, {
+          cardIds: applied.cardIds,
+          lineItemIds: edit.pinnedLineItemIds,
+        });
+        return { ...applied, fingerprintAfter: after?.toISOString() ?? null };
       });
       cardIdsAfterRestructure = result.cardIds;
-      await db.ledgerEdit.update({
-        where: { id: editId },
-        data: { pinnedCardIds: result.cardIds },
-      });
+      reshapeFingerprint = result.fingerprintAfter ? new Date(result.fingerprintAfter) : null;
       restructureNotes.push(
         `Reshaped into ${result.cardIds.length} card${result.cardIds.length === 1 ? '' : 's'}${
           result.removedCardIds.length
@@ -724,14 +776,28 @@ export async function runLedgerEdit(
 
   await report('Writing the change', 90);
 
-  // Re-read rather than trusting the dispatched value: the job may have been
-  // replayed, and the fingerprint recorded on the row is the one the person saw.
+  // Which baseline the write is checked against.
+  //
+  // A REPRICE compares the fingerprint the person's screen was drawn from, so
+  // anything that landed since parks for a decision. A reshape cannot use that
+  // one — it has written to these cards itself — so it compares the baseline
+  // captured immediately after the reshape, inside the memoized step above.
+  //
+  // Both stay CHECKED. An earlier version passed `overwriteConflict: true` for
+  // a reshape to get past the stale value, which disabled the comparison
+  // entirely: a colleague typing hours into an unrelated row on the same card
+  // while the model calls ran had that row deleted and replaced with no
+  // warning and no chance to approve — the one protection this feature is
+  // built around. It also stamped `overwroteConflict` on every reshape, so the
+  // audit claimed a conflict nobody had.
   const expectFingerprint =
-    edit.fingerprint ??
-    (await regionFingerprint(db, {
-      cardIds: cardIdsAfterRestructure,
-      lineItemIds: edit.pinnedLineItemIds,
-    }));
+    edit.mode === 'REPRICE'
+      ? (edit.fingerprint ??
+        (await regionFingerprint(db, {
+          cardIds: cardIdsAfterRestructure,
+          lineItemIds: edit.pinnedLineItemIds,
+        })))
+      : reshapeFingerprint;
 
   const outcome = await applyRegionReplace(db, {
     editId,
@@ -739,15 +805,21 @@ export async function runLedgerEdit(
     pinnedCardIds: cardIdsAfterRestructure,
     proposed,
     effective,
-    // A reshape has just written to these cards, so the fingerprint it was
-    // dispatched with is guaranteed stale. Comparing it would park every single
-    // restructure as a conflict with itself.
-    expectFingerprint: edit.mode === 'REPRICE' ? expectFingerprint : null,
-    overwriteConflict: edit.mode !== 'REPRICE',
+    expectFingerprint,
     reasoning: [...restructureNotes, ...reasoningParts].join('\n') || null,
   });
 
-  await report(outcome.kind === 'APPLIED' ? 'Applied' : 'Waiting on a decision', 100);
+  // Three endings, not two. A refusal — locked mid-run, or nothing to write —
+  // is not a decision waiting on anybody; the applier has already recorded why
+  // on the row, and telling the person to decide about it would be a lie.
+  await report(
+    outcome.kind === 'APPLIED'
+      ? 'Applied'
+      : outcome.kind === 'CONFLICT'
+        ? 'Waiting on a decision'
+        : 'Refused',
+    100,
+  );
 
   return {
     outcome,

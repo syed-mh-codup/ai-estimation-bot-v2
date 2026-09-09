@@ -4,11 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   createSection,
   renameSection,
@@ -296,6 +298,18 @@ export function LedgerProvider({
   const [selectedStatementIds, setSelectedStatementIds] = useState<string[]>([]);
   const [edits, setEdits] = useState<LedgerEditDTO[]>(initialEdits ?? []);
   const [editBusy, setEditBusy] = useState(false);
+  const router = useRouter();
+  /**
+   * What was running as of the last poll.
+   *
+   * A ref rather than derived from `edits`, because the question is about the
+   * TRANSITION — "did something that was running stop" — and comparing against
+   * state inside the callback that sets it would compare a value against
+   * itself.
+   */
+  const inFlightIds = useRef<Set<string>>(
+    new Set((initialEdits ?? []).filter(isEditInFlight).map((e) => e.id)),
+  );
 
   const errTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashError = useCallback((e: unknown) => {
@@ -714,15 +728,42 @@ export function LedgerProvider({
       void (async () => {
         try {
           const next = await listLedgerEdits(estimateId);
+          const wasInFlight = inFlightIds.current;
           setEdits(next);
-          if (next.some(isEditInFlight)) poll();
+          const nowInFlight = new Set(next.filter(isEditInFlight).map((e) => e.id));
+          inFlightIds.current = nowInFlight;
+
+          // Something that WAS running has stopped, so the ledger underneath
+          // this panel has changed and the screen is now wrong. Every other
+          // background job in this app refreshes when it lands (ScopeDerive,
+          // ScopeScenarios, ScopeGraphEditor); this one did not, so a person
+          // watched an edit reach "Applied" while the cards kept showing the
+          // hours it had just replaced.
+          //
+          // The refresh re-runs the server component, which changes
+          // `editorKey` — the pinned rows were deleted and replaced, so their
+          // ids are new — and the provider remounts on the real numbers.
+          const landed = [...wasInFlight].some((id) => !nowInFlight.has(id));
+          if (landed) router.refresh();
+
+          if (nowInFlight.size > 0) poll();
         } catch {
           // A dropped poll is not worth telling anybody about: the edit is
           // durable, and the next poll or a reload will show where it got to.
         }
       })();
     }, 2000);
-  }, [estimateId]);
+  }, [estimateId, router]);
+
+  // Resume polling for work that was already running when this screen was
+  // drawn. Without it, `poll` only ever starts from inside a steer, so an edit
+  // survived a reload as a static row that never advanced.
+  useEffect(() => {
+    if ((initialEdits ?? []).some(isEditInFlight)) poll();
+    return () => {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    };
+  }, [initialEdits, poll]);
 
   const onSteer = useCallback(
     async (prompt: string, mode: LedgerEditMode) => {

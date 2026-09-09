@@ -339,6 +339,27 @@ describe('revertStatementRevision', () => {
     ]);
   });
 
+  it('refuses when a statement it changed has since been locked', async () => {
+    const id = stmt['No data migration.']!;
+    const fp = await statementFingerprint(db, [id]);
+    const edit = await newEdit([id], fp);
+    await applyStatementRevision(db, {
+      editId: edit.id,
+      pinnedStatementIds: [id],
+      proposed: [{ statementId: id, text: 'Rewritten.' }],
+      expectFingerprint: fp,
+    });
+
+    await lockStatements(db, { estimateId, target: { scope: 'STATEMENT', id }, actorId: userId });
+
+    // The upsert rewrites text and provenance, so without this the revert
+    // would overwrite settled wording with a lock still standing over it.
+    await expect(
+      revertStatementRevision(db, { editId: edit.id, revertedById: userId }),
+    ).rejects.toThrow(/now locked/);
+    expect((await listNow()).find((r) => r.id === id)?.text).toBe('Rewritten.');
+  });
+
   it('refuses to put back anything that was not applied', async () => {
     const edit = await newEdit([stmt['No data migration.']!], null);
     await expect(
