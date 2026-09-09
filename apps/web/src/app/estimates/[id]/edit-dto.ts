@@ -46,6 +46,15 @@ export type LedgerEditDTO = {
   createdAt: string;
   appliedAt: string | null;
   revertedAt: string | null;
+  /**
+   * Who put it back, when somebody did. Null otherwise.
+   *
+   * A name resolved at read time, not an id, and it is here for the same reason
+   * `HiddenWorkFinding` records who dismissed a risk: in a shared workspace,
+   * undoing a colleague's change is a decision somebody should be able to ask
+   * about later.
+   */
+  revertedByName: string | null;
   /** True when the viewer is the person who asked for it. */
   mine: boolean;
 };

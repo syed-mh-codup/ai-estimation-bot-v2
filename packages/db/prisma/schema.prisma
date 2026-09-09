@@ -1355,6 +1355,8 @@ model LedgerEdit {
   /// same coordinate system read in opposite directions.
   declaredScope     LockScope
   /// The id of what was selected, or null for the whole estimate.
+  ///
+  /// @backend-only Records WHICH selection was declared, for the audit trail. The UI renders pinnedCardIds instead — the cards the envelope actually resolved to, which is what a reviewer needs to see and is not always the same thing.
   declaredTargetId  String?
   roles             RoleKind[]
 

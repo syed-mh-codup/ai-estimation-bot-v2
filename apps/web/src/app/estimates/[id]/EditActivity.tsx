@@ -34,7 +34,7 @@ function statusWords(e: LedgerEditDTO): string {
     case 'APPLIED':
       return e.overwroteConflict ? 'Applied over a change' : 'Applied';
     case 'REVERTED':
-      return 'Put back';
+      return e.revertedByName ? `Put back by ${e.revertedByName}` : 'Put back';
     case 'DISCARDED':
       return 'Discarded';
     case 'FAILED':
@@ -47,14 +47,15 @@ export function EditActivity() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Settled edits stay listed only while they are still actionable or still
-  // news. A reverted or discarded one is neither, so it drops out rather than
-  // accumulating a log nobody reads on the screen where the work happens —
+  // A settled edit stays listed, muted, rather than vanishing. An entry that
+  // disappears the moment you put it back is disorienting — you cannot tell
+  // whether the revert worked or the panel lost track of it. The list is capped
+  // instead: this is the screen where the work happens, not the audit log, and
   // the durable record is the LedgerEdit row.
-  const shown = edits.filter(
-    (e) => e.status !== 'REVERTED' && e.status !== 'DISCARDED',
-  );
+  const shown = edits.slice(0, 8);
   if (shown.length === 0) return null;
+  const settled = (e: LedgerEditDTO): boolean =>
+    e.status === 'REVERTED' || e.status === 'DISCARDED';
 
   const titleOf = (cardIds: string[]): string => {
     const names = cardIds
@@ -96,7 +97,10 @@ export function EditActivity() {
           return (
             <li
               key={e.id}
-              className="border-t border-line-soft pt-2.5 first:border-t-0 first:pt-0"
+              className={cn(
+                'border-t border-line-soft pt-2.5 first:border-t-0 first:pt-0',
+                settled(e) && 'opacity-55',
+              )}
               data-testid={`edit-${e.id}`}
             >
               <div className="flex flex-wrap items-baseline gap-x-2">
@@ -114,6 +118,17 @@ export function EditActivity() {
                   data-testid={`edit-status-${e.id}`}
                 >
                   {statusWords(e)}
+                  {/* When, not just what. An edit list with no times cannot
+                      answer "is this the one I just ran". */}
+                  {(e.revertedAt ?? e.appliedAt) && (
+                    <span className="text-ink-4">
+                      {' '}
+                      {new Date((e.revertedAt ?? e.appliedAt)!).toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  )}
                 </span>
               </div>
 

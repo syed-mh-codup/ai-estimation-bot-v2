@@ -58,6 +58,11 @@ describe('AEH-286: every model call is recorded', () => {
       // the exact shape of a usage row — a field that silently appeared would
       // be exactly what it exists to catch.
       artifactId: null,
+      // Same reasoning, for steered ledger edits (AEH-238). Also null here, and
+      // deliberately NOT a new usage kind: a steered edit re-runs the
+      // specialist council, so the call really is a SPECIALIST_* call and the
+      // kind stays the honest answer to "which agent spent this".
+      ledgerEditId: null,
       kind: 'LIBRARIAN',
       // The model as SERVED, not as configured — the request asked for opus.
       model: 'anthropic/claude-3-haiku',

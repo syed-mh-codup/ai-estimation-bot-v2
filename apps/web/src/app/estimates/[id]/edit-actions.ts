@@ -63,6 +63,7 @@ const EDIT_SELECT = {
   createdAt: true,
   appliedAt: true,
   revertedAt: true,
+  revertedById: true,
   actorId: true,
 } as const;
 
@@ -86,10 +87,11 @@ type EditRow = {
   createdAt: Date;
   appliedAt: Date | null;
   revertedAt: Date | null;
+  revertedById: string | null;
   actorId: string;
 };
 
-function toDTO(row: EditRow, viewerId: string): LedgerEditDTO {
+function toDTO(row: EditRow, viewerId: string, reverterNames?: Map<string, string>): LedgerEditDTO {
   return {
     id: row.id,
     status: row.status as LedgerEditDTO['status'],
@@ -109,6 +111,11 @@ function toDTO(row: EditRow, viewerId: string): LedgerEditDTO {
     createdAt: row.createdAt.toISOString(),
     appliedAt: row.appliedAt?.toISOString() ?? null,
     revertedAt: row.revertedAt?.toISOString() ?? null,
+    revertedByName: row.revertedById
+      ? row.revertedById === viewerId
+        ? 'you'
+        : (reverterNames?.get(row.revertedById) ?? 'a colleague')
+      : null,
     mine: row.actorId === viewerId,
   };
 }
@@ -234,7 +241,19 @@ export async function listLedgerEdits(estimateId: string): Promise<LedgerEditDTO
     take: 20,
     select: EDIT_SELECT,
   });
-  return rows.map((r) => toDTO(r, actor.id));
+  // Resolved by id at read time so a rename stays correct — the rule
+  // HiddenWorkFinding already follows for whoever dismissed a risk.
+  const reverterIds = [
+    ...new Set(rows.map((r) => r.revertedById).filter((id): id is string => id !== null)),
+  ];
+  const reverters = reverterIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: reverterIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const names = new Map(reverters.map((u) => [u.id, u.name ?? u.email]));
+  return rows.map((r) => toDTO(r, actor.id, names));
 }
 
 /**

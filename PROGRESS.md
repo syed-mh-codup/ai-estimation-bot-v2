@@ -290,19 +290,44 @@ Two notes for the reviewer of stage 1:
   the schema edits here are hand-formatted to each block's existing alignment.
   `git diff -w` on the schema is pure additions, which is the check.
 
-Stage 2 — engine
-- [ ] `MenuItem` revision marker; provenance enum + backfill
-- [ ] `LedgerEdit` audit/revert table with `PENDING_CONFLICT`
-- [ ] new AgentKind + UsageKind + catalogues + prompt row
-- [ ] corpus render with handles (wide read, marked locks)
-- [ ] change-set zod schema + the agent
-- [ ] Inngest function, per-card steps, progress
-- [ ] region-replace persist reusing the pinned-config tax recompute
-- [ ] four-hour-rule + quarter-hour validation
-- [ ] conflict begin/end checks
-- [ ] selection UI + prompt box + progress in context
-- [ ] revert
-- [ ] tests
+Stage 2 — engine  (DONE)
+- [x] `updatedAt` on MenuItem + RoleLineItem as the staleness fingerprint;
+      provenance enum CREW/HUMAN/STEERED + backfill
+      (`20260909130000_aeh_238_edit_engine`)
+- [x] `LedgerEdit` audit/revert table with `PENDING_CONFLICT` and `FAILED`
+- [x] NO new AgentKind — the specialist council does the re-pricing. See below.
+- [x] wide-read ledger summary with locked cards MARKED
+      (`renderLedgerContext`, `packages/agents/src/ledger-edit.ts`)
+- [x] three optional prompt blocks on `SpecialistInput` (steer, existing rows,
+      ledger context); a plain run's message is byte-identical to before
+- [x] Inngest `ledgerEditFn`, one step per card per role, concurrency 2
+- [x] region-replace persist reusing the PINNED-config tax recompute
+- [x] quarter-hour snap + four-hour clamp at the persistence gate
+- [x] conflict checks: pre-flight staleness warning, apply-time park
+- [x] selection UI (`EditBar`), progress + decisions (`EditActivity`)
+- [x] one-level revert, scoped to the region
+- [x] tests — 10 in `packages/db/src/ledger-edit.test.ts`
+
+The design decision worth reading before touching stage 2: there is NO new
+agent kind. Every edit is a re-assessment against the requirement (the
+0.5-hour case), which is exactly what `runSpecialist` does — against the same
+admin-authored prompts the estimate was costed with. A purpose-built edit
+agent would re-derive the four-hour decomposition in a fresh prompt and
+diverge from the crew's numbers immediately. It also hands us the envelope's
+granularity for free: card x DEV runs SPECIALIST_DEV and nothing else.
+
+Cost attribution is `ModelUsage.ledgerEditId`, a join, mirroring `artifactId`
+— not a usage kind, because the call really IS a SPECIALIST_* call.
+
+Two bugs found and fixed while building, both worth knowing about:
+- `revertRegion` first identified an edit's rows by card + provenance, which
+  also matches an EARLIER steered edit on the same card, so putting one back
+  destroyed another's work. Now the written ids are captured with
+  `createManyAndReturn` and stored in `afterSnapshot`. Pinned by a test.
+- `LockInfo` was a hand-written look-alike of the Prisma row type, which made
+  every `lock.declaredScope` read invisible to the orphan-field audit. It is
+  a `Pick<LedgerLock, ...>` now — the audit attributes reads by the
+  RECEIVER's type.
 
 Stage 3 — structure
 - [ ] split/merge ops in the change set
