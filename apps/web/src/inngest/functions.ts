@@ -1,7 +1,7 @@
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, runArtifact, type IngestFile } from '@repo/agents';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, runArtifact, runLedgerEdit, type IngestFile } from '@repo/agents';
 import {
   inngest,
   EVENT_RUN,
@@ -10,14 +10,17 @@ import {
   EVENT_PROMOTE,
   EVENT_ARTIFACT,
   EVENT_ARTIFACT_CANCEL,
+  EVENT_LEDGER_EDIT,
   type EstimateEventData,
   type EmbedPresetsEventData,
   type PromoteEventData,
   type ArtifactEventData,
+  type LedgerEditEventData,
 } from '@/lib/inngest';
 import { sendDueReminderEmail, sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 import { sweepDueReminders } from '@/lib/reminders';
 import { artifactModelProvider } from '@/lib/artifact-provider';
+import { taxContextForEstimate } from '@/lib/estimate-tax';
 
 
 /**
@@ -388,11 +391,92 @@ const artifactFn = inngest.createFunction(
   },
 );
 
+
+/**
+ * A steered edit to part of the ledger. AEH-238.
+ *
+ * One `step.run` per card per role, for the same reason the artifact function
+ * splits by section: Inngest invokes one step per HTTP request, so each slice
+ * gets its own 300s rather than the whole envelope sharing one. A person
+ * re-pricing DEV across six cards is six calls, and six calls do not fit in one
+ * invocation.
+ *
+ * `concurrency: 2`, matching artifacts and for the same budget reason. The plan
+ * allows 5 concurrent runs account-wide and a run holds its slot for its whole
+ * lifetime, so editing must never be able to starve the estimate runs that are
+ * the core of the product. Edits wait; runs never do.
+ *
+ * `retries: 1`, also matching. A replayed step re-reads the row and re-prices
+ * the same slice, which is safe — but every attempt is a paid model call.
+ */
+const ledgerEditFn = inngest.createFunction(
+  {
+    id: 'estimate-ledger-edit',
+    name: 'Steered ledger edit',
+    retries: 1,
+    concurrency: 2,
+    triggers: [{ event: EVENT_LEDGER_EDIT }],
+    onFailure: async ({ event, error }) => {
+      const editId = (event as unknown as { data?: { event?: { data?: { editId?: string } } } })
+        ?.data?.event?.data?.editId;
+      if (!editId) return;
+      // A real FAILED state rather than a stuck RUNNING. On this deploy a step
+      // that overruns dies as a bare HTTP 504 with no step output, so without
+      // this the ledger would poll a spinner for ever — which is worse than the
+      // blocking call the job replaced.
+      //
+      // Guarded on RUNNING/QUEUED: an edit that already settled itself (refused
+      // for a lock, or parked as a conflict) owns its own explanation, and this
+      // must not overwrite a sentence someone can act on with a generic one.
+      await prisma.ledgerEdit.updateMany({
+        where: { id: editId, status: { in: ['QUEUED', 'RUNNING'] } },
+        data: {
+          status: 'FAILED',
+          stage: 'Failed',
+          error: String(error?.message ?? error).slice(0, 500),
+        },
+      });
+    },
+  },
+  async ({ event, step }) => {
+    const { editId } = event.data as LedgerEditEventData;
+
+    const edit = await step.run('claim-edit', async () => {
+      const row = await prisma.ledgerEdit.findUniqueOrThrow({
+        where: { id: editId },
+        select: { estimateId: true },
+      });
+      await prisma.ledgerEdit.update({
+        where: { id: editId },
+        data: { status: 'RUNNING', stage: 'Starting', pct: 1, error: null },
+      });
+      return row;
+    });
+
+    // The buffers in force for the estimate's PINNED config version, resolved
+    // here and passed down. The engine deliberately does not look them up: that
+    // would be a second place deciding which config version applies, and
+    // AEH-335 exists because that decision was once made in the wrong one.
+    const { effective } = await taxContextForEstimate(edit.estimateId);
+
+    return runLedgerEdit(editId, {
+      db: prisma,
+      modelProvider: createModelProvider(),
+      effective,
+      step: (id, fn) => step.run(id, fn) as ReturnType<typeof fn>,
+      onProgress: async ({ stage, pct }) => {
+        await prisma.ledgerEdit.update({ where: { id: editId }, data: { stage, pct } });
+      },
+    });
+  },
+);
+
 export const inngestFunctions: InngestFunction.Any[] = [
   runEstimateFn,
   ingestFn,
   embedPresetsFn,
   promoteFn,
+  ledgerEditFn,
   dueRemindersFn,
   artifactFn,
 ];

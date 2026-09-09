@@ -23,6 +23,17 @@ export const EVENT_ARTIFACT = 'estimate/artifact.requested' as const;
  * polling anything from.
  */
 export const EVENT_ARTIFACT_CANCEL = 'estimate/artifact.cancelled' as const;
+/**
+ * A steered edit to part of an estimate's ledger. AEH-238.
+ *
+ * A job rather than a request, and the reason is written down in the Oracle
+ * route: everything that takes time here is an Inngest function the client
+ * polls. Oracle streams because watching the words appear IS the value there;
+ * an edit's value is the result, and re-pricing a wide envelope is one model
+ * call per card per role — which does not fit in a single 300s invocation and
+ * should not try to.
+ */
+export const EVENT_LEDGER_EDIT = 'estimate/ledger-edit.requested' as const;
 
 export type EstimateEventData = { estimateId: string; runId?: string };
 
@@ -49,3 +60,6 @@ export type PromoteEventData = { estimateId: string };
  * else to put either.
  */
 export type ArtifactEventData = { artifactId: string };
+
+/** The `LedgerEdit` row to carry out. Everything else is read from it. */
+export type LedgerEditEventData = { editId: string };
