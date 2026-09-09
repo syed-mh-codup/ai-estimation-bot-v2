@@ -280,12 +280,67 @@ export type ArchivistOutput = z.infer<typeof ArchivistOutputSchema>;
 
 // ─── Specialist IO ────────────────────────────────────────────────────────────
 
+/**
+ * One row the council is being asked to revise, as it stands today. AEH-238.
+ *
+ * Only what bears on re-pricing: the description, the hours, and whether a
+ * person put that number there. `provenance` is included deliberately — a
+ * council asked to reconsider a slice should know which of the numbers in front
+ * of it a human chose, because those are the ones it should be slowest to
+ * overrule.
+ */
+export const ExistingLineSchema = z.object({
+  description: z.string(),
+  hours: z.number().min(0),
+  provenance: LineProvenanceSchema,
+});
+export type ExistingLine = z.infer<typeof ExistingLineSchema>;
+
 export const SpecialistInputSchema = z.object({
   requirement: RequirementSchema,
   menuCardId: z.string(),
   archivistMatch: ArchivistMatchSchema.optional(),
   riskFindings: z.array(RiskFindingSchema).default([]),
   complexityScore: z.number().min(1).max(5),
+  /**
+   * A person's instruction for THIS slice, verbatim. AEH-238.
+   *
+   * Absent on a normal run, which is why it is optional rather than an empty
+   * string: the prompt block is omitted entirely rather than rendered blank,
+   * so a plain run's message is byte-identical to what it was before this
+   * existed.
+   *
+   * The scoping worry AEH-241 raised — that steering must not bleed into
+   * unrelated work — is answered structurally here rather than by asking the
+   * model nicely. A specialist call is already one requirement's slice, and the
+   * envelope decides mechanically which slices get called at all, so a steer
+   * cannot reach a requirement outside it however it is phrased.
+   */
+  steer: z.string().optional(),
+  /**
+   * The rows this slice holds today, when the council is revising rather than
+   * pricing from scratch. Absent on a normal run.
+   *
+   * `.optional()` rather than `.default([])`, matching `steer` and
+   * `ledgerContext` above. A default would make the field REQUIRED on the
+   * output type this schema infers, so every existing call site — including the
+   * pipeline's own — would have to pass an empty array to say nothing. That is
+   * the input-versus-output trap AEH-227 was about, and the three revision
+   * fields should behave the same way as each other regardless.
+   */
+  existing: z.array(ExistingLineSchema).optional(),
+  /**
+   * What else is on the estimate: card titles and their role totals, one per
+   * line. Read-only context, and the reason it is here is duplication — a
+   * council re-pricing one card in isolation will happily re-invent work that
+   * already exists on another, and it cannot avoid what it cannot see.
+   *
+   * Deliberately a rendered summary rather than the whole ledger. The rest of
+   * the estimate is thousands of rows; what stops a duplicate is knowing a
+   * Reporting card exists and costs 40 DEV hours, not reading its sixteen
+   * descriptions.
+   */
+  ledgerContext: z.string().optional(),
 });
 export type SpecialistInput = z.infer<typeof SpecialistInputSchema>;
 

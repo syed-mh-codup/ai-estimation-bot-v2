@@ -134,8 +134,19 @@ export function LineLockBadge({
         className="pointer-events-none absolute top-full left-0 z-20 mt-1 hidden w-[280px] flex-col gap-0.5 rounded-[6px] border border-line bg-surface px-2 py-1.5 text-[11px] leading-snug text-ink-2 shadow-sm group-focus-within/lock:flex group-hover/lock:flex"
         data-testid={`line-lock-history-${lineItemId}`}
       >
+        {/* Reads `lockedAt` and `declaredScope` rather than merely carrying
+            them: when it was frozen, and whether it was frozen on its own or
+            swept up in a coarser selection, are the two things a reviewer who
+            cannot edit a row actually wants to know. */}
         <span className="font-semibold text-ink">
-          Locked by {mine ? 'you' : lock.lockedByName}
+          Locked by {mine ? 'you' : lock.lockedByName} {scopeWords(lock.declaredScope)}
+        </span>
+        <span className="text-ink-4">
+          since{' '}
+          {new Date(lock.lockedAt).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+          })}
         </span>
         {loading && <span className="text-ink-4">Loading history…</span>}
         {history?.map((e, i) => (

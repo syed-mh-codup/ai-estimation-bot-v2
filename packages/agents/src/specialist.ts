@@ -102,6 +102,64 @@ Prefer "frontend" or "backend". At this granularity (<=4h atomic units) most wor
 Use "both" only when a unit genuinely cannot be separated. If an item would be "both" simply because it spans a feature end to end, split it into a frontend item and a backend item instead — that is more faithful to the four-hour rule anyway.`;
 }
 
+/**
+ * The revision blocks — omitted entirely on a normal run. AEH-238.
+ *
+ * Rendered as one function rather than three so the ORDER is fixed and
+ * readable: what else exists, then what this slice says today, then what the
+ * person asked for. The instruction lands last because it is the thing the
+ * council must weigh everything else against.
+ *
+ * Every block is absent when its input is, so a plain run's message is
+ * byte-identical to what it was before steering existed. That matters more than
+ * it looks: the prompts are admin-authored and versioned, and a run whose user
+ * message silently gained empty sections would re-price differently for no
+ * recorded reason.
+ */
+function buildRevisionBlocks(role: 'DEV' | 'QA' | 'PM' | 'BA', input: SpecialistInput): string {
+  const { steer, ledgerContext } = input;
+  const existing = input.existing ?? [];
+  if (!steer && existing.length === 0 && !ledgerContext) return '';
+
+  const parts: string[] = [];
+
+  if (ledgerContext) {
+    parts.push(
+      `The rest of this estimate, for context. You are NOT pricing any of it — it is here so you do not re-invent work that already exists somewhere else on the list:
+${ledgerContext}`,
+    );
+  }
+
+  if (existing.length > 0) {
+    const rows = existing
+      .map(
+        (e) =>
+          `- ${e.hours}h — ${e.description}${
+            e.provenance === 'HUMAN' ? ' (a person set these hours by hand)' : ''
+          }`,
+      )
+      .join('\n');
+    parts.push(
+      `What ${role} on this card says TODAY, which you are revising rather than replacing blind:
+${rows}
+
+Treat these as the current answer, not as a draft to ignore. Where a line is right, keep it — reproduce it with the same description and the same hours. Where it is wrong, change it, drop it, or split it. Hours a person set by hand are marked; you may still change them, but the instruction below has to actually call for it.`,
+    );
+  }
+
+  if (steer) {
+    parts.push(
+      `The estimator's instruction for THIS card's ${role} work, in their words:
+
+${steer}
+
+This constrains this slice and nothing else. It is not a statement about how the rest of the project should be planned, and you are not pricing the rest of the project. If the instruction cannot be honoured — it contradicts the requirement, or it asks for work this role does not do — say so in "assumptions" and price what the requirement actually supports rather than inventing a number to match the request.`,
+    );
+  }
+
+  return `\n${parts.join('\n\n')}\n`;
+}
+
 function buildUserMessage(role: 'DEV' | 'QA' | 'PM' | 'BA', input: SpecialistInput): string {
   const { requirement, riskFindings, complexityScore } = input;
   const riskText = riskFindings.length
@@ -119,7 +177,7 @@ ${describeCoverage(input)}
 
 Detective risk findings:
 ${riskText}
-
+${buildRevisionBlocks(role, input)}
 Respond with JSON only, matching exactly this shape:
 {
   "lineItems": [

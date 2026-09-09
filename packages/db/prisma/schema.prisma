@@ -1102,6 +1102,8 @@ model LedgerLock {
   declaredScope    LockScope
   /// The id of what was selected: a section, a card, a line, or null for the
   /// whole estimate.
+  ///
+  /// @backend-only Records WHICH selection produced this lock, for the audit trail. The scope word alone is what a reviewer needs on hover, and resolving this id to a title would be a query per hovered row.
   declaredTargetId String?
   /// Who set it. Only this person may remove it without confirming an override.
   lockedById       String
@@ -1127,6 +1129,7 @@ model LockEvent {
   lineItemId       String
   kind             LockEventKind
   declaredScope    LockScope
+  /// @backend-only Same as LedgerLock.declaredTargetId: which selection this event acted through, kept for the record rather than for the hover story, which reads the scope.
   declaredTargetId String?
   /// Who performed this act.
   actorId          String

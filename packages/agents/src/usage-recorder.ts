@@ -33,8 +33,18 @@ export function createUsageRecorder(opts: {
    * artifact is N+2 calls rather than one.
    */
   artifactId?: string | null;
+  /**
+   * The steered edit this spend belongs to. AEH-238.
+   *
+   * Same shape and same reasoning as `artifactId`, and deliberately NOT a new
+   * usage kind: a steered edit re-runs the specialist council, so the call
+   * really is a SPECIALIST_DEV call and "which agent is burning the money" —
+   * the question the kind exists to answer — stays correctly answered. "What
+   * did this edit cost" is a join on the column instead.
+   */
+  ledgerEditId?: string | null;
 }): UsageRecorder {
-  const { db, estimateId, runId = null, artifactId = null } = opts;
+  const { db, estimateId, runId = null, artifactId = null, ledgerEditId = null } = opts;
 
   return {
     async record(input) {
@@ -50,6 +60,7 @@ export function createUsageRecorder(opts: {
             estimateId,
             runId,
             artifactId,
+            ledgerEditId,
             kind: input.kind,
             model: input.model,
             promptTokens: input.usage?.promptTokens ?? null,

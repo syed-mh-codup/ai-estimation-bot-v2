@@ -571,7 +571,15 @@ export async function runEstimate(
 }
 
 /** Load the active prompt body + model for an agent kind (throws if none). */
-async function loadActivePrompt(
+/**
+ * The active prompt row for one agent kind, with its levers.
+ *
+ * Exported for the steered-edit engine, which calls the SAME council against
+ * the SAME admin-authored prompts. That reuse is the point rather than a
+ * convenience: an edit priced against a different prompt than the run would
+ * produce numbers that quietly disagree with the rest of the estimate.
+ */
+export async function loadActivePrompt(
   db: PrismaClient,
   kind: AgentKind,
 ): Promise<{ body: string; modelString: string; levers: ModelCallLevers }> {
