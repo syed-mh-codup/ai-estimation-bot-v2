@@ -358,10 +358,58 @@ disagree with. The lock check is asked of the RESOLVED write set for exactly
 that reason, not of the declaration.
 
 Stage 4 — assumptions + narrative
-- [ ] tables + migration + backfill
-- [ ] targets in the envelope
-- [ ] Oracle suggested-assumption becomes a write
-- [ ] tests
+- [x] `EstimateStatement` + migration + backfill, matched by TEXT rather than
+      position so inserting a line at the top preserves every id and every
+      provenance stamp
+- [x] Oracle suggested-assumption becomes a write — one action wide, and
+      AEH-259's absolute no-write guarantee deliberately narrowed to the part
+      that was protecting somebody: no number a client sees can move because
+      of Oracle
+- [x] tests — 12 statement cases + the narrowed Oracle guard
+- [ ] targets in the envelope (see the sub-plan below)
+
+#### Statements as envelope targets — the sub-plan
+
+The last piece, and the one the reframe led with: "if i want to edit my
+assumptions". Statements are rows now precisely so this is possible — locking
+"assumption 4" under the old `String[]` would have locked an array INDEX, which
+stops meaning the same thing the moment a line is inserted above it.
+
+Four decisions, each taken by precedent rather than invented, each cheap to
+overturn in review:
+
+1. **Storage.** A SECOND current-state table, `StatementLock`, not a nullable
+   `LedgerLock.lineItemId`. `UNIQUE` + `FK ON DELETE CASCADE` on that column IS
+   the enforcement guarantee stated in the locks migration; making it nullable
+   would give up a uniqueness constraint that two concurrent lock calls
+   currently cannot get around. History stays in ONE table — `LockEvent` gains
+   a nullable `statementId` — because the hover history and the three-state
+   padlock must not need a second implementation.
+
+2. **The text-identity trap.** This is the one place a statement lock differs
+   from a line lock, and it is the thing most likely to be got wrong.
+   `reconcileStatements` matches by TEXT, so a hand-edit of a locked statement
+   is a delete plus a create — and an FK cascade would then silently REMOVE the
+   lock rather than refuse the edit. So the guard runs BEFORE reconcile, over
+   the locked id set: every locked statement's text must appear verbatim in the
+   submitted list or the save is refused. `EditableList` renders a locked row
+   read-only, the same way the ledger disables a frozen row.
+
+3. **The edit row.** `LedgerEdit` gains `pinnedStatementIds` rather than a new
+   table, because `EditActivity` has to stay one list. The user was explicit
+   that the job must be visible and in context, in one place.
+
+4. **The agent.** A new `AgentKind`, mirroring what CURATOR did for shape:
+   decides WORDS only, never hours and never structure. The envelope is the
+   ticked statement ids, the write set is exactly those, and the wide read is
+   the same visibility Oracle has. Provenance `STEERED`. Staleness, conflict
+   parking and revert reuse the existing mechanism over
+   `EstimateStatement.updatedAt` — nothing new is needed for any of them.
+
+There is no role axis here, and none is invented. A statement is one sentence;
+`scope × role` does not describe it, so statements are their own axis, which is
+what the reporter's "their own tickable targets, outside the scope × role axes"
+already said.
 
 Gate before review: `pnpm --filter web build` (the only check that compiles
 routes), typecheck with `tsc -b` ordering, lint, full vitest with docker up,
