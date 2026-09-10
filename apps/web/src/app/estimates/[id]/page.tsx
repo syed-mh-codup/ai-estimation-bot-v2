@@ -529,18 +529,33 @@ export default async function EstimateDetailPage({
         <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           {/* ── the document ─────────────────────────────────────────────── */}
           <div className="min-w-0">
-            <RunControls
-              estimateId={estimate.id}
-              hasMenu={hasMenu}
-              initial={{
-                status: estimate.runStatus,
-                stage: estimate.runStage,
-                pct: estimate.runPct,
-                error: estimate.runError,
-                startedAt: estimate.runStartedAt?.toISOString() ?? null,
-                finishedAt: estimate.runFinishedAt?.toISOString() ?? null,
-              }}
-            />
+            {/* On a FORK the hierarchy inverts. Reconciling is the thing
+                somebody forked in order to do; running is the one that rebuilds
+                from the SOW and discards every card the fork copied. So the
+                fork gets the reconciliation in the hero position and the run
+                demoted to the rail, and an ordinary estimate — which has
+                nothing to reconcile against — is left exactly as it was.
+
+                Reconciling is NOT once-only: a settled pass offers "Reconcile
+                again", and the dispatcher refuses only while one is still
+                running. So this is a standing control, not a one-shot. */}
+            {estimate.parentId && !isFinalised ? (
+              <ReconcilePanel estimateId={estimate.id} initial={reconciliation} />
+            ) : (
+              <RunControls
+                isFork={false}
+                estimateId={estimate.id}
+                hasMenu={hasMenu}
+                initial={{
+                  status: estimate.runStatus,
+                  stage: estimate.runStage,
+                  pct: estimate.runPct,
+                  error: estimate.runError,
+                  startedAt: estimate.runStartedAt?.toISOString() ?? null,
+                  finishedAt: estimate.runFinishedAt?.toISOString() ?? null,
+                }}
+              />
+            )}
 
             <CollapsibleSection
               id="sow"
@@ -630,10 +645,24 @@ export default async function EstimateDetailPage({
               initial={artifactRows}
             />
             <RunDiagnosticsPanel estimateId={estimate.id} />
-            {/* Only on a fork: an estimate with no parent has nothing to
-                reconcile against. */}
+            {/* The run, demoted, on a fork whose hero slot the reconciliation
+                has taken. Still reachable — the rule allows a fork with no
+                children and no siblings to re-run — but it carries the warning
+                that doing so throws the copy away. */}
             {estimate.parentId && !isFinalised && (
-              <ReconcilePanel estimateId={estimate.id} initial={reconciliation} />
+              <RunControls
+                isFork
+                estimateId={estimate.id}
+                hasMenu={hasMenu}
+                initial={{
+                  status: estimate.runStatus,
+                  stage: estimate.runStage,
+                  pct: estimate.runPct,
+                  error: estimate.runError,
+                  startedAt: estimate.runStartedAt?.toISOString() ?? null,
+                  finishedAt: estimate.runFinishedAt?.toISOString() ?? null,
+                }}
+              />
             )}
 
             <ForksOfThis

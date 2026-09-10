@@ -889,14 +889,24 @@ function LineEnvelopeTag({ li }: { li: LineItemDTO }) {
  */
 function CarriedRule({ mark }: { mark: CarriedMark }) {
   if (!mark) return null;
+  // All three at COMPARABLE WEIGHT, which the first version was not: it drew
+  // `verified` in `--color-green` (#2f6b4c, a full-strength ink) against
+  // `--color-line` (#d6d1c1, a HAIRLINE colour meant for 1px borders). As a 3px
+  // bar the hairline nearly vanished while the green shouted, so the three
+  // states differed by weight as much as by meaning and the margin read as
+  // noise rather than as one scale.
+  //
+  // `--color-ink-4` is the token for exactly this — "placeholder, decorative
+  // only" — so the states now differ by HUE (signed off, or not) and by PATTERN
+  // (still matches, or has moved), and by nothing else.
   const tone =
     mark === 'verified'
       ? 'bg-green'
       : mark === 'carried'
-        ? 'bg-line'
-        : // Amended: a dashed rule, drawn as a repeating gradient because a
-          // 3px-wide border-dashed collapses to nothing at this size.
-          'bg-[repeating-linear-gradient(to_bottom,var(--color-line)_0_3px,transparent_3px_6px)]';
+        ? 'bg-ink-4'
+        : // Amended: the same colour, broken. Drawn as a repeating gradient
+          // because a 3px-wide border-dashed collapses to nothing at this size.
+          'bg-[repeating-linear-gradient(to_bottom,var(--color-ink-4)_0_3px,transparent_3px_6px)]';
   const story =
     mark === 'verified'
       ? 'Carried over unchanged, and signed off on the estimate this was forked from'

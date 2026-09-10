@@ -27,6 +27,16 @@ export type RunControlsProps = {
   estimateId: string;
   hasMenu: boolean;
   initial: RunState;
+  /**
+   * True when this estimate was forked from another. AEH-236.
+   *
+   * A fork with no children and no siblings is allowed to re-run — that is the
+   * rule, deliberately. But a run REBUILDS the ledger from the SOW, which
+   * discards every card the fork copied, and nothing else on this screen says
+   * so. The refusal for children and siblings is enforced server-side; this is
+   * the case the server permits and a person still needs warning about.
+   */
+  isFork?: boolean;
 };
 
 /**
@@ -36,7 +46,7 @@ export type RunControlsProps = {
  * page into the Menu Card on completion. Because all state is DB-backed, a hard
  * reload mid-run resumes the same progress.
  */
-export function RunControls({ estimateId, hasMenu, initial }: RunControlsProps) {
+export function RunControls({ estimateId, hasMenu, initial, isFork = false }: RunControlsProps) {
   const router = useRouter();
   const [run, setRun] = useState<RunState>(initial);
   const [now, setNow] = useState(() => Date.now());
@@ -215,6 +225,18 @@ export function RunControls({ estimateId, hasMenu, initial }: RunControlsProps) 
                 ? 'Work from the agents that finished was saved.'
                 : 'Five agents read the statement of work and draft a menu card. Typically about two minutes.'}
           </p>
+          {/* The one case the server allows and a person still needs telling
+              about: a fork may be re-run, and doing so throws away the copy it
+              was made for. Reconciling is the thing they almost always want. */}
+          {isFork && hasMenu && !running && (
+            <p
+              className="mt-1.5 text-[11.5px] leading-snug text-bronze-ink"
+              data-testid="run-fork-warning"
+            >
+              This estimate was forked. Re-running rebuilds it from the statement of work and
+              discards every card it copied — reconcile instead to change it against the brief.
+            </p>
+          )}
         </div>
 
         {running ? (

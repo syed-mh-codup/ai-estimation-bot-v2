@@ -81,8 +81,15 @@ export function LinkLineageDialog({
         <div className="mt-4 space-y-4">
           <div>
             <FieldLabel htmlFor="link-parent">This estimate follows</FieldLabel>
+            {/* `w-full` is load-bearing: a native <select> sizes itself to its
+                WIDEST option, and these options are whole estimate titles. Left
+                intrinsic, one long title pushes the control straight through the
+                side of the dialog, which is `max-w-md`. The base Select sets no
+                width on purpose — some are meant to size to their content — so
+                it is the caller's job. */}
             <Select
               id="link-parent"
+              className="w-full"
               value={parentId}
               onChange={(e) => setParentId(e.currentTarget.value)}
               disabled={pending}
@@ -101,6 +108,7 @@ export function LinkLineageDialog({
             <FieldLabel htmlFor="link-kind">As a</FieldLabel>
             <Select
               id="link-kind"
+              className="w-full"
               value={kind}
               onChange={(e) => setKind(e.currentTarget.value as Kind)}
               disabled={pending}
