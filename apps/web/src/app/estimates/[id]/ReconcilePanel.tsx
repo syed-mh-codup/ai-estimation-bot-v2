@@ -6,6 +6,7 @@ import { Check, Minus, Plus, RefreshCw, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Pill } from '@/components/ui/pill';
+import { CrewTrack, type CrewStage } from '@/components/ui/crew-track';
 import {
   applyReconciliationAction,
   decideProposal,
@@ -19,6 +20,26 @@ const signed = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${roun
 
 /** What each kind of proposal is, in one word, with the tone that fits it. */
 const KIND_LABEL = { ADD: 'new', MODIFY: 'changed', REMOVE: 'dropped' } as const;
+
+/**
+ * The agents a reconciliation runs, and where each one's span begins.
+ *
+ * The same treatment the run gets, and for the same reason: a bar with a
+ * percentage says only that something is happening, where a named track says
+ * WHICH agent is working and therefore which one stopped. The first real
+ * reconciliation on production failed inside the Librarian and this panel could
+ * not say so — it reported 30 percent and the word "Failed".
+ *
+ * The bounds match `report()` in `packages/agents/src/reconcile.ts`. Coarse but
+ * monotonic, so the track only ever moves forward.
+ */
+const RECONCILE_CREW: CrewStage[] = [
+  { key: 'read', name: 'Reading', from: 0 },
+  { key: 'librarian', name: 'Librarian', from: 15 },
+  { key: 'reconciler', name: 'Reconciler', from: 30 },
+  { key: 'council', name: 'Specialists', from: 40 },
+  { key: 'propose', name: 'Proposal', from: 95 },
+];
 
 /**
  * Reconciling a fork against what changed. AEH-236.
@@ -114,6 +135,27 @@ export function ReconcilePanel({
     });
   };
 
+  /**
+   * Throw the failed pass away and start another.
+   *
+   * Discard first, because `startReconciliation` refuses while one is QUEUED or
+   * RUNNING. Two steps behind one button — nobody should have to clear a
+   * failure by hand before they can retry it.
+   */
+  const retry = (): void => {
+    setError(null);
+    startTransition(async () => {
+      const cleared = await discardReconciliation(rec!.id);
+      if (cleared.kind === 'refused') return setError(cleared.error);
+      const out = await startReconciliation(estimateId);
+      if (out.kind === 'refused') {
+        setRec(null);
+        return setError(out.error);
+      }
+      await refresh();
+    });
+  };
+
   const discard = (): void => {
     setError(null);
     startTransition(async () => {
@@ -156,32 +198,65 @@ export function ReconcilePanel({
   // ── In flight ──────────────────────────────────────────────────────────────
   if (running) {
     return (
-      <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5" data-testid="reconcile-panel">
-        <div className="eyebrow font-bold text-ink-3">Reconciling</div>
-        <div className="mt-2 flex items-baseline justify-between text-[11.5px] text-ink-3">
-          <span data-testid="reconcile-stage">{rec.stage ?? 'Starting…'}</span>
-          <span className="num">{rec.pct}%</span>
+      <div className="rounded-[10px] border border-bronze-line bg-surface px-4 py-4" data-testid="reconcile-panel">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="eyebrow">Reconciling against the brief</div>
+            <div className="mt-1.5 text-[14.5px] font-semibold text-ink" data-testid="reconcile-stage">
+              {rec.stage ?? 'Starting…'}
+            </div>
+          </div>
+          <div className="num shrink-0 text-[26px] leading-none font-medium tracking-[-0.02em] text-bronze-ink">
+            {rec.pct}
+            <span className="text-[15px] text-bronze">%</span>
+          </div>
         </div>
-        <div className="mt-1 h-1 overflow-hidden rounded-full bg-line-soft">
-          <div
-            className="h-full bg-green transition-[width] duration-500"
-            style={{ width: `${Math.max(2, rec.pct)}%` }}
-          />
-        </div>
+        <CrewTrack className="mt-4" stages={RECONCILE_CREW} pct={rec.pct} status="RUNNING" />
+        <p className="mt-3 text-[11.5px] leading-snug text-ink-4">
+          Nothing is written while this runs. It ends with a proposal you accept or reject.
+        </p>
       </div>
     );
   }
 
   if (rec.status === 'FAILED') {
+    // Which agent stopped, derived from how far it got. "Failed at 30%" is not
+    // something anybody can act on; "stopped at the Librarian" is.
+    const stalled =
+      [...RECONCILE_CREW].reverse().find((c) => rec.pct >= c.from) ?? RECONCILE_CREW[0]!;
     return (
-      <div className="rounded-[10px] border border-brick-line bg-surface px-4 py-3.5" data-testid="reconcile-panel">
-        <div className="eyebrow font-bold text-brick">Reconciliation failed</div>
-        <p className="mt-1.5 text-[12px] leading-relaxed break-words text-ink-2">
+      <div className="rounded-[10px] border border-brick-line bg-surface px-4 py-4" data-testid="reconcile-panel">
+        <div className="eyebrow font-bold text-brick">Stopped at the {stalled.name}</div>
+        <CrewTrack className="mt-3" stages={RECONCILE_CREW} pct={rec.pct} status="FAILED" />
+        <p
+          className="mt-3 text-[12px] leading-relaxed break-words text-ink-2"
+          data-testid="reconcile-failure"
+        >
           {rec.error ?? 'It stopped without saying why.'}
         </p>
-        <Button type="button" variant="outline" full className="mt-2.5" onClick={discard} disabled={pending}>
-          Clear
-        </Button>
+        <p className="mt-1.5 text-[11.5px] leading-snug text-ink-4">
+          Nothing was written — the estimate is exactly as it was.
+        </p>
+        <div className="mt-2.5 flex gap-2">
+          <Button type="button" variant="outline" onClick={discard} disabled={pending}>
+            Clear
+          </Button>
+          <Button
+            type="button"
+            className="flex-1"
+            onClick={retry}
+            disabled={pending}
+            data-testid="retry-reconcile"
+          >
+            <RefreshCw className="h-4 w-4" />
+            {pending ? 'Starting…' : 'Try again'}
+          </Button>
+        </div>
+        {error && (
+          <p className="mt-1.5 text-[11.5px] text-brick" data-testid="reconcile-error">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

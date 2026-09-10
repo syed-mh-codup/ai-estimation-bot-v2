@@ -153,11 +153,14 @@ export function UnlinkButton({ estimateId }: { estimateId: string }) {
 
   return (
     <div>
+      {/* Same shape as every other control in the Actions box — outline, full
+          width. It read as an afterthought when it was a quiet extra-small
+          button among full-width ones, which is not what breaking a lineage
+          is. */}
       <Button
         type="button"
-        variant="quiet"
-        size="xs"
-        className="text-ink-4 hover:text-brick"
+        variant="outline"
+        full
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
@@ -168,8 +171,8 @@ export function UnlinkButton({ estimateId }: { estimateId: string }) {
         }
         data-testid="unlink-lineage"
       >
-        <Unlink className="h-3 w-3" />
-        {pending ? 'Unlinking…' : 'Unlink'}
+        <Unlink className="h-4 w-4" />
+        {pending ? 'Unlinking…' : 'Unlink from parent'}
       </Button>
       {error && <p className="mt-1 text-[11.5px] text-brick">{error}</p>}
     </div>

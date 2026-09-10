@@ -167,20 +167,47 @@ export async function runReconciliation(
   );
   const priorRequirements: Requirement[] = parsed.success ? parsed.data.requirements : [];
 
-  // ── 1. The brief, re-read only if it actually moved ────────────────────────
+  // ── 1. Read only what the brief actually gained ───────────────────────────
   //
-  // A branch usually attaches no documents, so `sowText` is byte-identical to
-  // the parent's. Re-reading it then is not merely wasted spend: the Librarian
-  // is not deterministic, so it would manufacture a requirement diff out of
-  // nothing and the pass would chase changes nobody made.
-  const sowChanged = estimate.parent ? estimate.sowText !== estimate.parent.sowText : true;
+  // Three cases, and the middle one is the whole point.
+  //
+  // UNCHANGED — a branch usually attaches no documents, so `sowText` is
+  // byte-identical to the parent's. Re-reading is not merely wasted spend: the
+  // Librarian is not deterministic, so it would manufacture a requirement diff
+  // out of nothing and send the pass chasing changes nobody made.
+  //
+  // EXTENDED — the fork kept the parent's brief and appended to it, which is
+  // what the fork route does for every successor with documents attached. Only
+  // the tail is new, so only the tail is read.
+  //
+  // This case is why the pass failed in production on its first real run. A
+  // fork whose brief was 480,951 characters against a parent's 460,444 — a
+  // twenty-kilobyte change — re-read the whole 480KB, which is around 120,000
+  // tokens, and the call was abandoned after exhausting its 240-second budget.
+  // Nothing about that is fixable with a longer timeout: the platform's
+  // per-step ceiling is 300 seconds, so there is nowhere left to go. Re-reading
+  // an entire brief to find what was appended to it is simply the wrong
+  // operation. See AEH-367, which is about making the documents separable so
+  // this stops being a string comparison at all.
+  //
+  // REPLACED — the brief was rewritten rather than added to, so there is no
+  // shortcut and the whole thing is read.
+  const parentSow = estimate.parent?.sowText ?? '';
+  const unchanged = parentSow.length > 0 && estimate.sowText === parentSow;
+  const extended = parentSow.length > 0 && !unchanged && estimate.sowText.startsWith(parentSow);
+  const toRead = extended ? estimate.sowText.slice(parentSow.length) : estimate.sowText;
+  const sowChanged = !unchanged;
+
   let currentRequirements = priorRequirements;
-  if (sowChanged) {
-    await report('Re-reading the brief', 15);
+  if (sowChanged && toRead.trim().length > 0) {
+    await report(
+      extended ? 'Reading the revised material' : 'Re-reading the brief',
+      15,
+    );
     const libP = await loadActivePrompt(db, 'LIBRARIAN');
     const recorder = createUsageRecorder({ db, estimateId: rec.estimateId });
     const lib = await step('librarian', () =>
-      runLibrarian(estimate.sowText, [], {
+      runLibrarian(toRead, [], {
         modelProvider,
         modelString: libP.modelString,
         instructions: libP.body,
@@ -188,7 +215,21 @@ export async function runReconciliation(
         levers: libP.levers,
       }),
     );
-    currentRequirements = lib.requirements;
+    // On an EXTENDED brief the Librarian saw only the new material, so what it
+    // returns is what was ADDED — the prior requirements are still true and are
+    // kept. Its ids restart at REQ-001 every call, so they are renumbered to
+    // continue past the existing set; without that, a new requirement would
+    // silently claim the id of an old one and the Reconciler would price the
+    // wrong work.
+    currentRequirements = extended
+      ? [
+          ...priorRequirements,
+          ...lib.requirements.map((r, i) => ({
+            ...r,
+            id: `REQ-${String(priorRequirements.length + i + 1).padStart(3, '0')}`,
+          })),
+        ]
+      : lib.requirements;
   }
 
   // ── 2. Triage: what is in play ─────────────────────────────────────────────

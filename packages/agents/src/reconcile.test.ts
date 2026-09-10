@@ -261,6 +261,75 @@ describe('the brief is only re-read when it moved', () => {
     await reconcile();
     expect(calls.filter((c) => c.agent === 'LIBRARIAN')).toHaveLength(1);
   });
+
+  /**
+   * The production failure, as a test.
+   *
+   * A successor keeps its parent's brief and appends to it, so the fork's SOW
+   * is the parent's plus a tail. Re-reading the WHOLE thing to find that tail
+   * is what killed the first real reconciliation: 480,951 characters against a
+   * parent's 460,444 — a twenty-kilobyte change — went to the model as roughly
+   * 120,000 tokens and the call was abandoned after its 240-second budget.
+   *
+   * There is no longer timeout available to fix that: the platform's per-step
+   * ceiling is 300 seconds. The only fix is to stop asking the question.
+   */
+  it('reads ONLY the appended material, never the whole brief again', async () => {
+    const parentSow = 'A portal with SSO and card payments, at length.';
+    const appended = '\n\n── Revised material ──\nAdd a loyalty scheme with tiers.';
+    await db.estimate.update({
+      where: { id: forkId },
+      data: { sowText: parentSow + appended },
+    });
+
+    await reconcile();
+
+    const lib = calls.filter((c) => c.agent === 'LIBRARIAN');
+    expect(lib).toHaveLength(1);
+    // The tail reached the model...
+    expect(lib[0]!.user).toContain('loyalty scheme with tiers');
+    // ...and the parent's brief did NOT. This is the whole assertion: a
+    // substring check on the prompt is the only thing that can tell "read the
+    // change" from "read everything and happened to include the change".
+    expect(lib[0]!.user).not.toContain('SSO and card payments');
+  });
+
+  it('reads the whole brief when it was REPLACED rather than added to', async () => {
+    // No shortcut is available here and none should be invented — a rewritten
+    // brief shares no prefix with the old one, so every word of it is new.
+    await db.estimate.update({
+      where: { id: forkId },
+      data: { sowText: 'A completely different brief about warehouse logistics.' },
+    });
+    await reconcile();
+    const lib = calls.filter((c) => c.agent === 'LIBRARIAN');
+    expect(lib).toHaveLength(1);
+    expect(lib[0]!.user).toContain('warehouse logistics');
+  });
+
+  it('renumbers requirements found in the tail so they cannot collide', async () => {
+    // `runLibrarian` restarts its ids at REQ-001 on every call. On an extended
+    // brief the prior requirements are kept, so an un-renumbered new one would
+    // silently claim an existing id and the Reconciler would price the wrong
+    // work against it.
+    await db.estimate.update({
+      where: { id: forkId },
+      data: { sowText: 'A portal with SSO and card payments, at length.\n\nAlso a loyalty scheme.' },
+    });
+    reconcilerReply = {
+      repriceCardIds: [],
+      newRequirementIds: [],
+      removeCardIds: [],
+      reasoning: 'x',
+    };
+    await reconcile();
+
+    const rec = calls.find((c) => c.agent === 'RECONCILER')!;
+    // The prior set is REQ-001 and REQ-002 (from `REQS`), so the two the stub
+    // returns for the tail must land at 003 and 004 rather than overwriting.
+    expect(rec.user).toContain('REQ-003');
+    expect(rec.user).toContain('REQ-004');
+  });
 });
 
 describe('a branch with no new documents still proposes something', () => {
