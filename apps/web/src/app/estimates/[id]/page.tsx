@@ -498,8 +498,17 @@ export default async function EstimateDetailPage({
 
   return (
     <div data-testid="estimate-detail">
-      <Link href="/dashboard" className="text-[12.5px] text-ink-3 hover:text-ink hover:underline">
-        ← Estimates
+      {/* Back goes UP one level, and for a fork that level is the project.
+          The dashboard lists a family as a single project row, so sending a
+          fork straight there skips the view that actually holds its siblings —
+          and the label follows the destination, because a link that says
+          "Estimates" and lands on one project is worse than either. */}
+      <Link
+        href={inAFamily ? `/estimates/${estimate.id}/lineage` : '/dashboard'}
+        className="text-[12.5px] text-ink-3 hover:text-ink hover:underline"
+        data-testid="back-link"
+      >
+        ← {inAFamily ? 'Project' : 'Estimates'}
       </Link>
 
       <div className="mt-3">
