@@ -21,6 +21,7 @@ const line = (id: string, role: 'DEV' | 'QA' | 'PM' | 'BA', base: number, taxed:
   touchesFrontend: false,
   touchesBackend: false,
   envelope: { complexity: null, aiAssistApplied: false, anchorPresetIds: [] },
+  carried: null,
 });
 
 const card = (id: string, overhead: boolean, lineItems: ItemDTO['lineItems']): ItemDTO =>

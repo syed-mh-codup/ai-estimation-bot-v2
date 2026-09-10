@@ -9,484 +9,59 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## In flight: AEH-238 — AI-assisted WBS editing (SPEC AGREED, awaiting approval to build)
-
-No code written. No Jira writes made. Ticket left in Selected for Development.
-
-Spec settled by a grill-me interview on 2026-09-09. The reframe came from the
-user and it is NOT what the ticket says: this is not a propose-then-verify diff
-surface. **A human declares the blast radius up front, the system enforces it
-mechanically, and the AI works inside it.** Out-of-scope damage is impossible
-rather than something a reviewer has to catch.
-
-### The envelope
-
-Axes: `scope × role`, where scope is estimate / section / card / line and role
-is DEV/QA/PM/BA. Declared by SELECTING in the UI, then prompting — no NL parsing
-of scope, so the boundary is deterministic UI state.
-
-**The envelope never cascades.** `packages/shared/src/scope-selection.ts` has a
-selection model already, but it is the scope configurator's (AEH-235): card-only
-and it walks the dependency graph to pull in prerequisites. Reusing it would
-silently widen a boundary the human drew deliberately. Mirror its refusal shape
-(`SelectionChange.refused`), do not reuse the module.
-
-### Locks
-
-Same coordinate system as the selection — one addressing concept serves both the
-thing a human grants and the thing a human forbids. Row (`RoleLineItem`) is the
-finest unit, because a row is one description paired with its own hours for one
-role; freezing half of it would freeze half of one thought. No per-field locks.
-
-A lock freezes **hours, description, and existence**. Placement stays free
-(`sectionId`/`order` are presentational per the schema). So: no hour change, no
-rename, no delete, no merge; dragging between sections is fine.
-
-**Coarse locks materialise to row level at lock time.** Otherwise a lock is
-escapable: lock `section × DEV`, drag the card out of the section (allowed —
-placement is free), and a live membership test would unlock it. The hover
-history records that a row's lock came from a section lock.
-
-**Read is WIDE, write is NARROW — and this is load-bearing, not a nicety.**
-The model sees everything the Oracle sees: every menu item, the assumptions, the
-narrative and the corpus (`sowText`). It writes only inside the envelope. A
-blind AI makes edits that are locally plausible and globally wrong — splitting a
-module without seeing the rest of the ledger produces a duplicate of a card that
-already exists elsewhere. Locked rows are VISIBLE AND MARKED, never hidden. So
-the prompt carries two clearly separated sets: what you can see, and what you
-may change.
-
-**Enforcement rule, and it is the whole mechanism:**
-
-    Refuse if (selection ∩ locks) ≠ ∅. Otherwise the write set is exactly the
-    selection, and nothing outside it is writable.
-
-So locking DEV on a card does not block re-costing QA on that same card — the
-sets do not intersect. A refusal names what is locked and who locked it.
-
-Locks bind USERS as well as the AI, so `updateLineItem`, `deleteLineItem`,
-`renameMenuItem`, `deleteMenuItem` and `setItemEnabled` all grow a lock check.
-NOT `moveMenuItem` — placement is free. `setItemEnabled` IS frozen: toggling a
-locked card off changes the totals, so it belongs with existence. This is a
-permission layer on the ledger that the AI happens to also respect.
-
-Override: the locker unlocks freely; anyone else must confirm they are
-overriding. **No reason required** — simple audit is the preventative measure,
-and the team is trying to remove steps, not add them. The lock's history
-(who, when, overrides) renders on hover.
-
-### One engine, not two
-
-The 0.5-hour case killed the arithmetic path: a 30% cut on a 0.5h row gives
-0.35h, which violates the quarter-hour snapping and the four-hour-rule
-decomposition the rows exist to express. The work must be re-thought for the
-hours to be honest.
-
-So **every edit is a re-assessment inside the envelope**, and the write is
-"replace the rows in this region with a new set" — not "patch these rows'
-numbers." Rows may appear, vanish and be rewritten. The envelope is a REGION
-THAT GETS REGENERATED.
-
-The human steers; the model re-assesses against the requirement. The model may
-set numbers because it went back to the requirement — the same licence the
-specialist council has. Abuse ("throw cards in the air and see what sticks") is
-knowingly deferred: "we will fix it when we get there."
-
-### Structure (split / merge)
-
-- The human normally states the seam. The AI MAY decide the seam, but only when
-  explicitly asked to.
-- A restructure **re-costs by default**; preserving the total is the opt-in.
-  Cutting a module in two re-conceives the work.
-- The AI decides `taxonomyKey`, `category`, `phase`, `requirementIds` — those
-  were the Librarian's and Architect's calls, not a human's.
-- **`matchScore` → null** on any structural change. It is an Archivist
-  embedding-similarity measurement, not a judgement; a model asked for one emits
-  fiction, and promotion/writeback read it.
-- Affected `ScopeScenarioPick` rows and `MenuItemDependency` edges are
-  invalidated by the existing re-run rule ("dependencies and the scopes cut from
-  them are properties of THIS set of cards"). `HiddenWorkFinding.menuItemId` is
-  cleared while the outcome survives — also an existing precedent.
-
-### A full re-run refuses while any lock exists
-
-`runEstimate` still deletes every row at `run-estimate.ts:460`, so the first
-re-run after someone locks a card destroys the locked work and orphans its audit
-trail. Same rule as 2c: refuse, naming the locks and who set them. The refusal
-belongs in the action that DISPATCHES the Inngest job — not inside the persist
-step, five minutes of paid model calls later.
-
-### Apply model — no gate in the happy path, a gate only when the world moved
-
-1. Pre-flight: warn if the region on screen is already stale vs the DB, before
-   spending a model call.
-2. Run.
-3. Apply: re-check the region. Unchanged -> the write lands immediately.
-   Changed -> warn and ask; approving overwrites the concurrent change,
-   rejecting discards the AI's work.
-4. After: the region is marked as this prompt's work, with a one-level revert
-   scoped to that region.
-
-**Gap this needs:** there is no cheap staleness signal today. Neither `MenuItem`
-nor `RoleLineItem` has `updatedAt` or a revision counter, so "has this card
-moved" currently requires refetching and comparing. Add a per-card revision
-marker — one column, and the same column the begin/end conflict check reads.
-
-The richer undo model, and how undo behaves under concurrent editing, is
-EARMARKED FOR LATER WORK. Not designed now.
-
-### Assumptions and narrative
-
-Their own tickable targets, outside the `scope × role` axes. Both get
-**promoted from `String[]` to real tables**: a bare string in an ordered array
-has no identity, so "lock assumption 4" locks an array index that breaks on the
-next insert, and the audit could only ever say "the assumptions changed."
-
-The Oracle's `{{suggested assumption}}` copy button becomes a one-click write
-once a write path exists — in scope, as QoL. Note that "Oracle has no write
-path" is currently asserted in four places
-(`packages/shared/src/citations.ts:110`, `Oracle.tsx:609`, the `OracleRole`
-schema comment, `oracle.test.ts`), so crossing it needs a sibling AgentKind, not
-a change to Oracle.
-
-### Provenance and the audit record
-
-`RoleLineItem.edited` becomes an enum: **CREW / HUMAN / STEERED**. It is
-display-only — exactly one behaviour-bearing read, a badge at
-`MenuCardEditor.tsx:860`. Nothing gates on it: not promotion, not writeback, not
-the Sheets export. Full blast radius, counted: three write sites in
-`actions.ts` (215/226/270) setting true, three in the agents package setting
-false (`architect.ts:81`, `audit.ts:123`, `taxation.ts:128`), the zod default at
-`packages/shared/src/schemas.ts:349`, two DTO mappings in
-`packages/db/src/menu-item-mapping.ts`, and a Boolean-to-enum migration on Neon
-with a backfill (true -> HUMAN, false -> CREW).
-
-One audit row per prompt, holding: the prompt verbatim, the resolved envelope
-(concrete card and row ids), the model's stated reasoning, who and when, the
-model and its cost via a new `UsageKind`, whether it was reverted, whether it
-overwrote a conflict, and a **JSON before/after snapshot which doubles as the
-revert payload**.
-
-Performance was raised and answered: a card × DEV envelope is ~16 rows (~6KB);
-the pathological whole-estimate case is ~170KB each way. Postgres TOASTs any
-JSON column over ~2KB — out-of-line, compressed, not read unless selected. Two
-conditions: (1) the payload column is NEVER selected by default, or a careless
-`findMany` drags every snapshot out of Neon; (2) the snapshot writes in the SAME
-TRANSACTION as the ledger change, because a ledger write whose revert payload
-did not land is worse than no audit. Retention deferred. Analysis path is
-download-and-take-it-elsewhere (Hex / chat), which suits a blob better than a
-normalised child table.
-
-### Neighbours — do NOT conflate
-
-- **AEH-366 stays exactly as it is.** It is a UX problem: how a user interfaces
-  with numbers manually and consciously. This ticket is a strategic problem.
-  I twice tried to merge them and was twice told not to. Its role-filtered view
-  and keyboard ergonomics are its own.
-- **AEH-241 stays separate.** It was always meant as a steer for the INITIAL run
-  and for re-runs, not for review-time editing. Do not present this ticket as
-  satisfying it.
-- **AEH-367** is still blocked by the corpus being deleted at
-  `apps/web/src/inngest/functions.ts:210` — untouched by this. But locks plus
-  region-replace are most of the answer to its "a re-run destroys every hand
-  edit" problem, and that is worth a comment on it once this lands.
-
-### Corrections owed to the ticket itself (on approval)
-
-- The "manual editing exists and is good" line must go — AEH-366 explicitly asks
-  whoever picks up first to fix it.
-- The claim that the partial-run mechanism "must now be designed" is too
-  pessimistic. `runSpecialistCouncil` is already invoked standalone for hidden
-  work at `packages/agents/src/run-estimate.ts:364` with a synthesised
-  requirement, and the Librarian's requirement set survives every run in
-  `Estimate.agentState.librarianOutput`. The real gap is the PERSIST — the
-  delete-and-recreate at `run-estimate.ts:460-481` — which region-replace fixes.
-- Use the `jira-text` skill for both; paired markup characters get eaten.
-
-### Constraints from the code the design obeys
-
-- `IModelProvider` has NO tool calling
-  (`packages/providers/src/model-provider.ts:158`). The grain is `chatJSON` +
-  zod with `responseFormat: 'json_object'`.
-- ONE chat turn is ONE model call, deliberately, because of Vercel Hobby's 300s:
-  `apps/web/src/app/api/estimates/[id]/oracle/route.ts:24`. No agentic loop.
-- Any applier MUST reuse `updateLineItem`'s tax recompute
-  (`apps/web/src/app/estimates/[id]/actions.ts:226`) — it taxes at the config
-  version the estimate is PINNED to, not the active one. AEH-335 exists because
-  that was got wrong once.
-- The model's re-decomposition must be validated deterministically against the
-  four-hour rule and `snapToQuarterHour`.
-- `MenuItem.requirementIds` lives in `meta` (JSON), and the schema warns `meta`
-  is write-only by convention (the AEH-227 lesson). Reading it needs a validated
-  helper or promotion to a column.
-
-### UI placement — proposed, needs approving not discovering
-
-Selection ticks live on the cards and their rows; role chips and the prompt box
-live in a bar that appears only once something is selected, anchored to the
-bottom of the ledger rather than added to the rail — AEH-302 already records
-that the rail is a fixed stack that buries its actions, and this would be the
-heaviest thing in it. Lock controls sit on the card header and the row, with
-the history on hover. The revert affordance sits on the region it applies to.
-
-### Sizing
-
-Seven migrations on Neon: lock table, per-card revision marker, provenance enum
-(with backfill), audit/revert table, assumptions table, narrative table, and the
-sibling AgentKind plus UsageKind (which also needs catalogue entries in
-`agent-catalogue.ts` and `usage-catalogue.ts` — there is a completeness test
-that fails until both move, plus a `PromptVersion` row for the new agent).
-
-Stage 1 (locks) is the smallest and ships standalone value. Stage 2 is the bulk
-of it. Realistically this is two to three weeks of build before the single
-review, and the migration count is the part that will hurt.
-
-### Also decided
-
-`setEstimateTaxPct` is a bulk hour change by another name — it re-taxes every
-row of a role. It must REFUSE while any row of that role is locked, naming them,
-rather than quietly re-taxing frozen hours. Same rule as the full re-run.
-
-UI placement above is approved for now, to be revisited at the end.
-
-### Build order — ONE review at the end
-
-The user will review all of it in one go. Build everything, then call it done.
-Commit checkpoints as it goes (terminal crashes), but no incremental review.
-
-1. **Locks** — no AI. Auditable, hover history, enforced in the existing manual
-   server actions. Standalone value on day one, and it establishes the
-   enforcement rule everything else depends on.
-2. **The engine, hours only** — selection UI, region-replace persist, the new
-   sibling agent + prompt row + catalogue entries, revision markers, provenance
-   enum, audit/revert table, conflict flow, job progress. Scoped to `card x role`.
-3. **Structure** — split, merge, and the metadata rules above.
-4. **Assumptions and narrative** — the tables, plus the Oracle copy-button write.
-
-### Checklist (tick as it lands — terminal crashes)
-
-Stage 1 — locks  (DONE, local docker only — see the migration note below)
-- [x] `LedgerLock` + `LockEvent` schema and migration
-      (`20260909120000_aeh_238_ledger_locks`)
-- [x] lock/unlock/override server actions, coarse locks materialised to rows
-      (`packages/db/src/ledger-locks.ts`, `lock-actions.ts`)
-- [x] enforcement in `updateLineItem`, `createLineItem`, `deleteLineItem`,
-      `setLineItemSide`, `renameMenuItem`, `deleteMenuItem`, `setItemEnabled`
-      (`apps/web/src/lib/lock-guards.ts`)
-- [x] `setEstimateTaxPct` refuses on a locked role
-- [x] full re-run refuses at dispatch while any lock exists
-- [x] lock UI on card header + row, history on hover (`LockControls.tsx`)
-- [x] tests — 15, `packages/db/src/ledger-locks.test.ts`
-
-Migrations are applied to LOCAL DOCKER ONLY so far, deliberately. Neon dev/main
-and the Neon test branch get every migration in one pass at the final gate, so
-the schema is settled first rather than half-applied across three targets.
-
-Two notes for the reviewer of stage 1:
-- Role-scoped locking exists in the data model but has no UI yet. Picking roles
-  is the selection bar's interaction, so the role picker arrives with stage 2
-  rather than being built twice.
-- `prisma format` reflows the WHOLE schema file (it had pre-existing drift), so
-  the schema edits here are hand-formatted to each block's existing alignment.
-  `git diff -w` on the schema is pure additions, which is the check.
-
-Stage 2 — engine  (DONE)
-- [x] `updatedAt` on MenuItem + RoleLineItem as the staleness fingerprint;
-      provenance enum CREW/HUMAN/STEERED + backfill
-      (`20260909130000_aeh_238_edit_engine`)
-- [x] `LedgerEdit` audit/revert table with `PENDING_CONFLICT` and `FAILED`
-- [x] NO new AgentKind — the specialist council does the re-pricing. See below.
-- [x] wide-read ledger summary with locked cards MARKED
-      (`renderLedgerContext`, `packages/agents/src/ledger-edit.ts`)
-- [x] three optional prompt blocks on `SpecialistInput` (steer, existing rows,
-      ledger context); a plain run's message is byte-identical to before
-- [x] Inngest `ledgerEditFn`, one step per card per role, concurrency 2
-- [x] region-replace persist reusing the PINNED-config tax recompute
-- [x] quarter-hour snap + four-hour clamp at the persistence gate
-- [x] conflict checks: pre-flight staleness warning, apply-time park
-- [x] selection UI (`EditBar`), progress + decisions (`EditActivity`)
-- [x] one-level revert, scoped to the region
-- [x] tests — 10 in `packages/db/src/ledger-edit.test.ts`
-
-The design decision worth reading before touching stage 2: there is NO new
-agent kind. Every edit is a re-assessment against the requirement (the
-0.5-hour case), which is exactly what `runSpecialist` does — against the same
-admin-authored prompts the estimate was costed with. A purpose-built edit
-agent would re-derive the four-hour decomposition in a fresh prompt and
-diverge from the crew's numbers immediately. It also hands us the envelope's
-granularity for free: card x DEV runs SPECIALIST_DEV and nothing else.
-
-Cost attribution is `ModelUsage.ledgerEditId`, a join, mirroring `artifactId`
-— not a usage kind, because the call really IS a SPECIALIST_* call.
-
-Two bugs found and fixed while building, both worth knowing about:
-- `revertRegion` first identified an edit's rows by card + provenance, which
-  also matches an EARLIER steered edit on the same card, so putting one back
-  destroyed another's work. Now the written ids are captured with
-  `createManyAndReturn` and stored in `afterSnapshot`. Pinned by a test.
-- `LockInfo` was a hand-written look-alike of the Prisma row type, which made
-  every `lock.declaredScope` read invisible to the orphan-field audit. It is
-  a `Pick<LedgerLock, ...>` now — the audit attributes reads by the
-  RECEIVER's type.
-
-Stage 3 — structure  (DONE)
-- [x] a new agent, the CURATOR, which decides SHAPE and never a number
-      (`packages/agents/src/curator.ts`; enum + catalogues + seeded prompt;
-      migrations `..._aeh_238_curator`, `..._aeh_238_edit_mode`)
-- [x] `applyRestructure` — lines MOVE rather than being recreated, so they keep
-      their ids, provenance and envelope meta
-- [x] metadata rules: matchScore null, scenario picks and graph edges dropped by
-      the existing re-run rule, HiddenWorkFinding link cleared with the outcome
-      surviving, injected/overhead/section inherited by a created card
-- [x] `LedgerEditMode` — REPRICE / RESTRUCTURE / RESTRUCTURE_KEEP_HOURS, an
-      explicit choice in the bar rather than intent read out of the prose
-- [x] a reshape re-prices by default; keeping the hours is the opt-in
-- [x] tests — 5 restructure cases + 9 curator cases
-
-Two things to know about stage 3:
-
-A reshape is NOT revertible, on purpose. Putting the rows back would leave the
-cards the split created sitting empty and could not resurrect one a merge
-removed, so the ledger would end in a state that is neither before nor after.
-`isRevertible` excludes it and `revertRegion` refuses with that sentence.
-Undoing a reshape properly belongs with the richer undo model — later work.
-
-A multi-card merge is ONE edit whose declaration names the first card and
-carries the rest in its pinned set. The scope axis has no "these three cards"
-value, and inventing one would hand locks a second addressing vocabulary to
-disagree with. The lock check is asked of the RESOLVED write set for exactly
-that reason, not of the declaration.
-
-Stage 4 — assumptions + narrative
-- [x] `EstimateStatement` + migration + backfill, matched by TEXT rather than
-      position so inserting a line at the top preserves every id and every
-      provenance stamp
-- [x] Oracle suggested-assumption becomes a write — one action wide, and
-      AEH-259's absolute no-write guarantee deliberately narrowed to the part
-      that was protecting somebody: no number a client sees can move because
-      of Oracle
-- [x] tests — 12 statement cases + the narrowed Oracle guard
-- [x] targets in the envelope — `StatementLock`, the SCRIBE agent, the
-      `REVISE_STATEMENTS` mode, ticks and padlocks on both lists, and the
-      text-identity guard; 38 new tests across four files
-
-#### Statements as envelope targets — what was built
-
-The last piece, and the one the reframe led with: "if i want to edit my
-assumptions". Statements are rows now precisely so this is possible — locking
-"assumption 4" under the old `String[]` would have locked an array INDEX, which
-stops meaning the same thing the moment a line is inserted above it.
-
-Four decisions, each taken by precedent rather than invented, each cheap to
-overturn in review — and each one built as described below:
-
-1. **Storage.** A SECOND current-state table, `StatementLock`, not a nullable
-   `LedgerLock.lineItemId`. `UNIQUE` + `FK ON DELETE CASCADE` on that column IS
-   the enforcement guarantee stated in the locks migration; making it nullable
-   would give up a uniqueness constraint that two concurrent lock calls
-   currently cannot get around. History stays in ONE table — `LockEvent` gains
-   a nullable `statementId` — because the hover history and the three-state
-   padlock must not need a second implementation.
-
-2. **The text-identity trap.** This is the one place a statement lock differs
-   from a line lock, and it is the thing most likely to be got wrong.
-   `reconcileStatements` matches by TEXT, so a hand-edit of a locked statement
-   is a delete plus a create — and an FK cascade would then silently REMOVE the
-   lock rather than refuse the edit. So the guard runs BEFORE reconcile, over
-   the locked id set: every locked statement's text must appear verbatim in the
-   submitted list or the save is refused. `EditableList` renders a locked row
-   read-only, the same way the ledger disables a frozen row.
-
-3. **The edit row.** `LedgerEdit` gains `pinnedStatementIds` rather than a new
-   table, because `EditActivity` has to stay one list. The user was explicit
-   that the job must be visible and in context, in one place.
-
-4. **The agent.** A new `AgentKind`, mirroring what CURATOR did for shape:
-   decides WORDS only, never hours and never structure. The envelope is the
-   ticked statement ids, the write set is exactly those, and the wide read is
-   the same visibility Oracle has. Provenance `STEERED`. Staleness, conflict
-   parking and revert reuse the existing mechanism over
-   `EstimateStatement.updatedAt` — nothing new is needed for any of them.
-
-There is no role axis here, and none is invented. A statement is one sentence;
-`scope × role` does not describe it, so statements are their own axis, which is
-what the reporter's "their own tickable targets, outside the scope × role axes"
-already said.
-
-Two things about the statement axis that only became clear while building it:
-
-**A re-run destroys locked statements.** `assertEstimateUnlockedForRerun` was
-written about line items, and a run calls `replaceStatements`, which deletes
-both lists wholesale before writing the new ones. The guard counts statement
-locks now. This was a real hole, not a hypothetical one.
-
-**The list editor was index-based.** `EditableList` worked on `string[]` and
-identified a line by its array position, which is exactly what the table was
-promoted to rows to stop. It works on ids now, and a line somebody has just
-added carries `id: null` until the save comes back — there is genuinely nothing
-to lock or tick until then, and saying so beats inventing a temporary handle.
-
-### The gate, and where it got to
-
-- [x] `pnpm --filter web build` — the only check that compiles routes
-- [x] typecheck with `tsc -b` ordering, per package
-- [x] lint — clean apart from one pre-existing warning in `cartographer.test.ts`
-- [x] full vitest with docker up — **1035 passing, 91 files**, including all
-      three AEH-228 gates (field audit at 0 orphans, 253 audited)
-- [x] migrations applied to local docker, Neon dev/main and the Neon test
-      branch — six of them, verified on real data: 554 rows to HUMAN and 6851
-      to CREW, 119 narrative + 2152 assumption lines in and out, orders
-      contiguous, dropped columns gone
-- [x] CURATOR and SCRIBE prompts seeded on local docker and Neon dev/main
-      (`db:seed:prompt`, which refuses to overwrite anything already there)
-- [ ] e2e — **deliberately deferred at the reporter's instruction**, to be run
-      after shipping. One real failure was found and fixed before deferring:
-      `global-setup.ts` still seeded `edited: false`, which `tsc -b` cannot
-      catch because excess-property checking does not reach an object literal
-      returned from a `.map()` handed to a Prisma nested create.
-- [ ] `/review`
-
-### A near-miss worth keeping
-
-`packages/db/vitest.config.ts` and `apps/web/vitest.config.ts` had no
-`setupFiles`, so a filtered run started from inside either package skipped the
-root DB pin and Prisma auto-loaded `packages/db/.env` — which points at Neon.
-Running one test file from `packages/db` created and deleted fixtures in the
-real database. It cleaned up after itself; it did not have to. Both configs now
-load the same pin `packages/agents` has had all along.
-
-### Why the engine is an Inngest job, not a chat turn
-
-A whole-estimate envelope (863 rows, all roles) will not be re-assessed inside
-300s in one call. The engine is job-shaped, not conversation-shaped, and the
-house rule is already stated at `route.ts:29`: "everything else that takes time
-is an Inngest job the client polls." Oracle streams because watching words
-appear IS the value; here the value is the result. So: ALWAYS Inngest, one step
-per card, which also makes the model calls durable and replayable.
-
-**The job must be visible and in context.** A background job that shows nothing
-is worse UX than the blocking call it replaces, and the user needs to stay
-engaged with it. Show the stage it is on and how many are running, on the ledger
-where the edit is happening rather than on a separate page. There is a precedent
-to mirror: `RunProgress { stage, pct }` is persisted to the `Estimate` row by
-`onProgress` in `RunEstimateDeps` and polled by the UI (see
-`ArtifactProgress.tsx`). This needs the same, per job, with several concurrent.
-
-Consequence that must be specced: a background job cannot "ask" about a
-conflict. So a conflict detected at apply time parks the after-snapshot in the
-audit row as `PENDING_CONFLICT`, and the UI presents approve/discard against it.
-That IS the "write warns, approval overwrites" mechanism from branch 5 — it
-falls out of the audit table rather than needing anything new.
-
-### Corpus render needs handles (stage 2)
-
-Region-replace does not need row ids, but split and merge address cards, and
-locked rows must be VISIBLE BUT MARKED to the model — the user was explicit that
-a locked card stays in the AI's context and is merely unwritable. The Oracle
-corpus carries no ids at all (`packages/agents/src/oracle.ts:33-52`), so the new
-agent needs its own render with stable handles the applier resolves.
-
----
+## AEH-236 — estimate lineage (ALL SEVEN STAGES BUILT, awaiting review)
+
+Branch `feat/aeh-236-estimate-lineage`, cut from origin/master, 8 commits.
+Full spec in `AEH-236-plan.md` at the repo root, including the two-scenario
+validation that reshaped it.
+
+| stage | commit  | what |
+|-------|---------|------|
+| 1 | c783563 | schema: lineage + carriage columns, reconciliation tables |
+| 2 | fdb3bac | `forkEstimate` + the fork route |
+| 3 | e6f7380 | fork dialog, lineage both directions |
+|   | 5be5adf | the margin rule + `markAmended` on every write path |
+| 4 | 66dbbf5 | dashboard as projects, comparison view, link, rename |
+| 7 | 4062196 | re-run refused when children or siblings depend on it |
+| 5 | cd68b17 | the reconciliation pass |
+| 6 | 60a8589 | the review + the applier |
+
+Every stage gated on typecheck, the unit suite, `next build`, lint and the
+field/knip audits. 1137 tests. Zero AEH-236 `@orphan-todo`s left: all nineteen
+columns stage 1 added are consumed or honestly `@backend-only`.
+
+### Not done
+
+- **The review panel has not been eyeballed.** Every state renders correctly
+  (checked by fetching the harness HTML: six states, signed deltas, decision
+  attributes, no React errors) but the browser extension disconnected before a
+  screenshot. Worth a look before merge — the margin rule and the comparison
+  view both had real bugs that only a screenshot found.
+- **No e2e for reconcile.** The fork e2e covers stages 2-3. Reconciling needs a
+  seeded fork plus a stubbed provider, which the e2e harness has no seam for.
+- **Nothing live-verified against a real model.** The pass is tested with a
+  stubbed provider throughout; the RECONCILER prompt has never met a real one.
+
+### Traps this work hit, worth carrying forward
+
+**`packages/db/.env` OVERRIDES the shell `DATABASE_URL`** — passing it
+explicitly does NOT work, proved with a bogus URL that still reached Neon. Use
+`scripts/local-migrate.sh`.
+
+**That script wrote two EMPTY migrations and recorded them applied** before it
+was fixed. A no-op `migrate diff` is not empty — it emits a 61-byte
+CreateExtension preamble — so an emptiness check must run AFTER the strip step,
+not before. Both phantoms were removed from disk and `_prisma_migrations`.
+
+**A NUL byte from a shell-escaped `python3 -c` edit** cost an hour: invisible in
+HTML, JSON and tsc, and it silently disables grep because the file stops being
+text. See the project memory.
+
+**Card-level carriage is STORED, not derived** — `applyRegionReplace` deletes
+and recreates rows, so row identity does not survive a re-price.
+
+**The re-run rule is asymmetric:** children or siblings block, a parent alone
+does not.
 
 ## In flight: AEH-335 — per-estimate PM/BA/QA buffer overrides
 

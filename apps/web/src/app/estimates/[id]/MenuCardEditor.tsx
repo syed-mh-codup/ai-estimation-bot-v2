@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { AskOracleButton } from './AskOracleButton';
 import { Button } from '@/components/ui/button';
 import { InlineText } from '@/components/ui/input';
-import type { ItemDTO, SectionDTO, LineItemDTO } from './dto';
+import type { CarriedMark, ItemDTO, SectionDTO, LineItemDTO } from './dto';
 import {
   ROLES,
   UNGROUPED,
@@ -870,6 +870,50 @@ function LineEnvelopeTag({ li }: { li: LineItemDTO }) {
   );
 }
 
+/**
+ * Where a row's hours came from, as a rule in the left margin. AEH-236.
+ *
+ * The row already carries eleven things — role, side tags, description,
+ * envelope, lock badge, lock button, provenance, delete, base hours, the buffer
+ * hint and the taxed figure — and a twelfth word was the wrong answer. Lineage
+ * gets its own channel instead of competing for that one.
+ *
+ * It costs no horizontal space and no words at all, and it is meant to be read
+ * DOWN rather than across: where the rule runs unbroken this round matches the
+ * last, and where it breaks is where the new work entered. On a fork you see
+ * the shape of the change before reading a single line.
+ *
+ * Absolutely positioned so it cannot participate in the row's flex layout —
+ * every existing column keeps the width it had, and an estimate with no parent
+ * renders exactly as it did before this existed.
+ */
+function CarriedRule({ mark }: { mark: CarriedMark }) {
+  if (!mark) return null;
+  const tone =
+    mark === 'verified'
+      ? 'bg-green'
+      : mark === 'carried'
+        ? 'bg-line'
+        : // Amended: a dashed rule, drawn as a repeating gradient because a
+          // 3px-wide border-dashed collapses to nothing at this size.
+          'bg-[repeating-linear-gradient(to_bottom,var(--color-line)_0_3px,transparent_3px_6px)]';
+  const story =
+    mark === 'verified'
+      ? 'Carried over unchanged, and signed off on the estimate this was forked from'
+      : mark === 'carried'
+        ? 'Carried over unchanged from the estimate this was forked from'
+        : 'Came from the estimate this was forked from, and has changed since';
+  return (
+    <span
+      aria-hidden
+      title={story}
+      data-testid={`carried-${mark}`}
+      data-carried={mark}
+      className={cn('absolute top-1 bottom-1 left-4 w-[3px] rounded-full', tone)}
+    />
+  );
+}
+
 function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDTO }) {
   const {
     taxPercents,
@@ -889,7 +933,8 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
   const frozen = isFinalised || locked;
 
   return (
-    <div className="group/line flex items-center gap-2 px-3.5 py-1 pl-10 hover:bg-line-soft">
+    <div className="group/line relative flex items-center gap-2 px-3.5 py-1 pl-10 hover:bg-line-soft">
+      <CarriedRule mark={li.carried} />
       {/* The role tag, the description and its envelope wrap together as one
           cell; the hours and the taxed figure stay out of it, because that
           figure is pinned to the Total column's width and a wrap would take it

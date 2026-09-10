@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { prisma } from '@repo/db';
+import { familiesOf, prisma, projectNameOf, rootOf } from '@repo/db';
 import { auth } from '@/lib/auth';
 import { deleteEstimate } from '@/app/estimates/[id]/actions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -79,6 +79,30 @@ export default async function DashboardPage() {
     })
   ).sort((a, b) => compareByDue(a, b, now));
 
+  // ── One row per PROJECT, not per estimate. AEH-236. ─────────────────────────
+  //
+  // A project is a lineage tree. Two estimates for the same client that were
+  // never forked from each other stay two projects, because nothing in the data
+  // says otherwise — relating them is a deliberate act (see `linkToParent`).
+  //
+  // Grouped in memory rather than in SQL for the same reason the sort above is:
+  // this page loads every estimate anyway, and the rule is a recursive walk that
+  // SQL could only express as a CTE this page would then have to keep in step
+  // with `familiesOf`.
+  const families = familiesOf(estimates);
+  const projects = [...families.values()].map((members) => {
+    const root = rootOf(members, members[0]!.id) ?? members[0]!;
+    // The LEAD is the newest member: the round somebody is actually working on.
+    // Its status, custodian and deadline are what the row reports, because a
+    // family has no single one of those and the current round's are the ones
+    // worth seeing at a glance.
+    const lead = members.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
+    return { members, root, lead, name: projectNameOf(members, root) };
+  });
+  // Families keep the due-order of their lead, so the urgency sort survives
+  // grouping instead of being silently replaced by insertion order.
+  projects.sort((a, b) => compareByDue(a.lead, b.lead, now));
+
   // Everyone sees every estimate — that's the shared ledger. Only the owner or
   // an admin may destroy one, so only they get the control.
   const isAdmin = session.user.role === 'ADMIN';
@@ -95,8 +119,14 @@ export default async function DashboardPage() {
               'Nothing on the books yet.'
             ) : (
               <>
-                <span className="num">{estimates.length}</span>{' '}
-                {estimates.length === 1 ? 'estimate' : 'estimates'} on the books.
+                <span className="num">{projects.length}</span>{' '}
+                {projects.length === 1 ? 'project' : 'projects'} on the books
+                {projects.length !== estimates.length && (
+                  <>
+                    , across <span className="num">{estimates.length}</span> estimates
+                  </>
+                )}
+                .
               </>
             )}
           </p>
@@ -144,19 +174,34 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {estimates.map((e) => (
+              {projects.map(({ members, root, lead, name }) => {
+                const e = lead;
+                const many = members.length > 1;
+                return (
                 <tr
-                  key={e.id}
-                  className="group border-b border-line-soft last:border-0 hover:bg-surface-2"
+                  key={root.id}
+                  className="group relative border-b border-line-soft last:border-0 hover:bg-surface-2"
+                  data-testid={`project-row-${root.id}`}
                 >
                   <td className="px-3 py-3">
+                    {/* A single-estimate project opens the estimate; a family
+                        opens the lineage view, so the first decision is WHICH
+                        round you meant rather than landing in one arbitrarily.
+                        The testid stays keyed to the estimate on a lone one, so
+                        every existing link into this table keeps working. */}
                     <Link
-                      href={`/estimates/${e.id}`}
-                      className="font-serif text-[15.5px] text-ink hover:text-green hover:underline"
-                      data-testid={`estimate-row-${e.id}`}
+                      href={many ? `/estimates/${root.id}/lineage` : `/estimates/${e.id}`}
+                      className="after:absolute after:inset-0 after:content-[''] font-serif text-[15.5px] text-ink hover:text-green hover:underline"
+                      data-testid={many ? `project-link-${root.id}` : `estimate-row-${e.id}`}
                     >
-                      {e.title}
+                      {many ? name : e.title}
                     </Link>
+                    {many && (
+                      <div className="mt-0.5 text-[11.5px] text-ink-4">
+                        <span className="num">{members.length}</span> estimates · latest{' '}
+                        {e.title}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -200,10 +245,16 @@ export default async function DashboardPage() {
                   <td className="num px-3 py-3 text-[12.5px] whitespace-nowrap text-ink-3">
                     {new Date(e.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-3 py-3 text-right">
+                  <td className="relative z-10 px-3 py-3 text-right">
                     {/* Destruction stays quiet: it surfaces on hover/focus and never
                         competes with "New estimate". */}
-                    {canDelete(e.ownerId) && (
+                    {/* Hidden on a family. This control deletes ONE estimate,
+                        and on a row that reads as a project that is an
+                        ambiguous destructive action — you would be aiming at
+                        the project and hitting the latest round. Deleting a
+                        member is done from the lineage view, where the thing
+                        being destroyed is named. */}
+                    {!many && canDelete(e.ownerId) && (
                     <ConfirmDialog
                       action={deleteEstimateAction}
                       hidden={{ id: e.id }}
@@ -230,7 +281,8 @@ export default async function DashboardPage() {
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

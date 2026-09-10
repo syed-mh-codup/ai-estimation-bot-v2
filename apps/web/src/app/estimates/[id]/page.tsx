@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
-import { prisma, toMenuItem } from '@repo/db';
+import { prisma, rootOf, toMenuItem } from '@repo/db';
 import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
@@ -23,6 +23,11 @@ import { Eyebrow } from '@/components/ui/card';
 import { RunControls } from './RunControls';
 import { MenuCardEditor } from './MenuCardEditor';
 import { EstimateHeader, ComplexityField } from './EstimateHeader';
+import { ForkDialog } from './ForkDialog';
+import { ForkedFrom, ForksOfThis } from './Lineage';
+import { LinkLineageDialog, UnlinkButton } from './LinkLineageDialog';
+import { ReconcilePanel } from './ReconcilePanel';
+import type { ProposalDTO, ReconciliationDTO } from './reconcile-dto';
 import { CustodianField, DueDateField } from './CustodyFields';
 import type { CustodianOption } from './CustodyFields';
 import { dueLabel, toDateInputValue } from '@/lib/due-date';
@@ -38,7 +43,7 @@ import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { ExportSheets } from './ExportSheets';
 import { lastExportLine, overwriteWarning, type ExportOutcome } from './export-interaction';
-import { cardFlags, lineEnvelope } from './dto';
+import { cardFlags, carriedMark, lineEnvelope } from './dto';
 import type { ItemDTO, SectionDTO } from './dto';
 
 async function requireSession() {
@@ -224,9 +229,112 @@ export default async function EstimateDetailPage({
         include: { lineItems: true },
         orderBy: [{ order: 'asc' }, { id: 'asc' }],
       },
+      // Lineage, both directions. AEH-236. The parent is one line under the
+      // title; the children are a rail block, and that half is what stops
+      // somebody quoting a round-1 number that round 2 has already moved.
+      parent: { select: { id: true, title: true } },
+      children: {
+        select: { id: true, title: true, status: true, lineageKind: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      },
     },
   });
   if (!estimate) notFound();
+
+  // Candidates for relating this estimate to one that already exists. AEH-236.
+  //
+  // Offered only when this estimate has no parent — an estimate records ONE
+  // origin, and quietly re-pointing it would rewrite a family somebody else
+  // built. Descendants are excluded because linking to one would close a loop;
+  // `linkToParent` refuses that too, and this is the half that stops it being
+  // offered in the first place.
+  const linkCandidates = estimate.parentId
+    ? []
+    : await (async () => {
+        const all = await prisma.estimate.findMany({
+          select: { id: true, parentId: true, title: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        return all
+          .filter((e) => e.id !== estimate.id && rootOf(all, e.id)?.id !== estimate.id)
+          .map((e) => ({ id: e.id, title: e.title }));
+      })();
+  const inAFamily = Boolean(estimate.parentId) || estimate.children.length > 0;
+
+  // The newest reconciliation, server-rendered so the panel has something to
+  // show before its first poll. Only a fork can have one.
+  const reconciliation: ReconciliationDTO | null = !estimate.parentId
+    ? null
+    : await (async () => {
+        const r = await prisma.estimateReconciliation.findFirst({
+          where: { estimateId: estimate.id },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            stage: true,
+            pct: true,
+            error: true,
+            prompt: true,
+            posture: true,
+            reasoning: true,
+            triageReasoning: true,
+            triagedCardIds: true,
+            createdAt: true,
+            appliedAt: true,
+            proposals: {
+              orderBy: { title: 'asc' },
+              select: {
+                id: true,
+                menuItemId: true,
+                kind: true,
+                title: true,
+                rationale: true,
+                supersedesMenuItemIds: true,
+                hoursBefore: true,
+                hoursAfter: true,
+                decision: true,
+                payload: true,
+              },
+            },
+          },
+        });
+        if (!r) return null;
+        const proposals: ProposalDTO[] = r.proposals.map((p) => ({
+          id: p.id,
+          menuItemId: p.menuItemId,
+          kind: p.kind,
+          title: p.title,
+          rationale: p.rationale,
+          supersedes: p.supersedesMenuItemIds,
+          delta: (p.hoursAfter ?? 0) - (p.hoursBefore ?? 0),
+          decision: p.decision,
+          rows: (
+            (p.payload as { rows?: { role: string; title: string; baseHours: number; taxedHours: number }[] } | null)
+              ?.rows ?? []
+          ).map((row) => ({
+            role: row.role,
+            title: row.title,
+            baseHours: row.baseHours,
+            taxedHours: row.taxedHours,
+          })),
+        }));
+        return {
+          id: r.id,
+          status: r.status,
+          stage: r.stage,
+          pct: r.pct,
+          error: r.error,
+          prompt: r.prompt,
+          posture: r.posture,
+          reasoning: r.reasoning,
+          triageReasoning: r.triageReasoning,
+          triagedCount: r.triagedCardIds.length,
+          proposals,
+          createdAt: r.createdAt.toISOString(),
+          appliedAt: r.appliedAt?.toISOString() ?? null,
+        };
+      })();
 
   const isFinalised = estimate.status === 'FINALISED';
   // The gate. Warn or block is an admin switch, not a hardcoded stance: a
@@ -314,6 +422,8 @@ export default async function EstimateDetailPage({
     phase: m.phase,
     sourcePresetId: m.sourcePresetId,
     matchScore: m.matchScore,
+    carriedFromId: m.carriedFromId,
+    carriedIntact: m.carriedIntact,
     flags: cardFlags(m.meta),
     lineItems: m.lineItems.map((li) => ({
       id: li.id,
@@ -325,6 +435,7 @@ export default async function EstimateDetailPage({
       touchesFrontend: li.touchesFrontend,
       touchesBackend: li.touchesBackend,
       envelope: lineEnvelope(li.meta),
+      carried: carriedMark(m, li),
     })),
   }));
 
@@ -389,6 +500,13 @@ export default async function EstimateDetailPage({
           status={estimate.status}
           isFinalised={isFinalised}
         />
+        {estimate.parent && estimate.lineageKind && (
+          <ForkedFrom
+            parent={estimate.parent}
+            kind={estimate.lineageKind}
+            projectHref={`/estimates/${estimate.id}/lineage`}
+          />
+        )}
       </div>
 
       <LedgerProvider
@@ -512,6 +630,22 @@ export default async function EstimateDetailPage({
               initial={artifactRows}
             />
             <RunDiagnosticsPanel estimateId={estimate.id} />
+            {/* Only on a fork: an estimate with no parent has nothing to
+                reconcile against. */}
+            {estimate.parentId && !isFinalised && (
+              <ReconcilePanel estimateId={estimate.id} initial={reconciliation} />
+            )}
+
+            <ForksOfThis
+              forks={estimate.children}
+              projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
+            />
+            {estimate.parentId && (
+              <div className="px-1">
+                <UnlinkButton estimateId={estimate.id} />
+              </div>
+            )}
+
             {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
             {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
@@ -562,6 +696,15 @@ export default async function EstimateDetailPage({
                   />
                 )}
                 <CollapseAllButton />
+                {/* Below the run and export controls: forking is something you
+                    do to an estimate that already says something, not a way of
+                    starting one. */}
+                <ForkDialog estimateId={estimate.id} estimateTitle={estimate.title} />
+                {/* Only where there is no origin recorded yet: an estimate has
+                    one, and re-pointing it would rewrite somebody's family. */}
+                {!estimate.parentId && (
+                  <LinkLineageDialog estimateId={estimate.id} candidates={linkCandidates} />
+                )}
               </div>
 
               {/* Destructive and rare: it shouldn't carry Export's weight. */}

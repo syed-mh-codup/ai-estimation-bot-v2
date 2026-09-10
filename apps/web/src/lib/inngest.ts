@@ -34,6 +34,8 @@ export const EVENT_ARTIFACT_CANCEL = 'estimate/artifact.cancelled' as const;
  * should not try to.
  */
 export const EVENT_LEDGER_EDIT = 'estimate/ledger-edit.requested' as const;
+/** A forked estimate is being reconciled against what changed. AEH-236. */
+export const EVENT_RECONCILE = 'estimate/reconcile.requested' as const;
 
 export type EstimateEventData = { estimateId: string; runId?: string };
 
@@ -63,3 +65,4 @@ export type ArtifactEventData = { artifactId: string };
 
 /** The `LedgerEdit` row to carry out. Everything else is read from it. */
 export type LedgerEditEventData = { editId: string };
+export type ReconcileEventData = { reconciliationId: string };
