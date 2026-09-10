@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
-import { prisma, rootOf, toMenuItem } from '@repo/db';
+import { Prisma, prisma, rootOf, toMenuItem } from '@repo/db';
 import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
@@ -319,6 +319,14 @@ export default async function EstimateDetailPage({
             taxedHours: row.taxedHours,
           })),
         }));
+        // Counted rather than selected: `requirements` is the whole requirement
+        // set and nothing here needs to read it, only to know it survived. Only
+        // a failed pass can be resumed, so only a failed pass is asked.
+        const briefAlreadyRead =
+          r.status === 'FAILED' &&
+          (await prisma.estimateReconciliation.count({
+            where: { id: r.id, requirements: { not: Prisma.DbNull } },
+          })) > 0;
         return {
           id: r.id,
           status: r.status,
@@ -330,6 +338,7 @@ export default async function EstimateDetailPage({
           reasoning: r.reasoning,
           triageReasoning: r.triageReasoning,
           triagedCount: r.triagedCardIds.length,
+          briefAlreadyRead,
           proposals,
           createdAt: r.createdAt.toISOString(),
           appliedAt: r.appliedAt?.toISOString() ?? null,

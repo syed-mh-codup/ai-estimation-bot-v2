@@ -294,6 +294,75 @@ describe('the brief is only re-read when it moved', () => {
     expect(lib[0]!.user).not.toContain('SSO and card payments');
   });
 
+  /**
+   * What makes Resume worth pressing.
+   *
+   * A resume re-dispatches the SAME reconciliation rather than starting a fresh
+   * one, so `requirements` — written the moment the Librarian returned — is
+   * still on the row. Without this the second attempt buys the most expensive
+   * call in the pass all over again, which on the brief that actually failed in
+   * production was 123,163 tokens and a 240-second budget it did not survive.
+   *
+   * Re-reading would also be WRONG rather than merely expensive. The Librarian
+   * is not deterministic: a resume that read the brief again would work against
+   * a different requirement set than the attempt that got this far, so cards
+   * already bound to REQ ids from the first read would resolve to different
+   * requirements — or to nothing.
+   */
+  it('does not re-read a brief the failed attempt already paid for', async () => {
+    const parentSow = 'A portal with SSO and card payments, at length.';
+    await db.estimate.update({
+      where: { id: forkId },
+      // Appended, so a pass with no cache WOULD call the Librarian — which is
+      // what makes zero calls below evidence of the cache rather than of the
+      // unchanged-SOW shortcut.
+      data: { sowText: `${parentSow}\n\n── Revised ──\nAdd a loyalty scheme.` },
+    });
+
+    const rec = await db.estimateReconciliation.create({
+      data: {
+        estimateId: forkId,
+        actorId: userId,
+        prompt: 'Rebuild this on WordPress with plugins instead of a custom build.',
+        posture: 'BRANCH',
+        status: 'QUEUED',
+        requirements: [req('REQ-003', 'A loyalty scheme with tiers.')],
+      },
+      select: { id: true },
+    });
+
+    await runReconciliation(rec.id, { db, modelProvider: stubProvider(), effective: EFFECTIVE });
+
+    expect(calls.filter((c) => c.agent === 'LIBRARIAN')).toHaveLength(0);
+    // And the cached set is what the pass actually reasoned with, not a
+    // silently empty list that would make every card look unpriceable.
+    const triage = calls.find((c) => c.agent === 'RECONCILER');
+    expect(triage!.user).toContain('A loyalty scheme with tiers.');
+  });
+
+  it('reads the brief when the failed attempt never got that far', async () => {
+    // The other half: an empty cache must not be mistaken for a cached empty
+    // result. A pass that died before the Librarian returned has to read.
+    await db.estimate.update({
+      where: { id: forkId },
+      data: { sowText: 'A portal with SSO and card payments, at length.\n\n── Revised ──\nAdd loyalty.' },
+    });
+    const rec = await db.estimateReconciliation.create({
+      data: {
+        estimateId: forkId,
+        actorId: userId,
+        prompt: 'Rebuild on WordPress.',
+        posture: 'BRANCH',
+        status: 'QUEUED',
+      },
+      select: { id: true },
+    });
+
+    await runReconciliation(rec.id, { db, modelProvider: stubProvider(), effective: EFFECTIVE });
+
+    expect(calls.filter((c) => c.agent === 'LIBRARIAN')).toHaveLength(1);
+  });
+
   it('does not let a replaced brief steal the ids the cards already point at', async () => {
     // The dangerous case. A card binds to its requirement by id string alone,
     // and `runLibrarian` restarts ids at REQ-001 on every call. If a replaced

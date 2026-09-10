@@ -90,6 +90,94 @@ export async function startReconciliation(estimateId: string): Promise<MutationO
   return { kind: 'ok' };
 }
 
+/**
+ * Run a failed pass again WITHOUT throwing away what it already paid for.
+ *
+ * The retry this replaces discarded the reconciliation and started a fresh one,
+ * which deleted the row — and with it the Librarian's output, cached on
+ * `requirements` precisely so a second attempt need not buy it twice. On a
+ * large brief that read is the most expensive call in the pass and the one most
+ * likely to be the reason for the failure, so the old retry made the recovery
+ * cost the same as the thing that failed.
+ *
+ * Keeping the row also keeps `fingerprint` — the ledger's state as the FIRST
+ * attempt began. That is the honest reading: a resume is the same pass
+ * continuing, so what it is allowed to overwrite must still be judged against
+ * the ledger it set out from, not against whatever it looks like now.
+ *
+ * What this does NOT skip is triage and the specialists. The Reconciler is no
+ * more deterministic than the Librarian, so a resume that reused some of the
+ * previous attempt's proposals and re-decided the rest would be merging two
+ * different answers to one question — exactly what the pass refuses to do when
+ * it replaces its proposals wholesale. Skipping those needs the triage decision
+ * persisted too; until then the pass resumes past the reading and decides the
+ * rest again, in full.
+ */
+export async function resumeReconciliation(reconciliationId: string): Promise<MutationOutcome> {
+  await requireUser();
+
+  const rec = await prisma.estimateReconciliation.findUnique({
+    where: { id: reconciliationId },
+    select: {
+      estimateId: true,
+      status: true,
+      estimate: { select: { status: true, ingestStatus: true, runStatus: true } },
+    },
+  });
+  if (!rec) return { kind: 'refused', error: 'That reconciliation no longer exists.' };
+
+  // Only a failure is resumable. A PROPOSED pass has an answer waiting to be
+  // reviewed and an APPLIED one is already in the ledger; re-running either
+  // would discard a result somebody may be part-way through deciding on.
+  if (rec.status !== 'FAILED') {
+    return {
+      kind: 'refused',
+      error:
+        rec.status === 'QUEUED' || rec.status === 'RUNNING'
+          ? 'This pass is still running.'
+          : 'Only a failed pass can be resumed.',
+    };
+  }
+
+  // The same three guards as starting one. A pass that failed an hour ago can
+  // be resumed into a very different estimate.
+  if (rec.estimate.status === 'FINALISED') {
+    return { kind: 'refused', error: 'This estimate is finalised and cannot be changed.' };
+  }
+  if (rec.estimate.ingestStatus === 'RUNNING') {
+    return {
+      kind: 'refused',
+      error: 'The attached documents are still being read. Wait for that to finish.',
+    };
+  }
+  if (rec.estimate.runStatus === 'RUNNING') {
+    return { kind: 'refused', error: 'This estimate is being estimated right now.' };
+  }
+
+  // Still one at a time, and the check has to exclude this row: it is FAILED,
+  // so it cannot be the one in flight, but another pass started since is.
+  const inFlight = await prisma.estimateReconciliation.findFirst({
+    where: {
+      estimateId: rec.estimateId,
+      status: { in: ['QUEUED', 'RUNNING'] },
+      id: { not: reconciliationId },
+    },
+    select: { id: true },
+  });
+  if (inFlight) {
+    return { kind: 'refused', error: 'A reconciliation is already running on this estimate.' };
+  }
+
+  await prisma.estimateReconciliation.update({
+    where: { id: reconciliationId },
+    data: { status: 'QUEUED', stage: 'Resuming', error: null },
+  });
+
+  await inngest.send({ name: EVENT_RECONCILE, data: { reconciliationId } });
+  revalidatePath(`/estimates/${rec.estimateId}`);
+  return { kind: 'ok' };
+}
+
 /** The most recent write anywhere in this estimate's ledger. */
 async function regionFingerprint(estimateId: string): Promise<Date | null> {
   const [card, row] = await Promise.all([

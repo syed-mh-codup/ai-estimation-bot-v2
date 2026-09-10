@@ -41,6 +41,14 @@ export type ReconciliationDTO = {
   triageReasoning: string | null;
   /** How many cards triage put in play, so a too-narrow pass is visible. */
   triagedCount: number;
+  /**
+   * Whether the Librarian's read survived the failure, so a resume can skip it.
+   *
+   * A boolean rather than the requirement set itself: the review only needs to
+   * say what resuming will save, and the blob behind this is large enough that
+   * sending it on a polled route would cost more than the answer is worth.
+   */
+  briefAlreadyRead: boolean;
   proposals: ProposalDTO[];
   createdAt: string;
   appliedAt: string | null;

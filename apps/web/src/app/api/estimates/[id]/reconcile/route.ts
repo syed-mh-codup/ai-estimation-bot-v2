@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@repo/db';
+import { Prisma, prisma } from '@repo/db';
 import { auth } from '@/lib/auth';
 import type { ProposalDTO, ReconciliationDTO } from '@/app/estimates/[id]/reconcile-dto';
 
@@ -75,6 +75,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     })),
   }));
 
+  // Asked as a COUNT rather than by selecting the column. `requirements` holds
+  // every requirement the Librarian found, which on a real brief is tens of
+  // kilobytes, and this route is polled every two seconds — the same reason
+  // `payload` above is named explicitly rather than left to a default select.
+  // Only a failed pass can be resumed, so only a failed pass is asked.
+  const briefAlreadyRead =
+    rec.status === 'FAILED' &&
+    (await prisma.estimateReconciliation.count({
+      where: { id: rec.id, requirements: { not: Prisma.DbNull } },
+    })) > 0;
+
   const dto: ReconciliationDTO = {
     id: rec.id,
     status: rec.status,
@@ -86,6 +97,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     reasoning: rec.reasoning,
     triageReasoning: rec.triageReasoning,
     triagedCount: rec.triagedCardIds.length,
+    briefAlreadyRead,
     proposals,
     createdAt: rec.createdAt.toISOString(),
     appliedAt: rec.appliedAt?.toISOString() ?? null,

@@ -11,6 +11,7 @@ import {
   applyReconciliationAction,
   decideProposal,
   discardReconciliation,
+  resumeReconciliation,
   startReconciliation,
 } from './reconcile-actions';
 import { netHours, type ProposalDTO, type ReconciliationDTO } from './reconcile-dto';
@@ -136,22 +137,18 @@ export function ReconcilePanel({
   };
 
   /**
-   * Throw the failed pass away and start another.
+   * Pick the failed pass up where it stopped.
    *
-   * Discard first, because `startReconciliation` refuses while one is QUEUED or
-   * RUNNING. Two steps behind one button — nobody should have to clear a
-   * failure by hand before they can retry it.
+   * One call, on the SAME reconciliation. What this replaced discarded the row
+   * and started a fresh one, which threw away the Librarian's cached read — the
+   * most expensive call in the pass, and on a large brief the one most likely
+   * to have caused the failure in the first place.
    */
-  const retry = (): void => {
+  const resume = (): void => {
     setError(null);
     startTransition(async () => {
-      const cleared = await discardReconciliation(rec!.id);
-      if (cleared.kind === 'refused') return setError(cleared.error);
-      const out = await startReconciliation(estimateId);
-      if (out.kind === 'refused') {
-        setRec(null);
-        return setError(out.error);
-      }
+      const out = await resumeReconciliation(rec!.id);
+      if (out.kind === 'refused') return setError(out.error);
       await refresh();
     });
   };
@@ -236,6 +233,7 @@ export function ReconcilePanel({
         </p>
         <p className="mt-1.5 text-[11.5px] leading-snug text-ink-4">
           Nothing was written — the estimate is exactly as it was.
+          {rec.briefAlreadyRead && ' The brief has already been read, so resuming picks up from there.'}
         </p>
         <div className="mt-2.5 flex gap-2">
           <Button type="button" variant="outline" onClick={discard} disabled={pending}>
@@ -244,12 +242,12 @@ export function ReconcilePanel({
           <Button
             type="button"
             className="flex-1"
-            onClick={retry}
+            onClick={resume}
             disabled={pending}
-            data-testid="retry-reconcile"
+            data-testid="resume-reconcile"
           >
             <RefreshCw className="h-4 w-4" />
-            {pending ? 'Starting…' : 'Try again'}
+            {pending ? 'Resuming…' : 'Resume'}
           </Button>
         </div>
         {error && (
