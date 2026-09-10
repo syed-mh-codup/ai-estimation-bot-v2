@@ -100,18 +100,34 @@ test.describe('AEH-236: forking an estimate', () => {
     await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
     const forkId = await fork(page, { title: 'Forked — independence check' });
 
-    // Read the parent's first DEV hour input, then change it ON THE FORK.
+    // The parent is read through `taxed-DEV-`, never `base-DEV-`.
+    //
+    // `base-DEV-` is an INPUT, and the row renders it only when the line is
+    // editable — `{!frozen && <input/>}`, where frozen is finalised or locked.
+    // `estimate-refine.spec.ts` finalises this very fixture, and with
+    // `workers: 1` and `fullyParallel: false` it always runs first (e before
+    // f), while global-setup resets the status once per RUN rather than per
+    // spec. So by the time this test arrives the parent has no hour inputs at
+    // all and the locator matched nothing — "element(s) not found", which
+    // reads like a broken page rather than a finalised one.
+    //
+    // `taxed-DEV-` is a span that renders in BOTH states, so this no longer
+    // depends on what another spec did to the fixture. Do not "simplify" it
+    // back to the input.
     await page.goto(`/estimates/${COSTED_ESTIMATE.id}`);
-    const parentInput = page.locator('[data-testid^="base-DEV-"]').first();
-    await expect(parentInput).toBeVisible();
-    const parentBefore = await parentInput.inputValue();
+    const parentHours = page.locator('[data-testid^="taxed-DEV-"]').first();
+    await expect(parentHours).toBeVisible();
+    const parentBefore = await parentHours.textContent();
 
+    // The fork is always REVIEW, so ITS rows are editable whatever happened to
+    // the parent. That the copy matched the parent is `a successor copies the
+    // ledger`, above; this test is only about the two moving independently.
     await page.goto(`/estimates/${forkId}`);
     const forkInput = page.locator('[data-testid^="base-DEV-"]').first();
     await expect(forkInput).toBeVisible();
-    expect(await forkInput.inputValue()).toBe(parentBefore);
+    const forkBefore = await forkInput.inputValue();
 
-    const moved = String(Number(parentBefore) + 9);
+    const moved = String(Number(forkBefore) + 9);
     const write = page.waitForResponse((r) => r.request().method() === 'POST');
     await forkInput.fill(moved);
     await forkInput.blur();
@@ -131,13 +147,13 @@ test.describe('AEH-236: forking an estimate', () => {
       )
       .toBe(moved);
 
-    // The parent must not have budged.
+    // The parent must not have budged — the whole point of the test.
     await page.goto(`/estimates/${COSTED_ESTIMATE.id}`);
     await expect
       .poll(
         async () => {
           await page.reload();
-          return page.locator('[data-testid^="base-DEV-"]').first().inputValue();
+          return page.locator('[data-testid^="taxed-DEV-"]').first().textContent();
         },
         { timeout: 20_000 },
       )
