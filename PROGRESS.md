@@ -9,79 +9,61 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## In flight: AEH-236 — estimate lineage (PLAN AGREED, not started)
+## In flight: AEH-236 — estimate lineage (STAGES 1-4 + 7 DONE, 5-6 remain)
 
-No code written. Ticket already In Progress; no transition made.
+Branch `feat/aeh-236-estimate-lineage`, cut from origin/master. Full plan in
+`AEH-236-plan.md` at the repo root — read it, it is the spec, and it carries
+the two-scenario validation that reshaped it.
 
-Plan settled by a grill-me interview on 2026-09-10 and written up in full at
-**`AEH-236-plan.md`** (repo root, untracked — read it, it is the spec). What
-follows is only what a fresh session needs to orient.
+**Done and committed**, each gated on typecheck + ~1115 unit tests +
+`next build` + lint + the field/knip audits, plus a browser eyeball:
 
-**What it is:** fork an estimate as a SUCCESSOR (client revised the brief) or a
-BRANCH (different stack / alternate route). Deep copy + an AI reconciliation
-pass that changes only what the new material forces. Parent stays live.
+- c783563 stage 1 — schema: parentId (SetNull), lineageKind, forkPrompt,
+  carriage columns, the two reconciliation tables
+- fdb3bac stage 2 — `forkEstimate` + the fork route
+- e6f7380 stage 3 — fork dialog, lineage both directions
+- 5be5adf         — the margin rule + `markAmended` on every write path
+- 66dbbf5 stage 4 — dashboard as projects, lineage comparison view,
+  link-to-existing, project rename
+- 4062196 stage 7 — re-run refused when children or siblings depend on it
 
-**The two findings that shaped it, both verified in code:**
+**Left: stages 5 and 6** — the reconciliation pass, and its review UI.
+Everything they need already exists in the schema (EstimateReconciliation,
+ReconciliationProposal) and is annotated @orphan-todo until consumed.
 
-- `run-estimate.ts:484-486` — a re-run DELETES every menuItem, roleLineItem and
-  scopeScenario before rebuilding. Destructive in both lineage directions.
-- `curator.ts:124` — AEH-238's edit engine conserves lines ("Every one of the N
-  lines above must appear exactly once across your cards"). It partitions and
-  re-prices; it cannot invent work. Adding cards for new requirements is why the
-  reconciliation is a NEW agent path, not a fifth LedgerEditMode.
+### Things that will bite whoever picks this up
 
-**Scope, by explicit user choice:** build it whole, ship when done. Nothing
-half-usable in the meantime. This is multi-stage work, not a one-day feature.
+**`packages/db/.env` OVERRIDES the shell `DATABASE_URL`.** Passing it
+explicitly does NOT work — proved by passing a bogus URL and watching Prisma
+connect to Neon anyway. `prisma migrate dev` is therefore unusable here. Use
+`scripts/local-migrate.sh <name>`, which generates SQL offline against a
+throwaway shadow and swaps .env behind a trap.
 
-**Decisions a fresh session must not re-litigate** (all from the interview):
-locks do NOT carry forward (a lock is a statement about the estimate it sits on;
-it carries only as evidence for the "verified" margin mark); carried rows are
-shown as a 3px continuity rule in the LEFT MARGIN, not another word on the row
-(the row already carries eleven things); diff review is per CARD with lines
-shown, never per line; rejections are discarded but recorded; a fork takes
-everything and the pass proposes removals; the dashboard row becomes a PROJECT
-(one estimate → open it, several → the lineage view).
+**Card-level carriage is STORED, not derived from rows.** `applyRegionReplace`
+deletes pinned rows and creates fresh ones, so row identity does not survive a
+re-price; derived from rows, a card the reconciliation amended would read as
+brand new. The card holds the durable claim, the row refines it.
 
-**Re-run rule (corrected by the user mid-interview, easy to get backwards):**
-children or siblings block a re-run; having a parent alone does NOT.
+**A NUL byte from a shell-escaped `python3 -c` edit** cost an hour: invisible in
+HTML, JSON and tsc, and it silently turns off grep because the file stops being
+text. See the project memory. Prefer heredocs; scan changed files after scripted
+edits.
 
-**Validated against two real client situations on 2026-09-10** (Supplying Demand
-expansion; AIS reduced-scope-then-stack-change). Five defects found and folded
-in — see the plan's "Validation against two real scenarios" section. The one
-that would have shipped broken: **a BRANCH with no new documents is a no-op**,
-because the pipeline was driven by the requirement diff and a stack change
-leaves the requirement set untouched. The failure is CONTROL FLOW, not signal —
-a perfect steer is never read when the loop it feeds is empty.
+**Re-run rule is asymmetric and easy to invert:** children or siblings block,
+a parent alone does not.
 
-**Scope of the pass is decided by a TRIAGE STEP**, not by the fork kind. Triage
-reads the steer, the diff and the ledger context and returns the cards in play:
-"changing stack from Shopware to Shopify" selects every card, "swap the payment
-provider" selects three. An earlier draft keyed iteration to the posture
-(successor = diff, branch = all cards) — that is superseded and wasteful.
+### Stage 5 design, as settled
 
-Also settled: link-to-existing lineage (the two Supplying Demand estimates
-already exist and nothing could relate them); a third "amended" carried state,
-so `carriedFromId` is PERMANENT and `carriedIntact` carries equality;
-`supersedesMenuItemIds` so a many-into-one collapse reads as one decision; the
-parent is a REFERENCE CORPUS not an hour-anchor (descriptions carry domain
-detail, integrations often survive a stack change intact, sizing calibrates);
-and survivors are stated affirmatively in the review rather than being silence.
+Pipeline: skip the Librarian when `sowText` is unchanged from the parent (the
+requirement set cannot have moved, and re-reading invites spurious diffs from
+model nondeterminism) -> ONE RECONCILER call that does triage and the
+requirement diff together -> specialist council per card in play (reuse
+`runSpecialist`, which already takes `steer`) -> write proposals. The pass
+NEVER writes to the ledger; `status: PROPOSED` is its success state.
 
-**Out of scope:** importing an off-platform estimate. AIS's reduced scope comes
-in as PRESETS, not as a lineage node.
-
-**Build branch:** cut from `origin/master`. The current branch
-`aeh-238-ai-assisted-wbs-editing` is one commit behind it.
-
-**Open:** nothing blocking this ticket. On AEH-241 (steering input): it was
-briefly closed Done on 2026-09-10 and REVERTED to Backlog within the hour — the
-close was made without reading its own scope-growth comment of 2026-09-08. It
-carries three asks: per-requirement steering (delivered by AEH-238, verified at
-`ledger-edit.ts:788` and `specialist.ts:162`), steering between runs (absorbed
-by this ticket's `forkPrompt`), and steering a brand-new estimate before its
-first run (still open, nothing plans it). Suggested on the ticket that it be
-narrowed to the third. **Read a ticket's comments before transitioning it** —
-the description alone is not its current scope.
+Scope comes from TRIAGE, not from the fork kind. A branch with no new
+documents has an empty requirement diff, so a diff-driven loop would make no
+model call at all and report success having proposed nothing.
 
 ## In flight: AEH-335 — per-estimate PM/BA/QA buffer overrides
 
