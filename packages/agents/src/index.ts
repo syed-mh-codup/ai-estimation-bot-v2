@@ -27,3 +27,4 @@ export * from './artifacts';
 export * from './curator';
 export * from './scribe';
 export * from './ledger-edit';
+export * from './reconcile';

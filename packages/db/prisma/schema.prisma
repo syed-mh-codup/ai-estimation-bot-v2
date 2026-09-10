@@ -112,6 +112,17 @@ enum AgentKind {
   /// whole run's specialist output — a different job, a different input, and a
   /// different output shape.
   SCRIBE
+  /// Decides what a forked estimate has to change to match what moved. AEH-236.
+  ///
+  /// Does triage and the requirement diff in ONE call, because they are one
+  /// judgement: which cards are in play cannot be decided without knowing what
+  /// the brief now asks for, and what is genuinely new cannot be decided
+  /// without seeing what the ledger already holds.
+  ///
+  /// It never sets an hour. Everything it selects is priced afterwards by the
+  /// specialist council, for the same reason the Curator never does — a number
+  /// invented by a structural pass would compete with one that was reasoned.
+  RECONCILER
 }
 
 /// The attribution vocabulary for ModelUsage rows. Owned in code by
@@ -145,6 +156,10 @@ enum UsageKind {
   /// deliberately narrow: it is the backfill sweep, not "all embedding spend" —
   /// that is a query on `model`, not on `kind`.
   PRESET_EMBEDDING
+  /// Scope for a reconciliation pass — the one call that decides which cards a
+  /// fork has to change. The specialist calls it selects are recorded as
+  /// SPECIALIST_*, because they really are specialist calls. AEH-236.
+  RECONCILER
 }
 
 /// Who wrote an Oracle turn. Oracle has no tool calls and no system turns in the
@@ -744,7 +759,6 @@ model Estimate {
   /// change carries the same brief, so the requirement diff is empty and this
   /// sentence is the entire signal. It is also the only record of WHY the fork
   /// exists once the numbers have moved.
-  /// @orphan-todo AEH-236 not consumed yet — read by the reconciliation pass, where it is the only driver on a branch.
   forkPrompt      String?
   /// What the FAMILY this estimate belongs to is called — "Acme CRM", where
   /// the estimates in it are "Acme CRM — round 1" and "Acme CRM — September".
@@ -1757,7 +1771,6 @@ model EstimateReconciliation {
   /// estimate's prompt later being edited.
   prompt     String
   /// SUCCESSOR holds tight to the parent; BRANCH treats its hours as context.
-  /// @orphan-todo AEH-236 not consumed yet — read by the pass to choose how tightly to hold the parent.
   posture    LineageKind
   status     ReconciliationStatus   @default(QUEUED)
   /// Human-readable progress, mirroring Estimate.runStage. A pass that is
@@ -1833,7 +1846,7 @@ model ReconciliationProposal {
   /// is given, so a careless findMany here drags every payload on the estimate
   /// out of Neon — the same rule LedgerEdit's snapshots carry, for the same
   /// reason.
-  /// @orphan-todo AEH-236 not consumed yet — the proposed rows; read by the applier and the review.
+  /// @orphan-todo:rows AEH-236 written by the pass; read back by the applier, which is the next stage.
   payload          Json
   /// Hours before and after, promoted out of the payload so "how much did this
   /// pass move" is a query rather than a scan.

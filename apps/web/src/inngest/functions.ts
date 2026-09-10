@@ -1,7 +1,7 @@
 import { prisma } from '@repo/db';
 import { createModelProvider, EmbeddingProvider } from '@repo/providers';
 import type { InngestFunction } from 'inngest';
-import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, runArtifact, runLedgerEdit, type IngestFile } from '@repo/agents';
+import { runEstimate, ingestFiles, backfillPresetEmbeddings, promoteEstimate, createUsageRecorder, runArtifact, runLedgerEdit, runReconciliation, type IngestFile } from '@repo/agents';
 import {
   inngest,
   EVENT_RUN,
@@ -11,11 +11,13 @@ import {
   EVENT_ARTIFACT,
   EVENT_ARTIFACT_CANCEL,
   EVENT_LEDGER_EDIT,
+  EVENT_RECONCILE,
   type EstimateEventData,
   type EmbedPresetsEventData,
   type PromoteEventData,
   type ArtifactEventData,
   type LedgerEditEventData,
+  type ReconcileEventData,
 } from '@/lib/inngest';
 import { sendDueReminderEmail, sendIngestCompleteEmail, sendRunCompleteEmail } from '@/lib/email';
 import { sweepDueReminders } from '@/lib/reminders';
@@ -471,12 +473,77 @@ const ledgerEditFn = inngest.createFunction(
   },
 );
 
+/**
+ * The reconciliation pass. AEH-236.
+ *
+ * Mirrors the steered edit deliberately: same claim-then-run shape, same
+ * `onFailure` writing a real FAILED state, same pinned-config buffers resolved
+ * here and passed down rather than looked up twice.
+ *
+ * `concurrency: 1`, where the edit allows 2. A pass can put every card on a
+ * large estimate in play, so two at once is a different order of spend from two
+ * steered edits — and unlike an edit, running two reconciliations against one
+ * estimate produces two competing answers to the same question.
+ */
+const reconcileFn = inngest.createFunction(
+  {
+    id: 'estimate-reconcile',
+    name: 'Reconcile a forked estimate',
+    retries: 1,
+    concurrency: 1,
+    triggers: [{ event: EVENT_RECONCILE }],
+    onFailure: async ({ event, error }) => {
+      const reconciliationId = (
+        event as unknown as { data?: { event?: { data?: { reconciliationId?: string } } } }
+      )?.data?.event?.data?.reconciliationId;
+      if (!reconciliationId) return;
+      // A real FAILED state rather than a stuck RUNNING: an overrunning step
+      // dies as a bare 504 with no step output on this deploy, and the review
+      // would otherwise poll a spinner for ever. Guarded on QUEUED/RUNNING so a
+      // pass that already settled keeps its own explanation.
+      await prisma.estimateReconciliation.updateMany({
+        where: { id: reconciliationId, status: { in: ['QUEUED', 'RUNNING'] } },
+        data: {
+          status: 'FAILED',
+          stage: 'Failed',
+          error: String(error?.message ?? error).slice(0, 500),
+        },
+      });
+    },
+  },
+  async ({ event, step }) => {
+    const { reconciliationId } = event.data as ReconcileEventData;
+
+    const rec = await step.run('claim-reconciliation', async () => {
+      const row = await prisma.estimateReconciliation.findUniqueOrThrow({
+        where: { id: reconciliationId },
+        select: { estimateId: true },
+      });
+      await prisma.estimateReconciliation.update({
+        where: { id: reconciliationId },
+        data: { status: 'RUNNING', stage: 'Starting', pct: 1, error: null },
+      });
+      return row;
+    });
+
+    const { effective } = await taxContextForEstimate(rec.estimateId);
+
+    return runReconciliation(reconciliationId, {
+      db: prisma,
+      modelProvider: createModelProvider(),
+      effective,
+      step: (id, fn) => step.run(id, fn) as ReturnType<typeof fn>,
+    });
+  },
+);
+
 export const inngestFunctions: InngestFunction.Any[] = [
   runEstimateFn,
   ingestFn,
   embedPresetsFn,
   promoteFn,
   ledgerEditFn,
+  reconcileFn,
   dueRemindersFn,
   artifactFn,
 ];

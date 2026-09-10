@@ -229,6 +229,19 @@ export const AGENT_CATALOGUE: AgentProfile[] = [
     produces: ['Narrative', 'Assumptions'],
   },
   {
+    kind: 'RECONCILER',
+    label: 'Reconciler',
+    track: 'SUPPLEMENTAL',
+    order: 5,
+    blurb: 'Works out what a forked estimate has to change to match what moved.',
+    summary:
+      'Runs when somebody reconciles a forked estimate against a revised brief or a different approach. It decides which cards are in play, which requirements are genuinely new, and which the brief no longer asks for — and nothing more. It never sets an hour and it never writes to the ledger: everything it selects is priced by the specialist council and then surfaced as a proposal a person accepts or rejects.',
+    detail:
+      'Runs on demand against one forked estimate, never as part of a run. It reads the whole ledger, the requirements behind it, the requirements the revised brief now produces, and the steering instruction written when the fork was made. What it returns is scope: the cards to re-price, the requirements to cost as new work, and the cards the brief has dropped — each with a sentence saying why, because a card selected without a reason is indistinguishable from one selected by accident. Triage and the requirement diff are one call rather than two, because they are one judgement: which cards are in play cannot be decided without knowing what the brief now asks for, and what is genuinely new cannot be decided without seeing what the ledger already holds. The steering instruction is load-bearing rather than supplementary — a stack change leaves the requirement set untouched, so a scope decided from the requirement diff alone would be empty and the pass would propose nothing while reporting success. It is told to err wide: an over-wide scope costs model calls, where a narrow one leaves an estimate half-converted and says nothing about it.',
+    consumes: ['Menu card', 'Requirements', 'The estimator’s instruction'],
+    produces: ['Cards to re-price', 'New requirements', 'Cards to drop'],
+  },
+  {
     kind: 'SUPERVISOR',
     label: 'Supervisor',
     track: 'REFERENCE',
