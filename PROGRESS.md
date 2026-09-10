@@ -9,61 +9,59 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
-## In flight: AEH-236 — estimate lineage (STAGES 1-4 + 7 DONE, 5-6 remain)
+## AEH-236 — estimate lineage (ALL SEVEN STAGES BUILT, awaiting review)
 
-Branch `feat/aeh-236-estimate-lineage`, cut from origin/master. Full plan in
-`AEH-236-plan.md` at the repo root — read it, it is the spec, and it carries
-the two-scenario validation that reshaped it.
+Branch `feat/aeh-236-estimate-lineage`, cut from origin/master, 8 commits.
+Full spec in `AEH-236-plan.md` at the repo root, including the two-scenario
+validation that reshaped it.
 
-**Done and committed**, each gated on typecheck + ~1115 unit tests +
-`next build` + lint + the field/knip audits, plus a browser eyeball:
+| stage | commit  | what |
+|-------|---------|------|
+| 1 | c783563 | schema: lineage + carriage columns, reconciliation tables |
+| 2 | fdb3bac | `forkEstimate` + the fork route |
+| 3 | e6f7380 | fork dialog, lineage both directions |
+|   | 5be5adf | the margin rule + `markAmended` on every write path |
+| 4 | 66dbbf5 | dashboard as projects, comparison view, link, rename |
+| 7 | 4062196 | re-run refused when children or siblings depend on it |
+| 5 | cd68b17 | the reconciliation pass |
+| 6 | 60a8589 | the review + the applier |
 
-- c783563 stage 1 — schema: parentId (SetNull), lineageKind, forkPrompt,
-  carriage columns, the two reconciliation tables
-- fdb3bac stage 2 — `forkEstimate` + the fork route
-- e6f7380 stage 3 — fork dialog, lineage both directions
-- 5be5adf         — the margin rule + `markAmended` on every write path
-- 66dbbf5 stage 4 — dashboard as projects, lineage comparison view,
-  link-to-existing, project rename
-- 4062196 stage 7 — re-run refused when children or siblings depend on it
+Every stage gated on typecheck, the unit suite, `next build`, lint and the
+field/knip audits. 1137 tests. Zero AEH-236 `@orphan-todo`s left: all nineteen
+columns stage 1 added are consumed or honestly `@backend-only`.
 
-**Left: stages 5 and 6** — the reconciliation pass, and its review UI.
-Everything they need already exists in the schema (EstimateReconciliation,
-ReconciliationProposal) and is annotated @orphan-todo until consumed.
+### Not done
 
-### Things that will bite whoever picks this up
+- **The review panel has not been eyeballed.** Every state renders correctly
+  (checked by fetching the harness HTML: six states, signed deltas, decision
+  attributes, no React errors) but the browser extension disconnected before a
+  screenshot. Worth a look before merge — the margin rule and the comparison
+  view both had real bugs that only a screenshot found.
+- **No e2e for reconcile.** The fork e2e covers stages 2-3. Reconciling needs a
+  seeded fork plus a stubbed provider, which the e2e harness has no seam for.
+- **Nothing live-verified against a real model.** The pass is tested with a
+  stubbed provider throughout; the RECONCILER prompt has never met a real one.
 
-**`packages/db/.env` OVERRIDES the shell `DATABASE_URL`.** Passing it
-explicitly does NOT work — proved by passing a bogus URL and watching Prisma
-connect to Neon anyway. `prisma migrate dev` is therefore unusable here. Use
-`scripts/local-migrate.sh <name>`, which generates SQL offline against a
-throwaway shadow and swaps .env behind a trap.
+### Traps this work hit, worth carrying forward
 
-**Card-level carriage is STORED, not derived from rows.** `applyRegionReplace`
-deletes pinned rows and creates fresh ones, so row identity does not survive a
-re-price; derived from rows, a card the reconciliation amended would read as
-brand new. The card holds the durable claim, the row refines it.
+**`packages/db/.env` OVERRIDES the shell `DATABASE_URL`** — passing it
+explicitly does NOT work, proved with a bogus URL that still reached Neon. Use
+`scripts/local-migrate.sh`.
+
+**That script wrote two EMPTY migrations and recorded them applied** before it
+was fixed. A no-op `migrate diff` is not empty — it emits a 61-byte
+CreateExtension preamble — so an emptiness check must run AFTER the strip step,
+not before. Both phantoms were removed from disk and `_prisma_migrations`.
 
 **A NUL byte from a shell-escaped `python3 -c` edit** cost an hour: invisible in
-HTML, JSON and tsc, and it silently turns off grep because the file stops being
-text. See the project memory. Prefer heredocs; scan changed files after scripted
-edits.
+HTML, JSON and tsc, and it silently disables grep because the file stops being
+text. See the project memory.
 
-**Re-run rule is asymmetric and easy to invert:** children or siblings block,
-a parent alone does not.
+**Card-level carriage is STORED, not derived** — `applyRegionReplace` deletes
+and recreates rows, so row identity does not survive a re-price.
 
-### Stage 5 design, as settled
-
-Pipeline: skip the Librarian when `sowText` is unchanged from the parent (the
-requirement set cannot have moved, and re-reading invites spurious diffs from
-model nondeterminism) -> ONE RECONCILER call that does triage and the
-requirement diff together -> specialist council per card in play (reuse
-`runSpecialist`, which already takes `steer`) -> write proposals. The pass
-NEVER writes to the ledger; `status: PROPOSED` is its success state.
-
-Scope comes from TRIAGE, not from the fork kind. A branch with no new
-documents has an empty requirement diff, so a diff-driven loop would make no
-model call at all and report success having proposed nothing.
+**The re-run rule is asymmetric:** children or siblings block, a parent alone
+does not.
 
 ## In flight: AEH-335 — per-estimate PM/BA/QA buffer overrides
 
