@@ -38,15 +38,19 @@
  */
 import {
   LibrarianOutputSchema,
+  RequirementSchema,
   type Requirement,
   type RoleKind,
   type SpecialistOutput,
   type TaxPercents,
   taxedHoursFor,
 } from '@repo/shared';
-import type { PrismaClient } from '@repo/db';
+import type { Prisma, PrismaClient } from '@repo/db';
 import type { IModelProvider } from '@repo/providers';
 import { z } from 'zod';
+
+/** What `EstimateReconciliation.requirements` holds once the Librarian has run. */
+const RequirementCacheSchema = z.array(RequirementSchema).min(1);
 
 import { chatJSON } from './llm-json';
 import { renderLedgerContext } from './ledger-edit';
@@ -74,6 +78,15 @@ export type ProposalDraft = {
   title: string;
   supersedesMenuItemIds: string[];
   rationale: string;
+  /**
+   * The requirement this card was costed against, on an ADD.
+   *
+   * Carried so the applier can write it into the card's `meta`. Without it a
+   * reconciliation-added card has no requirement id at all, and
+   * `requirementForCard` returns undefined for it forever — meaning no LATER
+   * reconciliation can ever re-price the work this one created.
+   */
+  requirementIds: string[];
   payload: { rows: ProposedReconcileRow[] };
   hoursBefore: number | null;
   hoursAfter: number | null;
@@ -134,7 +147,7 @@ export async function runReconciliation(
 
   const rec = await db.estimateReconciliation.findUniqueOrThrow({
     where: { id: reconciliationId },
-    select: { estimateId: true, prompt: true, posture: true, actorId: true },
+    select: { estimateId: true, prompt: true, posture: true, actorId: true, requirements: true },
   });
 
   const estimate = await db.estimate.findUniqueOrThrow({
@@ -198,8 +211,16 @@ export async function runReconciliation(
   const toRead = extended ? estimate.sowText.slice(parentSow.length) : estimate.sowText;
   const sowChanged = !unchanged;
 
-  let currentRequirements = priorRequirements;
-  if (sowChanged && toRead.trim().length > 0) {
+  // A retry reads back what the first attempt already paid for. The pass is
+  // one Inngest function, so a failure at triage replays it from the top —
+  // and in production that re-ran the Librarian twice more after the pass had
+  // already reached triage. Re-reading would also be WRONG, not merely
+  // wasteful: the Librarian is not deterministic, so the retry would work
+  // against a different requirement set than the one that got this far.
+  const cached = RequirementCacheSchema.safeParse(rec.requirements);
+  let currentRequirements = cached.success ? cached.data : priorRequirements;
+
+  if (!cached.success && sowChanged && toRead.trim().length > 0) {
     await report(
       extended ? 'Reading the revised material' : 'Re-reading the brief',
       15,
@@ -215,21 +236,35 @@ export async function runReconciliation(
         levers: libP.levers,
       }),
     );
+    // Requirements are renumbered past the existing set in BOTH cases, and the
+    // replaced case is the one that matters.
+    //
+    // A card binds to its requirement by ID STRING and nothing else — see
+    // `requirementForCard`. `runLibrarian` restarts its ids at REQ-001 on every
+    // call. So a replaced brief whose requirements kept those ids would collide
+    // with the ids the existing cards still carry: a card saying REQ-046 would
+    // bind to whatever the 46th requirement of the NEW brief happens to be,
+    // and the council would re-price it against unrelated work. Silently, with
+    // plausible output and no error anywhere.
+    //
+    // Offsetting past the old set makes the old ids resolve to NOTHING, so a
+    // card whose requirement is genuinely gone is skipped rather than matched
+    // to a coincidence. That is the honest outcome: the pass declines to
+    // re-price work it can no longer tie to anything the brief asks for.
+    const renumbered = lib.requirements.map((r, i) => ({
+      ...r,
+      id: `REQ-${String(priorRequirements.length + i + 1).padStart(3, '0')}`,
+    }));
     // On an EXTENDED brief the Librarian saw only the new material, so what it
-    // returns is what was ADDED — the prior requirements are still true and are
-    // kept. Its ids restart at REQ-001 every call, so they are renumbered to
-    // continue past the existing set; without that, a new requirement would
-    // silently claim the id of an old one and the Reconciler would price the
-    // wrong work.
-    currentRequirements = extended
-      ? [
-          ...priorRequirements,
-          ...lib.requirements.map((r, i) => ({
-            ...r,
-            id: `REQ-${String(priorRequirements.length + i + 1).padStart(3, '0')}`,
-          })),
-        ]
-      : lib.requirements;
+    // returns is what was ADDED and the prior requirements are still true.
+    // On a REPLACED brief nothing prior survives, so only the new set stands.
+    currentRequirements = extended ? [...priorRequirements, ...renumbered] : renumbered;
+
+    // Cached immediately, before anything downstream can fail.
+    await db.estimateReconciliation.update({
+      where: { id: reconciliationId },
+      data: { requirements: currentRequirements as unknown as Prisma.InputJsonValue },
+    });
   }
 
   // ── 2. Triage: what is in play ─────────────────────────────────────────────
@@ -352,6 +387,8 @@ export async function runReconciliation(
       kind: 'MODIFY',
       title: card.title,
       supersedesMenuItemIds: [],
+      // The card keeps the meta it already has; nothing to carry.
+      requirementIds: [],
       rationale: outputs.flatMap((o) => o.assumptions).join(' ') || triage.reasoning,
       payload: { rows },
       hoursBefore: card.lineItems.reduce((n, li) => n + li.baseHours, 0),
@@ -390,6 +427,7 @@ export async function runReconciliation(
       kind: 'ADD',
       title: requirementTitle(requirement),
       supersedesMenuItemIds: [],
+      requirementIds: [requirement.id],
       rationale: outputs.flatMap((o) => o.assumptions).join(' ') || triage.reasoning,
       payload: { rows },
       hoursBefore: null,
@@ -409,6 +447,7 @@ export async function runReconciliation(
       kind: 'REMOVE',
       title: card.title,
       supersedesMenuItemIds: [],
+      requirementIds: [],
       rationale: triage.reasoning || 'The revised brief no longer asks for this work.',
       // The rows this destroys, kept on the proposal. Accepting a REMOVE
       // deletes the card and its lines for good, and a record saying only
@@ -446,7 +485,10 @@ export async function runReconciliation(
             title: d.title,
             supersedesMenuItemIds: d.supersedesMenuItemIds,
             rationale: d.rationale,
-            payload: d.payload as never,
+            // The requirement id rides in the payload rather than in a column
+            // of its own: it is only meaningful for an ADD, and the applier is
+            // already reading this blob.
+            payload: { ...d.payload, requirementIds: d.requirementIds } as never,
             hoursBefore: d.hoursBefore,
             hoursAfter: d.hoursAfter,
           })),
@@ -547,10 +589,21 @@ async function runReconciler(
     })
     .join('\n');
 
+  // Each requirement ONCE, marked as carried over or new, rather than the whole
+  // set printed twice under two headings. On a 52-requirement estimate the old
+  // shape sent all 52 in both lists and asked the model to diff them itself —
+  // work it should never have been doing, since the caller already knows which
+  // ids are new.
+  const priorIds = new Set(input.priorRequirements.map((r) => r.id));
   const reqLines = (rs: Requirement[]): string =>
     rs.length === 0
       ? '(none recorded)'
-      : rs.map((r) => `- id=${r.id} "${requirementTitle(r)}"`).join('\n');
+      : rs
+          .map(
+            (r) =>
+              `- id=${r.id} ${priorIds.has(r.id) ? '[carried over]' : '[NEW in the revised brief]'} "${requirementTitle(r)}"`,
+          )
+          .join('\n');
 
   // The posture is stated rather than implied. Both kinds run this same call,
   // and how tightly to hold the parent's shape is exactly the judgement the
@@ -568,17 +621,16 @@ async function runReconciler(
 
 ${briefLine}
 
-The estimator's instruction:
-
-${input.prompt || '(none given)'}
+${
+    input.prompt
+      ? `The estimator's instruction:\n\n${input.prompt}`
+      : 'NO INSTRUCTION WAS GIVEN. Decide entirely from the requirements marked NEW below and from what the cards already cover. Do not infer an instruction that was not written.'
+  }
 
 The cards on this estimate:
 ${cardLines || '(none)'}
 
-Requirements the original was built from:
-${reqLines(input.priorRequirements)}
-
-Requirements the current brief produces:
+Every requirement, marked:
 ${reqLines(input.currentRequirements)}`;
 
   return chatJSON(

@@ -1787,6 +1787,20 @@ model EstimateReconciliation {
   triagedCardIds String[]
   /// Triage's own account of why it chose that set.
   triageReasoning String?
+  /// The requirement set this pass is working against, cached the moment the
+  /// Librarian returns it.
+  ///
+  /// Written so a RETRY does not pay for the Librarian again. The pass is one
+  /// Inngest function and a failure anywhere in it replays the whole thing;
+  /// step memoisation is supposed to prevent the re-read, and in production it
+  /// did not — the first real run made three Librarian calls for one pass, two
+  /// of them after it had already reached triage.
+  ///
+  /// Reading it back is also strictly more correct than re-reading the brief:
+  /// the Librarian is not deterministic, so a retry that re-read would work
+  /// against a different requirement set than the one triage was about to
+  /// consider.
+  requirements    Json?
   /// The pass's account of what it did and why. The evidence for the numbers.
   reasoning  String?
   /// max(updatedAt) across the estimate when the pass started, compared again

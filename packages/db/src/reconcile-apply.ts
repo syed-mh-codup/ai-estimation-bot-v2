@@ -128,6 +128,7 @@ export async function applyReconciliation(
       let nextOrder = (maxOrder._max.order ?? -1) + 1;
 
       for (const p of accepted) {
+        const reqIds = (p.payload as { requirementIds?: string[] } | null)?.requirementIds ?? [];
         const rows = ((p.payload as { rows?: PayloadRow[] } | null)?.rows ?? []).filter(
           (r) => r.baseHours > 0 || r.title.trim().length > 0,
         );
@@ -149,6 +150,11 @@ export async function applyReconciliation(
               taxonomyKey: 'reconciled',
               title: p.title,
               order: nextOrder++,
+              // The requirement this was costed against, in the same shape the
+              // pipeline writes. Without it `requirementForCard` finds nothing
+              // for this card and no future reconciliation can re-price the
+              // work this one created — it would be invisible from birth.
+              meta: { requirementIds: reqIds },
               // No carriage: this work has no counterpart on the parent, so the
               // margin stays blank rather than claiming a lineage it lacks.
               carriedFromId: null,

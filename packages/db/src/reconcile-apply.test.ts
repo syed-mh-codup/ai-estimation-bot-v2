@@ -218,6 +218,32 @@ describe('what an accepted proposal does', () => {
     expect(card.lineItems[0]!.baseHours).toBe(7);
   });
 
+  it('gives an added card the requirement it was costed against', async () => {
+    // Without this the card is invisible to every future reconciliation:
+    // `requirementForCard` reads `meta.requirementIds`, so a card created with
+    // no meta can never be re-priced by a later pass. Invisible from birth.
+    await db.reconciliationProposal.create({
+      data: {
+        reconciliationId: recId,
+        kind: 'ADD',
+        title: 'Loyalty scheme',
+        rationale: 'New requirement.',
+        decision: 'ACCEPTED',
+        supersedesMenuItemIds: [],
+        payload: { ...rows(9), requirementIds: ['REQ-042'] } as never,
+      },
+    });
+
+    const out = await applyReconciliation(db, { reconciliationId: recId });
+    expect(out.kind).toBe('APPLIED');
+
+    const card = await db.menuItem.findFirstOrThrow({
+      where: { estimateId: forkId, title: 'Loyalty scheme' },
+      select: { meta: true },
+    });
+    expect((card.meta as { requirementIds?: string[] })?.requirementIds).toEqual(['REQ-042']);
+  });
+
   it('deletes a removed card and everything on it', async () => {
     const cards = await cardsOf();
     await proposal('REMOVE', { menuItemId: cards[1]!.id, decision: 'ACCEPTED' });

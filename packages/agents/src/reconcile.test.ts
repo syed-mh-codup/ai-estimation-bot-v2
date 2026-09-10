@@ -294,6 +294,38 @@ describe('the brief is only re-read when it moved', () => {
     expect(lib[0]!.user).not.toContain('SSO and card payments');
   });
 
+  it('does not let a replaced brief steal the ids the cards already point at', async () => {
+    // The dangerous case. A card binds to its requirement by id string alone,
+    // and `runLibrarian` restarts ids at REQ-001 on every call. If a replaced
+    // brief kept those ids, the fork's cards — which carry REQ-001 and REQ-002
+    // from the parent — would bind to whatever the new brief's first two
+    // requirements happen to be, and the council would re-price them against
+    // unrelated work. Silently, with plausible numbers.
+    await db.estimate.update({
+      where: { id: forkId },
+      data: { sowText: 'A completely different brief about warehouse logistics.' },
+    });
+    const ids = await cardIds();
+    reconcilerReply = {
+      repriceCardIds: [ids['Auth & SSO']],
+      newRequirementIds: [],
+      removeCardIds: [],
+      reasoning: 'x',
+    };
+
+    await reconcile();
+
+    const rec = calls.find((c) => c.agent === 'RECONCILER')!;
+    // The new set is offset past the old, so nothing reuses REQ-001/REQ-002.
+    expect(rec.user).toContain('REQ-003');
+    expect(rec.user).not.toMatch(/id=REQ-001/);
+
+    // And the card still carrying REQ-001 now resolves to nothing, so it is
+    // SKIPPED rather than priced against a coincidence. Zero specialist calls
+    // despite triage having selected it.
+    expect(calls.filter((c) => c.agent === 'SPECIALIST')).toHaveLength(0);
+  });
+
   it('reads the whole brief when it was REPLACED rather than added to', async () => {
     // No shortcut is available here and none should be invented — a rewritten
     // brief shares no prefix with the old one, so every word of it is new.
