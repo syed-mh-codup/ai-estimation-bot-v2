@@ -1784,21 +1784,20 @@ model EstimateReconciliation {
   /// it would not reproduce the same set, and the review has to be able to say
   /// what this pass was actually allowed to look at. It is also how a too-narrow
   /// triage becomes visible instead of looking like a quiet model failure.
-  /// @orphan-todo AEH-236 not consumed yet — written by triage, read by the review to show what was in play.
   triagedCardIds String[]
   /// Triage's own account of why it chose that set.
-  /// @orphan-todo AEH-236 not consumed yet — read by the review, so a too-narrow triage is visible.
   triageReasoning String?
   /// The pass's account of what it did and why. The evidence for the numbers.
   reasoning  String?
   /// max(updatedAt) across the estimate when the pass started, compared again
   /// before any write. Estimates are edited live; a pass that ran for four
   /// minutes cannot assume the ledger stood still.
-  /// @orphan-todo AEH-236 not consumed yet — compared before the applier writes, to catch a concurrent edit.
   fingerprint DateTime?
   proposals  ReconciliationProposal[]
   createdAt  DateTime               @default(now())
-  /// @orphan-todo AEH-236 not consumed yet — read by the review to show a settled pass.
+  /// @backend-only When the accepted proposals were written. The review reads `status` to
+  /// know a pass has settled; this is the record of WHEN, so "what moved this estimate, and
+  /// on what day" stays answerable long after the panel has moved on.
   appliedAt  DateTime?
 
   @@index([estimateId, createdAt])
@@ -1835,7 +1834,6 @@ model ReconciliationProposal {
   ///
   /// Accepting a proposal with a non-empty list deletes these cards in the same
   /// transaction that writes the new one.
-  /// @orphan-todo AEH-236 not consumed yet — read by the applier to delete the cards a collapse replaces.
   supersedesMenuItemIds String[]
   /// Why the pass proposes this, in its own words. Survives a rejection: this
   /// is the half of the record that cannot be reconstructed afterwards.
@@ -1846,17 +1844,14 @@ model ReconciliationProposal {
   /// is given, so a careless findMany here drags every payload on the estimate
   /// out of Neon — the same rule LedgerEdit's snapshots carry, for the same
   /// reason.
-  /// @orphan-todo:rows AEH-236 written by the pass; read back by the applier, which is the next stage.
   payload          Json
   /// Hours before and after, promoted out of the payload so "how much did this
   /// pass move" is a query rather than a scan.
-  /// @orphan-todo AEH-236 not consumed yet — read by the review to show what a proposal moves.
   hoursBefore      Float?
-  /// @orphan-todo AEH-236 not consumed yet — read by the review to show what a proposal moves.
   hoursAfter       Float?
-  /// @orphan-todo AEH-236 not consumed yet — read by the review and the applier.
   decision         ProposalDecision       @default(PENDING)
-  /// @orphan-todo AEH-236 not consumed yet — read by the review to show when a proposal was settled.
+  /// @backend-only When this proposal was accepted or rejected. The review renders the
+  /// decision itself; this and `decidedById` are the record of who took it and when.
   decidedAt        DateTime?
   decidedById      String?
   decidedBy        User?                  @relation(fields: [decidedById], references: [id], onDelete: SetNull)

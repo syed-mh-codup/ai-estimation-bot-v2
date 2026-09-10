@@ -26,6 +26,8 @@ import { EstimateHeader, ComplexityField } from './EstimateHeader';
 import { ForkDialog } from './ForkDialog';
 import { ForkedFrom, ForksOfThis } from './Lineage';
 import { LinkLineageDialog, UnlinkButton } from './LinkLineageDialog';
+import { ReconcilePanel } from './ReconcilePanel';
+import type { ProposalDTO, ReconciliationDTO } from './reconcile-dto';
 import { CustodianField, DueDateField } from './CustodyFields';
 import type { CustodianOption } from './CustodyFields';
 import { dueLabel, toDateInputValue } from '@/lib/due-date';
@@ -258,6 +260,81 @@ export default async function EstimateDetailPage({
           .map((e) => ({ id: e.id, title: e.title }));
       })();
   const inAFamily = Boolean(estimate.parentId) || estimate.children.length > 0;
+
+  // The newest reconciliation, server-rendered so the panel has something to
+  // show before its first poll. Only a fork can have one.
+  const reconciliation: ReconciliationDTO | null = !estimate.parentId
+    ? null
+    : await (async () => {
+        const r = await prisma.estimateReconciliation.findFirst({
+          where: { estimateId: estimate.id },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            stage: true,
+            pct: true,
+            error: true,
+            prompt: true,
+            posture: true,
+            reasoning: true,
+            triageReasoning: true,
+            triagedCardIds: true,
+            createdAt: true,
+            appliedAt: true,
+            proposals: {
+              orderBy: { title: 'asc' },
+              select: {
+                id: true,
+                menuItemId: true,
+                kind: true,
+                title: true,
+                rationale: true,
+                supersedesMenuItemIds: true,
+                hoursBefore: true,
+                hoursAfter: true,
+                decision: true,
+                payload: true,
+              },
+            },
+          },
+        });
+        if (!r) return null;
+        const proposals: ProposalDTO[] = r.proposals.map((p) => ({
+          id: p.id,
+          menuItemId: p.menuItemId,
+          kind: p.kind,
+          title: p.title,
+          rationale: p.rationale,
+          supersedes: p.supersedesMenuItemIds,
+          delta: (p.hoursAfter ?? 0) - (p.hoursBefore ?? 0),
+          decision: p.decision,
+          rows: (
+            (p.payload as { rows?: { role: string; title: string; baseHours: number; taxedHours: number }[] } | null)
+              ?.rows ?? []
+          ).map((row) => ({
+            role: row.role,
+            title: row.title,
+            baseHours: row.baseHours,
+            taxedHours: row.taxedHours,
+          })),
+        }));
+        return {
+          id: r.id,
+          status: r.status,
+          stage: r.stage,
+          pct: r.pct,
+          error: r.error,
+          prompt: r.prompt,
+          posture: r.posture,
+          reasoning: r.reasoning,
+          triageReasoning: r.triageReasoning,
+          triagedCount: r.triagedCardIds.length,
+          proposals,
+          createdAt: r.createdAt.toISOString(),
+          appliedAt: r.appliedAt?.toISOString() ?? null,
+        };
+      })();
 
   const isFinalised = estimate.status === 'FINALISED';
   // The gate. Warn or block is an admin switch, not a hardcoded stance: a
@@ -553,6 +630,12 @@ export default async function EstimateDetailPage({
               initial={artifactRows}
             />
             <RunDiagnosticsPanel estimateId={estimate.id} />
+            {/* Only on a fork: an estimate with no parent has nothing to
+                reconcile against. */}
+            {estimate.parentId && !isFinalised && (
+              <ReconcilePanel estimateId={estimate.id} initial={reconciliation} />
+            )}
+
             <ForksOfThis
               forks={estimate.children}
               projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}

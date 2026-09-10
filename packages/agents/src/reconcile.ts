@@ -369,7 +369,20 @@ export async function runReconciliation(
       title: card.title,
       supersedesMenuItemIds: [],
       rationale: triage.reasoning || 'The revised brief no longer asks for this work.',
-      payload: { rows: [] },
+      // The rows this destroys, kept on the proposal. Accepting a REMOVE
+      // deletes the card and its lines for good, and a record saying only
+      // "60h removed" cannot answer what those hours were FOR.
+      payload: {
+        rows: card.lineItems.map((li) => ({
+          role: li.role,
+          title: '',
+          baseHours: li.baseHours,
+          taxedHours: 0,
+          notes: null,
+          touchesFrontend: false,
+          touchesBackend: false,
+        })),
+      },
       hoursBefore: card.lineItems.reduce((n, li) => n + li.baseHours, 0),
       hoursAfter: 0,
     });

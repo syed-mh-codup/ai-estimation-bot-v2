@@ -22,6 +22,7 @@ export * from './statement-edit';
 export * from './carriage';
 export * from './lineage';
 export * from './fork';
+export * from './reconcile-apply';
 export * from './menu-item-mapping';
 export * from './agent-catalogue';
 export * from './usage-catalogue';
