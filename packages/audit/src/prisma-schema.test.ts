@@ -128,6 +128,12 @@ describe('AEH-228: prisma schema parser', () => {
       // export. Listed before the artifact pair because this is schema order.
       'LedgerEdit.beforeSnapshot',
       'LedgerEdit.afterSnapshot',
+      // AEH-236. The Librarian's requirement set, cached so a resumed pass does
+      // not buy the most expensive call in the reconciliation twice. Json
+      // because it is a whole `Requirement[]` parsed back with the real schema
+      // — the same blob shape `Estimate.agentState` already holds it in, and
+      // columns for it would be a second spelling of a type that lives in Zod.
+      'EstimateReconciliation.requirements',
       // AEH-236. One card's worth of proposed rows. Json for the same reason
       // the snapshots above are: the payload's shape is the ledger's shape, so
       // columns would mean a migration every time a line item gains a field.
