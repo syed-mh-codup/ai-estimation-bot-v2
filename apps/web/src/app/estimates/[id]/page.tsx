@@ -23,6 +23,8 @@ import { Eyebrow } from '@/components/ui/card';
 import { RunControls } from './RunControls';
 import { MenuCardEditor } from './MenuCardEditor';
 import { EstimateHeader, ComplexityField } from './EstimateHeader';
+import { ForkDialog } from './ForkDialog';
+import { ForkedFrom, ForksOfThis } from './Lineage';
 import { CustodianField, DueDateField } from './CustodyFields';
 import type { CustodianOption } from './CustodyFields';
 import { dueLabel, toDateInputValue } from '@/lib/due-date';
@@ -224,6 +226,14 @@ export default async function EstimateDetailPage({
         include: { lineItems: true },
         orderBy: [{ order: 'asc' }, { id: 'asc' }],
       },
+      // Lineage, both directions. AEH-236. The parent is one line under the
+      // title; the children are a rail block, and that half is what stops
+      // somebody quoting a round-1 number that round 2 has already moved.
+      parent: { select: { id: true, title: true } },
+      children: {
+        select: { id: true, title: true, status: true, lineageKind: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      },
     },
   });
   if (!estimate) notFound();
@@ -389,6 +399,9 @@ export default async function EstimateDetailPage({
           status={estimate.status}
           isFinalised={isFinalised}
         />
+        {estimate.parent && estimate.lineageKind && (
+          <ForkedFrom parent={estimate.parent} kind={estimate.lineageKind} />
+        )}
       </div>
 
       <LedgerProvider
@@ -512,6 +525,8 @@ export default async function EstimateDetailPage({
               initial={artifactRows}
             />
             <RunDiagnosticsPanel estimateId={estimate.id} />
+            <ForksOfThis forks={estimate.children} />
+
             {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
             {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
@@ -562,6 +577,10 @@ export default async function EstimateDetailPage({
                   />
                 )}
                 <CollapseAllButton />
+                {/* Below the run and export controls: forking is something you
+                    do to an estimate that already says something, not a way of
+                    starting one. */}
+                <ForkDialog estimateId={estimate.id} estimateTitle={estimate.title} />
               </div>
 
               {/* Destructive and rare: it shouldn't carry Export's weight. */}
