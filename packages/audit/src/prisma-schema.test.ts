@@ -80,8 +80,18 @@ describe('AEH-228: prisma schema parser', () => {
     // STATEMENT_LIST are VALUES on the existing LockScope, deliberately: there
     // is one vocabulary of things a person can point at, and a second one would
     // eventually disagree with the first about what a declaration means.
-    expect(schema.models.size).toBe(37);
-    expect(schema.enums.size).toBe(24);
+    // 39 and 28 since AEH-236, which added two models — EstimateReconciliation
+    // and ReconciliationProposal — and four enums: LineageKind,
+    // ReconciliationStatus, ProposalKind and ProposalDecision. It removed
+    // neither a model nor a column; every lineage change is additive, because
+    // the load-bearing requirement is that the earlier estimate stays valid.
+    //
+    // The proposal is its own model rather than a fifth LedgerEditMode for a
+    // structural reason, not a stylistic one: a LedgerEdit is one envelope and
+    // one write set decided up front, while a reconciliation is many per-card
+    // dispositions each accepted or rejected on its own.
+    expect(schema.models.size).toBe(39);
+    expect(schema.enums.size).toBe(28);
   });
 
   it('classifies relations, foreign keys and scalars apart', () => {
@@ -118,6 +128,10 @@ describe('AEH-228: prisma schema parser', () => {
       // export. Listed before the artifact pair because this is schema order.
       'LedgerEdit.beforeSnapshot',
       'LedgerEdit.afterSnapshot',
+      // AEH-236. One card's worth of proposed rows. Json for the same reason
+      // the snapshots above are: the payload's shape is the ledger's shape, so
+      // columns would mean a migration every time a line item gains a field.
+      'ReconciliationProposal.payload',
       // AEH-239. Both are Json for the same reason: their shape is decided by
       // a hand-authored artifact type, not by this schema. `outline` is the
       // section plan a type's brief produced; `inputs` is whatever that brief

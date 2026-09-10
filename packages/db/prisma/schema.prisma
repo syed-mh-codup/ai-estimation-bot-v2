@@ -155,6 +155,21 @@ enum OracleRole {
   ASSISTANT
 }
 
+/// How one estimate relates to the estimate it came from. AEH-236.
+///
+/// Two kinds, one mechanism: both deep-copy the parent and both keep it live.
+/// What differs is how tightly the reconciliation pass holds to the parent's
+/// numbers, which is a posture in a prompt rather than a second code path.
+enum LineageKind {
+  /// The client came back with revised requirements for the same job. The
+  /// parent's breakdown is the working assumption; a card moves only where the
+  /// new material forces it.
+  SUCCESSOR
+  /// A different stack, or a different route to the same outcome. The parent's
+  /// hours are context for how big this work was judged to be, never a target.
+  BRANCH
+}
+
 enum EstimateStatus {
   DRAFT
   REVIEW
@@ -271,6 +286,10 @@ model User {
   ledgerEdits       LedgerEdit[]
   /// Statements this user has frozen. Same override rule as ledgerLocks.
   statementLocks    StatementLock[]
+  /// Reconciliation passes this user ran on a forked estimate. AEH-236.
+  reconciliations   EstimateReconciliation[]
+  /// Individual proposals this user accepted or rejected. AEH-236.
+  proposalDecisions ReconciliationProposal[]
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -704,6 +723,34 @@ model Estimate {
   statements         EstimateStatement[]
   /// Statements on this estimate somebody has frozen. AEH-238.
   statementLocks     StatementLock[]
+
+  // ── Lineage (AEH-236) ───────────────────────────────────────────────────────
+
+  /// The estimate this one was forked from, or linked to. Null for an original.
+  ///
+  /// SetNull rather than Cascade, and that is the ticket's load-bearing
+  /// requirement: deleting round 1 must NOT destroy round 2. A child that loses
+  /// its parent becomes an original and keeps every card, line and hour it had.
+  /// The carried marks on its rows survive too — they are claims about where a
+  /// row came from, which stays true of a document that no longer exists.
+  parentId        String?
+  parent          Estimate?    @relation("EstimateLineage", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Estimate[]   @relation("EstimateLineage")
+  /// Successor or branch. Null exactly when `parentId` is null.
+  /// @orphan-todo AEH-236 not consumed yet — read by the lineage header and by the pass to choose its posture.
+  lineageKind     LineageKind?
+  /// What the person said this fork was for, verbatim.
+  ///
+  /// Not decoration: it is the ONLY driver of a branch's reconciliation. A stack
+  /// change carries the same brief, so the requirement diff is empty and this
+  /// sentence is the entire signal. It is also the only record of WHY the fork
+  /// exists once the numbers have moved.
+  /// @orphan-todo AEH-236 not consumed yet — read by the reconciliation pass, where it is the only driver on a branch.
+  forkPrompt      String?
+  /// Every reconciliation pass run on this estimate.
+  reconciliations EstimateReconciliation[]
+
+  @@index([parentId])
 }
 
 /// One change to one of an estimate buffer overrides.
@@ -901,8 +948,28 @@ model MenuItem {
   /// Scenarios in which somebody explicitly switched this card on.
   scopePicks     ScopeScenarioPick[]
 
+  // ── Lineage carriage (AEH-236) ──────────────────────────────────────────────
+
+  /// The card on the parent estimate this was copied from. PERMANENT — a fact
+  /// about where this card came from, not a claim that it still matches.
+  ///
+  /// STORED at card level rather than derived from the rows, and that is not
+  /// redundancy. `applyRegionReplace` deletes the pinned rows and creates fresh
+  /// ones (packages/db/src/ledger-edit.ts), so row identity does not survive a
+  /// re-price at all. Derived from rows, a card the reconciliation had amended
+  /// would read as brand new — losing precisely the distinction the amended
+  /// state exists to record. This column is the anchor that survives row churn.
+  /// @orphan-todo AEH-236 not consumed yet — read by the margin continuity rule.
+  carriedFromId  String?
+  /// False once anything changes this card or any row on it: solid margin rule
+  /// versus dashed. Every write path that touches the card's rows sets it,
+  /// `applyRegionReplace` included.
+  /// @orphan-todo AEH-236 not consumed yet — read by the margin rule to pick solid versus dashed.
+  carriedIntact  Boolean              @default(true)
+
   @@index([estimateId])
   @@index([sectionId])
+  @@index([carriedFromId])
 }
 
 /// One configured scope over an estimate — a planning artifact.
@@ -1062,7 +1129,21 @@ model RoleLineItem {
   /// MenuItem.updatedAt for why this is not a hand-bumped counter.
   updatedAt       DateTime @updatedAt
 
+  /// The row on the parent estimate this was copied from. AEH-236.
+  ///
+  /// The precision layer over `MenuItem.carriedFromId`, and deliberately the
+  /// weaker of the two: a hand edit updates a row in place so this survives and
+  /// stays exact, but a re-price replaces the row wholesale and this goes with
+  /// it. That is why the card holds the durable claim. Read this only to refine
+  /// a rule the card has already justified drawing.
+  /// @orphan-todo AEH-236 not consumed yet — read by the margin rule to refine a card-level claim to the row.
+  carriedFromId   String?
+  /// False once this row's hours, title or existence change.
+  /// @orphan-todo AEH-236 not consumed yet — read by the margin rule to pick solid versus dashed.
+  carriedIntact   Boolean  @default(true)
+
   @@index([menuItemId, role])
+  @@index([carriedFromId])
 }
 
 /// Which list a statement belongs to. AEH-238.
@@ -1112,7 +1193,20 @@ model EstimateStatement {
   /// region — the same role RoleLineItem.updatedAt plays for an hours region.
   updatedAt  DateTime       @updatedAt
 
+  /// The statement on the parent estimate this was copied from. AEH-236.
+  ///
+  /// Prose has no container to anchor to the way a line item has its card, so
+  /// unlike the ledger there is no durable layer beneath this one. A rewrite
+  /// replaces the row and the carriage goes with it — which is honest for prose:
+  /// a reworded assumption IS new text, not an amended version of old text.
+  /// @orphan-todo AEH-236 not consumed yet — read by the assumptions list to mark carried prose.
+  carriedFromId String?
+  /// False once the wording changes.
+  /// @orphan-todo AEH-236 not consumed yet — read by the assumptions list to pick solid versus dashed.
+  carriedIntact Boolean        @default(true)
+
   @@index([estimateId, kind, order])
+  @@index([carriedFromId])
 }
 
 // ─── Ledger locks ─────────────────────────────────────────────────────────────
@@ -1579,6 +1673,166 @@ model LedgerEdit {
 
   @@index([estimateId, createdAt])
   @@index([estimateId, status])
+}
+
+// ─── Reconciliation (AEH-236) ─────────────────────────────────────────────────
+
+/// How far a reconciliation pass has got.
+enum ReconciliationStatus {
+  QUEUED
+  RUNNING
+  /// Finished, and its proposals are waiting on a person. The pass NEVER writes
+  /// to the ledger itself — this is the state it ends in on success.
+  PROPOSED
+  /// Every proposal has been decided and the accepted ones written.
+  APPLIED
+  /// The job failed. `error` says how. A real state rather than a stuck
+  /// RUNNING, for the same reason LedgerEditStatus.FAILED is one: an overrunning
+  /// step dies as a bare 504 with no step output on this deploy.
+  FAILED
+}
+
+/// What a proposal does to a card.
+enum ProposalKind {
+  /// A card that does not exist yet. New work the brief now asks for.
+  ADD
+  /// An existing card whose rows move.
+  MODIFY
+  /// An existing card the brief no longer asks for.
+  REMOVE
+}
+
+enum ProposalDecision {
+  PENDING
+  ACCEPTED
+  /// Discarded. The proposal and its rationale stay readable — that is the
+  /// whole point, so "why is this still 18h when the brief changed" keeps an
+  /// answer after everyone has forgotten the conversation.
+  REJECTED
+}
+
+/// One reconciliation of a forked estimate against what changed. AEH-236.
+///
+/// Its own table rather than a fifth `LedgerEditMode`, for two reasons that are
+/// both structural rather than stylistic:
+///
+///   A LedgerEdit is ONE envelope and ONE write set, decided up front. A
+///   reconciliation is MANY per-card dispositions, each independently accepted
+///   or rejected, so the accept/reject state has to live per proposal.
+///
+///   The steered edit engine conserves lines — the Curator is told every line
+///   must appear exactly once across its output cards, so it partitions and
+///   re-prices but cannot invent work. A reconciliation must ADD cards for
+///   requirements that arrived in a document last week, and REMOVE cards the
+///   brief dropped. That is a different contract, not a different mode.
+///
+/// Applying accepted proposals still writes a LedgerEdit, so the change lands
+/// in the same activity panel with the same snapshots and the same revert.
+model EstimateReconciliation {
+  id         String                 @id @default(cuid())
+  estimateId String
+  estimate   Estimate               @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  /// Who ran it. Attribution, not ownership.
+  actorId    String
+  actor      User                   @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  /// The steering instruction this pass ran under, copied from
+  /// `Estimate.forkPrompt` so the record is self-contained and survives the
+  /// estimate's prompt later being edited.
+  prompt     String
+  /// SUCCESSOR holds tight to the parent; BRANCH treats its hours as context.
+  /// @orphan-todo AEH-236 not consumed yet — read by the pass to choose how tightly to hold the parent.
+  posture    LineageKind
+  status     ReconciliationStatus   @default(QUEUED)
+  /// Human-readable progress, mirroring Estimate.runStage. A pass that is
+  /// invisible in context is worse than the blocking call it replaced.
+  stage      String?
+  pct        Int                    @default(0)
+  error      String?
+  /// Which cards triage put in play, pinned at dispatch.
+  ///
+  /// Recorded rather than re-derived because triage is a MODEL call: re-running
+  /// it would not reproduce the same set, and the review has to be able to say
+  /// what this pass was actually allowed to look at. It is also how a too-narrow
+  /// triage becomes visible instead of looking like a quiet model failure.
+  /// @orphan-todo AEH-236 not consumed yet — written by triage, read by the review to show what was in play.
+  triagedCardIds String[]
+  /// Triage's own account of why it chose that set.
+  /// @orphan-todo AEH-236 not consumed yet — read by the review, so a too-narrow triage is visible.
+  triageReasoning String?
+  /// The pass's account of what it did and why. The evidence for the numbers.
+  reasoning  String?
+  /// max(updatedAt) across the estimate when the pass started, compared again
+  /// before any write. Estimates are edited live; a pass that ran for four
+  /// minutes cannot assume the ledger stood still.
+  /// @orphan-todo AEH-236 not consumed yet — compared before the applier writes, to catch a concurrent edit.
+  fingerprint DateTime?
+  proposals  ReconciliationProposal[]
+  createdAt  DateTime               @default(now())
+  /// @orphan-todo AEH-236 not consumed yet — read by the review to show a settled pass.
+  appliedAt  DateTime?
+
+  @@index([estimateId, createdAt])
+  @@index([estimateId, status])
+}
+
+/// One card's worth of proposed change, accepted or rejected on its own.
+///
+/// Per CARD, never per line: a card re-priced as a whole goes incoherent if you
+/// take half of it — accept a DEV increase for a native iOS sheet while
+/// rejecting the QA row that tests it and the card claims work nobody will
+/// check.
+model ReconciliationProposal {
+  id               String                 @id @default(cuid())
+  reconciliationId String
+  reconciliation   EstimateReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  /// The card this is about. Null for ADD — the card does not exist yet.
+  ///
+  /// Deliberately NOT a foreign key. A proposal outlives the card it describes:
+  /// a REMOVE that is accepted deletes the row, and the record of having decided
+  /// that has to survive the deletion it caused.
+  menuItemId       String?
+  kind             ProposalKind
+  /// The card's title, denormalised so a REMOVE still reads properly once the
+  /// card is gone.
+  title            String
+  /// The cards this proposal subsumes, when it replaces several at once.
+  ///
+  /// A stack change does not re-price the old cards, it dissolves them: custom
+  /// auth, custom admin workflows and the API layer become one "configure and
+  /// extend WooCommerce" card. Without this the review shows three unexplained
+  /// removals and one unexplained addition — four decisions where there is
+  /// really one, and no way to accept them together or reject them together.
+  ///
+  /// Accepting a proposal with a non-empty list deletes these cards in the same
+  /// transaction that writes the new one.
+  /// @orphan-todo AEH-236 not consumed yet — read by the applier to delete the cards a collapse replaces.
+  supersedesMenuItemIds String[]
+  /// Why the pass proposes this, in its own words. Survives a rejection: this
+  /// is the half of the record that cannot be reconstructed afterwards.
+  rationale        String
+  /// The proposed rows, as a ProposedRow[] payload.
+  ///
+  /// Never select this by default. Prisma returns every scalar when no `select`
+  /// is given, so a careless findMany here drags every payload on the estimate
+  /// out of Neon — the same rule LedgerEdit's snapshots carry, for the same
+  /// reason.
+  /// @orphan-todo AEH-236 not consumed yet — the proposed rows; read by the applier and the review.
+  payload          Json
+  /// Hours before and after, promoted out of the payload so "how much did this
+  /// pass move" is a query rather than a scan.
+  /// @orphan-todo AEH-236 not consumed yet — read by the review to show what a proposal moves.
+  hoursBefore      Float?
+  /// @orphan-todo AEH-236 not consumed yet — read by the review to show what a proposal moves.
+  hoursAfter       Float?
+  /// @orphan-todo AEH-236 not consumed yet — read by the review and the applier.
+  decision         ProposalDecision       @default(PENDING)
+  /// @orphan-todo AEH-236 not consumed yet — read by the review to show when a proposal was settled.
+  decidedAt        DateTime?
+  decidedById      String?
+  decidedBy        User?                  @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([reconciliationId, decision])
+  @@index([menuItemId])
 }
 
 // ─── Artifacts ────────────────────────────────────────────────────────────────

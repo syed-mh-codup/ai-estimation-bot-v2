@@ -170,6 +170,8 @@ describe('AEH-227: row <-> domain round trip', () => {
       order: 0,
       meta: null,
       updatedAt: FIXED_AT,
+      carriedFromId: null,
+      carriedIntact: true,
       lineItems: [
         {
           id: 'cuid-line',
@@ -184,6 +186,8 @@ describe('AEH-227: row <-> domain round trip', () => {
           touchesBackend: false,
           meta: null,
           updatedAt: FIXED_AT,
+          carriedFromId: null,
+          carriedIntact: true,
         },
       ],
     });
@@ -216,6 +220,8 @@ describe('AEH-227: row <-> domain round trip', () => {
       order: 0,
       meta: { title: 'stale title from meta', enabled: false, injected: false, requirementIds: ['REQ9'] },
       updatedAt: FIXED_AT,
+      carriedFromId: null,
+      carriedIntact: true,
       lineItems: [],
     });
 

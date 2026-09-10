@@ -149,6 +149,11 @@ const WIDE_READ_SELECT = {
   estimateId: true,
   meta: true,
   updatedAt: true,
+  // Lineage carriage. Selected because `toMenuItem` takes a whole row, not
+  // because the council reads it from here — like the locks, carriage reaches
+  // the prompt through `renderLedgerContext`, never through the domain shape.
+  carriedFromId: true,
+  carriedIntact: true,
   lineItems: {
     select: {
       id: true,
@@ -163,6 +168,8 @@ const WIDE_READ_SELECT = {
       touchesBackend: true,
       meta: true,
       updatedAt: true,
+      carriedFromId: true,
+      carriedIntact: true,
     },
   },
 } as const;
