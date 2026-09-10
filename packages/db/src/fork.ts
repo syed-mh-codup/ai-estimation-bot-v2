@@ -109,6 +109,7 @@ export async function forkEstimate(db: PrismaClient, args: ForkArgs): Promise<Fo
       runStatus: true,
       ingestStatus: true,
       overheadRatesStale: true,
+      projectName: true,
       pmCommunicationTaxPctOverride: true,
       baCommunicationTaxPctOverride: true,
       qaRegressionBufferPctOverride: true,
@@ -277,6 +278,11 @@ export async function forkEstimate(db: PrismaClient, args: ForkArgs): Promise<Fo
           parentId: parent.id,
           lineageKind: args.kind,
           forkPrompt: args.steer?.trim() || null,
+          // Inherited verbatim, null included. A null here is not a gap to fill
+          // in: `projectNameOf` resolves it to the root's own title, so a family
+          // reads sensibly from the moment it exists without anybody naming it,
+          // and only an explicit rename ever makes it non-null.
+          projectName: parent.projectName,
         },
         select: { id: true },
       });

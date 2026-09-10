@@ -746,6 +746,19 @@ model Estimate {
   /// exists once the numbers have moved.
   /// @orphan-todo AEH-236 not consumed yet — read by the reconciliation pass, where it is the only driver on a branch.
   forkPrompt      String?
+  /// What the FAMILY this estimate belongs to is called — "Acme CRM", where
+  /// the estimates in it are "Acme CRM — round 1" and "Acme CRM — September".
+  ///
+  /// Denormalised onto every member rather than held on the root, and that is
+  /// deliberate. `parentId` is SetNull, so deleting round 1 would take the
+  /// family's name with it and silently scatter the remaining estimates into
+  /// unrelated rows on the dashboard — losing the grouping at exactly the
+  /// moment somebody is tidying up.
+  ///
+  /// Null means the family has never been named, and it reads as the root's own
+  /// title. Only two paths write it: forking (a child inherits its parent's
+  /// effective name) and renaming (which writes every member at once).
+  projectName     String?
   /// Every reconciliation pass run on this estimate.
   reconciliations EstimateReconciliation[]
 

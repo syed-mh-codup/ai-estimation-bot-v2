@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
-import { prisma, toMenuItem } from '@repo/db';
+import { prisma, rootOf, toMenuItem } from '@repo/db';
 import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
@@ -25,6 +25,7 @@ import { MenuCardEditor } from './MenuCardEditor';
 import { EstimateHeader, ComplexityField } from './EstimateHeader';
 import { ForkDialog } from './ForkDialog';
 import { ForkedFrom, ForksOfThis } from './Lineage';
+import { LinkLineageDialog, UnlinkButton } from './LinkLineageDialog';
 import { CustodianField, DueDateField } from './CustodyFields';
 import type { CustodianOption } from './CustodyFields';
 import { dueLabel, toDateInputValue } from '@/lib/due-date';
@@ -238,6 +239,26 @@ export default async function EstimateDetailPage({
   });
   if (!estimate) notFound();
 
+  // Candidates for relating this estimate to one that already exists. AEH-236.
+  //
+  // Offered only when this estimate has no parent — an estimate records ONE
+  // origin, and quietly re-pointing it would rewrite a family somebody else
+  // built. Descendants are excluded because linking to one would close a loop;
+  // `linkToParent` refuses that too, and this is the half that stops it being
+  // offered in the first place.
+  const linkCandidates = estimate.parentId
+    ? []
+    : await (async () => {
+        const all = await prisma.estimate.findMany({
+          select: { id: true, parentId: true, title: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        return all
+          .filter((e) => e.id !== estimate.id && rootOf(all, e.id)?.id !== estimate.id)
+          .map((e) => ({ id: e.id, title: e.title }));
+      })();
+  const inAFamily = Boolean(estimate.parentId) || estimate.children.length > 0;
+
   const isFinalised = estimate.status === 'FINALISED';
   // The gate. Warn or block is an admin switch, not a hardcoded stance: a
   // blocking gate is only as good as the Detective's precision, and nobody has
@@ -403,7 +424,11 @@ export default async function EstimateDetailPage({
           isFinalised={isFinalised}
         />
         {estimate.parent && estimate.lineageKind && (
-          <ForkedFrom parent={estimate.parent} kind={estimate.lineageKind} />
+          <ForkedFrom
+            parent={estimate.parent}
+            kind={estimate.lineageKind}
+            projectHref={`/estimates/${estimate.id}/lineage`}
+          />
         )}
       </div>
 
@@ -528,7 +553,15 @@ export default async function EstimateDetailPage({
               initial={artifactRows}
             />
             <RunDiagnosticsPanel estimateId={estimate.id} />
-            <ForksOfThis forks={estimate.children} />
+            <ForksOfThis
+              forks={estimate.children}
+              projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
+            />
+            {estimate.parentId && (
+              <div className="px-1">
+                <UnlinkButton estimateId={estimate.id} />
+              </div>
+            )}
 
             {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
             {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
@@ -584,6 +617,11 @@ export default async function EstimateDetailPage({
                     do to an estimate that already says something, not a way of
                     starting one. */}
                 <ForkDialog estimateId={estimate.id} estimateTitle={estimate.title} />
+                {/* Only where there is no origin recorded yet: an estimate has
+                    one, and re-pointing it would rewrite somebody's family. */}
+                {!estimate.parentId && (
+                  <LinkLineageDialog estimateId={estimate.id} candidates={linkCandidates} />
+                )}
               </div>
 
               {/* Destructive and rare: it shouldn't carry Export's weight. */}

@@ -27,9 +27,12 @@ const FROM_PARENT: Record<LineageKind, string> = {
 export function ForkedFrom({
   parent,
   kind,
+  projectHref,
 }: {
   parent: { id: string; title: string };
   kind: LineageKind;
+  /** Where the whole family can be compared, when there is one. */
+  projectHref?: string;
 }) {
   return (
     <p className="mt-1 flex items-center gap-1.5 text-[12px] text-ink-3" data-testid="forked-from">
@@ -42,6 +45,18 @@ export function ForkedFrom({
         {parent.title}
         <ArrowUpRight className="h-3 w-3" />
       </Link>
+      {projectHref && (
+        <>
+          <span className="text-ink-4">·</span>
+          <Link
+            href={projectHref}
+            className="text-ink-3 underline decoration-line underline-offset-2 hover:decoration-ink-3"
+            data-testid="view-project"
+          >
+            compare the rounds
+          </Link>
+        </>
+      )}
     </p>
   );
 }
@@ -56,8 +71,11 @@ export function ForkedFrom({
  */
 export function ForksOfThis({
   forks,
+  projectHref,
 }: {
   forks: { id: string; title: string; status: string; lineageKind: LineageKind | null; createdAt: Date }[];
+  /** Where the whole family can be compared, when there is one. */
+  projectHref?: string | null;
 }) {
   if (forks.length === 0) return null;
 
@@ -97,6 +115,15 @@ export function ForksOfThis({
           </li>
         ))}
       </ul>
+      {projectHref && (
+        <Link
+          href={projectHref}
+          className="mt-3 block text-[11.5px] text-ink-3 underline decoration-line underline-offset-2 hover:decoration-ink-3"
+          data-testid="view-project-rail"
+        >
+          Compare every round side by side
+        </Link>
+      )}
     </div>
   );
 }
