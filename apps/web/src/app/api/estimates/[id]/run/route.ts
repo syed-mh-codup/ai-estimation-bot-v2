@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@repo/db';
+import { prisma, rerunBlock, rerunBlockMessage } from '@repo/db';
 import { auth } from '@/lib/auth';
 import { inngest } from '@/lib/inngest';
 import { assertEstimateUnlockedForRerun } from '@/lib/lock-guards';
@@ -22,6 +22,10 @@ export const dynamic = 'force-dynamic';
  * have been paid for and the estimate has been sitting in RUNNING. Refusing at
  * dispatch costs nothing and is the only point at which the answer is still
  * useful. AEH-238.
+ *
+ * Refuses for lineage on the same reasoning. That same destructive persist is
+ * what makes a re-run unsafe on an estimate other estimates depend on — see
+ * `rerunBlock`. AEH-236.
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -30,8 +34,24 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const est = await prisma.estimate.findUnique({ where: { id }, select: { id: true, runStatus: true } });
   if (!est) return NextResponse.json({ error: 'not found' }, { status: 404 });
+  // `code`, not just a message. Both this and the refusals below are 409, and
+   // the client has to tell them apart: "somebody else already started it" is
+   // fine and the poller takes over, while a refusal must stop the optimistic
+   // RUNNING state and say why. Matching on the message string would work until
+   // somebody rewords it. AEH-236.
   if (est.runStatus === 'RUNNING') {
-    return NextResponse.json({ error: 'already running' }, { status: 409 });
+    return NextResponse.json({ code: 'ALREADY_RUNNING', error: 'already running' }, { status: 409 });
+  }
+
+  // Lineage, before the lock check only because it is one query and needs no
+  // try/catch. AEH-236.
+  const family = await prisma.estimate.findMany({ select: { id: true, parentId: true } });
+  const blocked = rerunBlock(family, id);
+  if (blocked) {
+    return NextResponse.json(
+      { code: 'REFUSED', error: rerunBlockMessage(blocked) },
+      { status: 409 },
+    );
   }
 
   try {
@@ -41,7 +61,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     // estimate is in a state that forbids this. The message names the locks and
     // who holds them, so it is passed through verbatim for the client to show.
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'This estimate has locked lines' },
+      {
+        code: 'REFUSED',
+        error: err instanceof Error ? err.message : 'This estimate has locked lines',
+      },
       { status: 409 },
     );
   }

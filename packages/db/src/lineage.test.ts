@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { familiesOf, familyIds, projectNameOf, rootOf } from './lineage';
+import { familiesOf, familyIds, projectNameOf, rerunBlock, rerunBlockMessage, rootOf } from './lineage';
 
 /**
  * AEH-236. Grouping estimates into projects.
@@ -118,5 +118,64 @@ describe('familyIds', () => {
 
   it('returns just the id for an estimate that is not in the list', () => {
     expect(familyIds([n('a', null)], 'nope')).toEqual(['nope']);
+  });
+});
+
+describe('rerunBlock', () => {
+  /**
+   * A run deletes every card, line item and scope scenario before rebuilding,
+   * so the question is never "is a re-run allowed" but "does anything else
+   * depend on these rows". The asymmetry below is the whole rule and it is easy
+   * to get backwards: a PARENT does not block, CHILDREN and SIBLINGS do.
+   */
+  it('allows a re-run on an estimate nothing is tied to', () => {
+    expect(rerunBlock([n('a', null)], 'a')).toBeNull();
+  });
+
+  it('allows a re-run on a fork whose parent alone is above it', () => {
+    // Nothing depends on this estimate's rows, and the parent is untouched
+    // either way. The re-run clears its carried marks along with the rows,
+    // which is accurate, and it is recoverable by forking the parent again.
+    const nodes = [n('a', null), n('b', 'a')];
+    expect(rerunBlock(nodes, 'b')).toBeNull();
+  });
+
+  it('blocks a re-run on an estimate that has been forked', () => {
+    // The children's carried marks point at rows this would delete.
+    const nodes = [n('a', null), n('b', 'a'), n('c', 'a')];
+    expect(rerunBlock(nodes, 'a')).toEqual({ reason: 'CHILDREN', count: 2 });
+  });
+
+  it('blocks a re-run on one of several branches off the same parent', () => {
+    // A family of branches exists in order to be compared. Rebuilding one from
+    // the SOW stops it being a variant of anything.
+    const nodes = [n('a', null), n('b', 'a'), n('c', 'a')];
+    expect(rerunBlock(nodes, 'b')).toEqual({ reason: 'SIBLINGS', count: 1 });
+  });
+
+  it('reports CHILDREN first when an estimate has both', () => {
+    // Both are true of a middle generation; children are the more destructive
+    // of the two, so that is the reason worth naming.
+    const nodes = [n('a', null), n('b', 'a'), n('c', 'a'), n('d', 'b')];
+    expect(rerunBlock(nodes, 'b')?.reason).toBe('CHILDREN');
+  });
+
+  it('does not treat unrelated originals as siblings', () => {
+    // Two estimates with no parent share `parentId: null`, which a naive
+    // implementation reads as a sibling relationship and blocks every re-run
+    // in the system.
+    const nodes = [n('a', null), n('b', null), n('c', null)];
+    expect(rerunBlock(nodes, 'a')).toBeNull();
+  });
+
+  it('allows a re-run for an estimate that is not in the list', () => {
+    expect(rerunBlock([n('a', null)], 'nope')).toBeNull();
+  });
+
+  it('says which estimates are in the way, and what to do instead', () => {
+    const msg = rerunBlockMessage({ reason: 'CHILDREN', count: 1 });
+    expect(msg).toMatch(/1 estimate was forked/);
+    expect(msg).toMatch(/Fork a branch and run that instead/);
+    expect(rerunBlockMessage({ reason: 'SIBLINGS', count: 3 })).toMatch(/3 others/);
   });
 });

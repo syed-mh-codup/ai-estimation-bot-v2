@@ -96,16 +96,27 @@ export function RunControls({ estimateId, hasMenu, initial }: RunControlsProps) 
     });
     try {
       const res = await fetch(`/api/estimates/${estimateId}/run`, { method: 'POST' });
-      // 202 = started, 409 = already running elsewhere — both fine, the poller
-      // takes over. Anything else is a genuine start failure.
-      if (res.status !== 202 && res.status !== 409) {
-        setRun((r) => ({
-          ...r,
-          status: 'FAILED',
-          stage: 'Failed',
-          pct: 0,
-          error: `Could not start run (HTTP ${res.status})`,
-        }));
+      // 202 = started. 409 is TWO different things and they must not be
+      // conflated: `ALREADY_RUNNING` means somebody else started it and the
+      // poller takes over, but a `REFUSED` 409 means the run never happened.
+      //
+      // Treating every 409 as fine left a refusal showing the optimistic
+      // RUNNING state until a poll quietly reverted it — so a locked estimate,
+      // or one with forks depending on its rows, read as "starting…" and then
+      // as nothing at all. The server's message is the only thing that says
+      // which locks, or which estimates, are in the way, so it is shown
+      // verbatim rather than replaced with a status code. AEH-236.
+      if (res.status !== 202) {
+        const body = await res.json().catch(() => null);
+        if (body?.code !== 'ALREADY_RUNNING') {
+          setRun((r) => ({
+            ...r,
+            status: 'FAILED',
+            stage: 'Failed',
+            pct: 0,
+            error: body?.error ?? `Could not start run (HTTP ${res.status})`,
+          }));
+        }
       }
     } catch {
       setRun((r) => ({

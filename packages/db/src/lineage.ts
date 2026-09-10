@@ -95,3 +95,55 @@ export function familyIds<T extends LineageNode>(nodes: readonly T[], id: string
   if (!root) return [id];
   return nodes.filter((n) => rootOf(nodes, n.id)?.id === root.id).map((n) => n.id);
 }
+
+/** Why a re-run is refused, or null when it is allowed. */
+export type RerunBlock = { reason: 'CHILDREN' | 'SIBLINGS'; count: number } | null;
+
+/**
+ * Whether this estimate may be re-run. AEH-236.
+ *
+ * A run deletes every card, line item and scope scenario before rebuilding
+ * (`run-estimate.ts`), which is destructive in both directions of a lineage.
+ *
+ *   CHILDREN block it, because their rows' `carriedFromId` point at this
+ *   estimate's. A re-run deletes exactly the rows every downstream margin mark
+ *   refers to, so the whole family's provenance would start making claims about
+ *   rows that no longer exist.
+ *
+ *   SIBLINGS block it, because a family of branches exists in order to be
+ *   compared. Re-running one member rebuilds it from the SOW with no reference
+ *   to the shared parent — it stops being a variant of anything, and the
+ *   comparison view would sit there comparing two things that are no longer
+ *   comparable.
+ *
+ * Having a PARENT alone does not block it. Nothing depends on this estimate's
+ * rows and the parent is untouched either way; the re-run simply clears the
+ * carried marks along with the rows, leaving an estimate that records where it
+ * came from without claiming any of it still matches. That is accurate, and it
+ * is recoverable — fork the parent again.
+ *
+ * A holding position rather than a design. Re-runs are being reworked in their
+ * own stream; this only stops the lineage feature from making the existing
+ * behaviour quietly worse.
+ */
+export function rerunBlock<T extends LineageNode>(nodes: readonly T[], id: string): RerunBlock {
+  const self = nodes.find((n) => n.id === id);
+  if (!self) return null;
+
+  const children = nodes.filter((n) => n.parentId === id);
+  if (children.length > 0) return { reason: 'CHILDREN', count: children.length };
+
+  if (self.parentId) {
+    const siblings = nodes.filter((n) => n.parentId === self.parentId && n.id !== id);
+    if (siblings.length > 0) return { reason: 'SIBLINGS', count: siblings.length };
+  }
+  return null;
+}
+
+/** The refusal, in words a person can act on. */
+export function rerunBlockMessage(block: NonNullable<RerunBlock>): string {
+  const n = block.count;
+  return block.reason === 'CHILDREN'
+    ? `${n} estimate${n === 1 ? ' was' : 's were'} forked from this one. Re-running rebuilds the ledger from the SOW, which would delete the rows their carried-over marks point at. Fork a branch and run that instead.`
+    : `This estimate shares a parent with ${n} other${n === 1 ? '' : 's'}. Re-running rebuilds it from the SOW with no reference to what they were all forked from, so it would stop being comparable with them. Fork a branch and run that instead.`;
+}
