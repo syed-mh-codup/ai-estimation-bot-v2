@@ -618,65 +618,6 @@ export default async function EstimateDetailPage({
                  controls that act on them, never scroll away ──────────────── */}
           <aside className="flex flex-col gap-3.5 lg:sticky lg:top-4 max-lg:order-first">
             {hasMenu && <RollupCard />}
-            {/* A planning view, not an edit of this estimate — see
-                scope/page.tsx. Offered whenever there is a menu card, because
-                "there is no graph yet" is a better answer on that screen than a
-                missing link here. */}
-            {hasMenu && (
-              <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
-                <Eyebrow>Configure scope</Eyebrow>
-                <p className="mt-1.5 text-[11.5px] leading-snug text-ink-4">
-                  Shape what is in scope with dependencies resolved automatically. Does not change
-                  this estimate.
-                </p>
-                <Link
-                  href={`/estimates/${estimate.id}/scope`}
-                  data-testid="open-scope-configurator"
-                  className="mt-2 inline-block text-[12.5px] text-green hover:underline"
-                >
-                  Open configurator →
-                </Link>
-              </div>
-            )}
-            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
-            <ArtifactsPanel
-              estimateId={estimate.id}
-              types={artifactTypes}
-              initial={artifactRows}
-            />
-            <RunDiagnosticsPanel estimateId={estimate.id} />
-            {/* The run, demoted, on a fork whose hero slot the reconciliation
-                has taken. Still reachable — the rule allows a fork with no
-                children and no siblings to re-run — but it carries the warning
-                that doing so throws the copy away. */}
-            {estimate.parentId && !isFinalised && (
-              <RunControls
-                isFork
-                estimateId={estimate.id}
-                hasMenu={hasMenu}
-                initial={{
-                  status: estimate.runStatus,
-                  stage: estimate.runStage,
-                  pct: estimate.runPct,
-                  error: estimate.runError,
-                  startedAt: estimate.runStartedAt?.toISOString() ?? null,
-                  finishedAt: estimate.runFinishedAt?.toISOString() ?? null,
-                }}
-              />
-            )}
-
-            <ForksOfThis
-              forks={estimate.children}
-              projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
-            />
-            {estimate.parentId && (
-              <div className="px-1">
-                <UnlinkButton estimateId={estimate.id} />
-              </div>
-            )}
-
-            {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
-            {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Actions</Eyebrow>
@@ -734,6 +675,10 @@ export default async function EstimateDetailPage({
                 {!estimate.parentId && (
                   <LinkLineageDialog estimateId={estimate.id} candidates={linkCandidates} />
                 )}
+                {/* Beside the other lineage controls rather than adrift
+                    below the forks list. Breaking a link is an action, and
+                    this is where actions are. */}
+                {estimate.parentId && <UnlinkButton estimateId={estimate.id} />}
               </div>
 
               {/* Destructive and rare: it shouldn't carry Export's weight. */}
@@ -762,6 +707,61 @@ export default async function EstimateDetailPage({
               />
               )}
             </div>
+            {/* A planning view, not an edit of this estimate — see
+                scope/page.tsx. Offered whenever there is a menu card, because
+                "there is no graph yet" is a better answer on that screen than a
+                missing link here. */}
+            {hasMenu && (
+              <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
+                <Eyebrow>Configure scope</Eyebrow>
+                <p className="mt-1.5 text-[11.5px] leading-snug text-ink-4">
+                  Shape what is in scope with dependencies resolved automatically. Does not change
+                  this estimate.
+                </p>
+                <Link
+                  href={`/estimates/${estimate.id}/scope`}
+                  data-testid="open-scope-configurator"
+                  className="mt-2 inline-block text-[12.5px] text-green hover:underline"
+                >
+                  Open configurator →
+                </Link>
+              </div>
+            )}
+            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
+            <ArtifactsPanel
+              estimateId={estimate.id}
+              types={artifactTypes}
+              initial={artifactRows}
+            />
+            <RunDiagnosticsPanel estimateId={estimate.id} />
+            {/* The run, demoted, on a fork whose hero slot the reconciliation
+                has taken. Still reachable — the rule allows a fork with no
+                children and no siblings to re-run — but it carries the warning
+                that doing so throws the copy away. */}
+            {estimate.parentId && !isFinalised && (
+              <RunControls
+                isFork
+                estimateId={estimate.id}
+                hasMenu={hasMenu}
+                initial={{
+                  status: estimate.runStatus,
+                  stage: estimate.runStage,
+                  pct: estimate.runPct,
+                  error: estimate.runError,
+                  startedAt: estimate.runStartedAt?.toISOString() ?? null,
+                  finishedAt: estimate.runFinishedAt?.toISOString() ?? null,
+                }}
+              />
+            )}
+
+            <ForksOfThis
+              forks={estimate.children}
+              projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
+            />
+
+            {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
+            {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
+
 
             {hasMenu && <ContentsCard />}
 
