@@ -188,6 +188,7 @@ describe('AEH-227: row <-> domain round trip', () => {
           updatedAt: FIXED_AT,
           carriedFromId: null,
           carriedIntact: true,
+          carriedVerified: false,
         },
       ],
     });

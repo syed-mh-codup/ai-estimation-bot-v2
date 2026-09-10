@@ -170,6 +170,7 @@ const WIDE_READ_SELECT = {
       updatedAt: true,
       carriedFromId: true,
       carriedIntact: true,
+      carriedVerified: true,
     },
   },
 } as const;
