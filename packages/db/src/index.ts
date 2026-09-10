@@ -19,6 +19,7 @@ export * from './ledger-edit';
 export * from './estimate-statements';
 export * from './statement-locks';
 export * from './statement-edit';
+export * from './carriage';
 export * from './fork';
 export * from './menu-item-mapping';
 export * from './agent-catalogue';

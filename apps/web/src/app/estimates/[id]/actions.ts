@@ -1,6 +1,6 @@
 'use server';
 
-import { prisma, reconcileStatements, type RoleKind } from '@repo/db';
+import { markAmended, prisma, reconcileStatements, type RoleKind } from '@repo/db';
 import {
   isTaxableRole,
   isValidBufferPct,
@@ -27,7 +27,7 @@ import {
   assertRoleUnlockedForBuffer,
   assertStatementListEditable,
 } from '@/lib/lock-guards';
-import { cardFlags, lineEnvelope, EMPTY_ENVELOPE, OK } from './dto';
+import { cardFlags, carriedMark, lineEnvelope, EMPTY_ENVELOPE, OK } from './dto';
 import type { ItemDTO, LineItemDTO, MutationOutcome, SectionDTO } from './dto';
 
 /**
@@ -145,6 +145,11 @@ export async function createMenuItem(estimateId: string, sectionId: string | nul
       sourcePresetId: true,
       matchScore: true,
       meta: true,
+      // Both false/null on a hand-added card by construction, but selected
+      // rather than hardcoded: ItemDTO requires them, and a literal here would
+      // be a second claim about the column that could drift from it. AEH-236.
+      carriedFromId: true,
+      carriedIntact: true,
     },
   });
   // A hand-added card carries no Architect judgment, so `cardFlags` gives it the
@@ -260,8 +265,12 @@ export async function createLineItem(menuItemId: string, role: RoleKind): Promis
     data: { menuItemId, role, title: '', baseHours: 0, taxedHours: 0, provenance: 'HUMAN' },
     select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true },
   });
-  // Typed by hand, so there is no council judgment to carry.
-  return { ...li, envelope: EMPTY_ENVELOPE };
+  // A card that gained a line no longer matches the one it was copied from,
+  // even though every row that came across still does. AEH-236.
+  await markAmended(prisma, { cardIds: [menuItemId] });
+  // Typed by hand, so there is no council judgment to carry — and nothing came
+  // from a parent, so the margin stays blank. AEH-236.
+  return { ...li, envelope: EMPTY_ENVELOPE, carried: null };
 }
 
 export async function updateLineItem(
@@ -303,9 +312,18 @@ export async function updateLineItem(
   const li = await prisma.roleLineItem.update({
     where: { id },
     data,
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true, meta: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true, meta: true, carriedFromId: true, carriedIntact: true, carriedVerified: true, menuItem: { select: { carriedFromId: true } } },
   });
-  return { ...li, envelope: lineEnvelope(li.meta) };
+  await markAmended(prisma, { lineItemIds: [id] });
+  // `carriedIntact: false` rather than `li.carriedIntact`: the row was read
+  // before `markAmended` ran, so its own copy of the flag is one write stale.
+  // Passing the value we just wrote keeps this on the same rule the page uses
+  // instead of a second one that could disagree with it. AEH-236.
+  return {
+    ...li,
+    envelope: lineEnvelope(li.meta),
+    carried: carriedMark(li.menuItem, { ...li, carriedIntact: false }),
+  };
 }
 
 /**
@@ -329,9 +347,16 @@ export async function setLineItemSide(
   const li = await prisma.roleLineItem.update({
     where: { id },
     data: { touchesFrontend: side.touchesFrontend, touchesBackend: side.touchesBackend, provenance: 'HUMAN' },
-    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true, meta: true },
+    select: { id: true, role: true, title: true, baseHours: true, taxedHours: true, provenance: true, touchesFrontend: true, touchesBackend: true, meta: true, carriedFromId: true, carriedIntact: true, carriedVerified: true, menuItem: { select: { carriedFromId: true } } },
   });
-  return { ...li, envelope: lineEnvelope(li.meta) };
+  // These flags carry no hours, but they say what the row's number covers —
+  // part of the description, so the row no longer matches its origin. AEH-236.
+  await markAmended(prisma, { lineItemIds: [id] });
+  return {
+    ...li,
+    envelope: lineEnvelope(li.meta),
+    carried: carriedMark(li.menuItem, { ...li, carriedIntact: false }),
+  };
 }
 
 export async function deleteLineItem(id: string): Promise<void> {
@@ -339,6 +364,9 @@ export async function deleteLineItem(id: string): Promise<void> {
   const { estimateId } = await estimateIdForLineItem(id);
   await assertEditable(estimateId);
   await assertLineItemUnlocked(id, actor.id);
+  // Before the delete, not after: this is the last moment the row still names
+  // the card whose contents are about to change. AEH-236.
+  await markAmended(prisma, { lineItemIds: [id] });
   await prisma.roleLineItem.delete({ where: { id } });
 }
 
@@ -440,6 +468,12 @@ export async function setEstimateTaxPct(
       for (const [taxedHours, ids] of moved) {
         await tx.roleLineItem.updateMany({ where: { id: { in: ids } }, data: { taxedHours } });
       }
+      // A buffer change moves the taxed figure, so a carried row stops matching
+      // the one it came from — which is exactly what somebody comparing a fork
+      // against a quoted parent needs to see. Only the rows that actually moved:
+      // `moved` already excludes the ones already holding the right figure, so a
+      // repeated call stays free. AEH-236.
+      await markAmended(tx, { lineItemIds: [...moved.values()].flat() });
 
       // Only claim staleness if there is actually an overhead card to be stale,
       // and only when something moved — a no-op call must not raise the flag.

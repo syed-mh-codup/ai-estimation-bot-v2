@@ -32,7 +32,48 @@ import type {
 export type LineItemDTO = Pick<
   RoleLineItemRow,
   'id' | 'role' | 'title' | 'baseHours' | 'taxedHours' | 'provenance' | 'touchesFrontend' | 'touchesBackend'
-> & { envelope: LineEnvelope };
+> & { envelope: LineEnvelope; carried: CarriedMark };
+
+/**
+ * What the margin rule draws beside one row. AEH-236.
+ *
+ * Four states rather than a boolean, because the useful question on a forked
+ * estimate is not "did this come from somewhere" but "is this still the number
+ * that was quoted":
+ *
+ *   verified  carried across unchanged, AND signed off on the parent
+ *   carried   carried across unchanged, never checked by anyone
+ *   amended   traces to the parent, and has since moved
+ *   null      new in this estimate, or this estimate has no parent
+ *
+ * Sent as one resolved value rather than as the four booleans behind it, so the
+ * rule lives in `carriedMark` alone and cannot drift between the row renderer,
+ * the card header and whatever reads it next.
+ */
+export type CarriedMark = 'verified' | 'carried' | 'amended' | null;
+
+/**
+ * Resolve the mark for one row from its card and itself.
+ *
+ * The CARD decides whether anything is drawn at all. That is not a shortcut for
+ * reading the row: `applyRegionReplace` deletes a re-priced row and creates a
+ * fresh one, so an amended row has no carriage of its own left to consult, and
+ * a row-only rule would call re-priced work brand new.
+ *
+ * The ROW decides solid versus dashed, and it is read independently of the
+ * card's own intactness on purpose. A card that gained a line is no longer
+ * intact, but the rows that came across with it are untouched and still match
+ * what was quoted — marking them amended would be false. The card's own state
+ * belongs in its header, not in its rows' margins.
+ */
+export function carriedMark(
+  card: { carriedFromId: string | null },
+  row: { carriedFromId: string | null; carriedIntact: boolean; carriedVerified: boolean },
+): CarriedMark {
+  if (card.carriedFromId === null) return null;
+  if (row.carriedFromId === null || !row.carriedIntact) return 'amended';
+  return row.carriedVerified ? 'verified' : 'carried';
+}
 
 /**
  * What the Specialist council recorded about a line item beyond its hours.
@@ -86,6 +127,8 @@ export type ItemDTO = Pick<
   | 'phase'
   | 'sourcePresetId'
   | 'matchScore'
+  | 'carriedFromId'
+  | 'carriedIntact'
 > & { flags: CardFlags; lineItems: LineItemDTO[] };
 
 /**

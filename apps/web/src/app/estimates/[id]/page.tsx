@@ -40,7 +40,7 @@ import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { ExportSheets } from './ExportSheets';
 import { lastExportLine, overwriteWarning, type ExportOutcome } from './export-interaction';
-import { cardFlags, lineEnvelope } from './dto';
+import { cardFlags, carriedMark, lineEnvelope } from './dto';
 import type { ItemDTO, SectionDTO } from './dto';
 
 async function requireSession() {
@@ -324,6 +324,8 @@ export default async function EstimateDetailPage({
     phase: m.phase,
     sourcePresetId: m.sourcePresetId,
     matchScore: m.matchScore,
+    carriedFromId: m.carriedFromId,
+    carriedIntact: m.carriedIntact,
     flags: cardFlags(m.meta),
     lineItems: m.lineItems.map((li) => ({
       id: li.id,
@@ -335,6 +337,7 @@ export default async function EstimateDetailPage({
       touchesFrontend: li.touchesFrontend,
       touchesBackend: li.touchesBackend,
       envelope: lineEnvelope(li.meta),
+      carried: carriedMark(m, li),
     })),
   }));
 

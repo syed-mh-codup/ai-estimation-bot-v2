@@ -4,6 +4,8 @@ import type {
   PrismaClient,
 } from './generated/client/index.js';
 
+import { markStatementsAmended } from './carriage';
+
 /**
  * Writing a steered statement revision. AEH-238.
  *
@@ -189,6 +191,10 @@ export async function applyStatementRevision(
           data: { text: w.text.trim(), provenance: 'STEERED' },
         });
       }
+      // A rewritten assumption is new text, not an amended version of old
+      // text — prose has no card underneath it to hold the older claim, so the
+      // carried mark simply drops. Deletes need nothing: the row goes. AEH-236.
+      await markStatementsAmended(tx, rewrites.map((w) => w.statementId));
       if (deletes.length > 0) {
         await tx.estimateStatement.deleteMany({
           where: { id: { in: deletes.map((d) => d.statementId) } },

@@ -737,7 +737,6 @@ model Estimate {
   parent          Estimate?    @relation("EstimateLineage", fields: [parentId], references: [id], onDelete: SetNull)
   children        Estimate[]   @relation("EstimateLineage")
   /// Successor or branch. Null exactly when `parentId` is null.
-  /// @orphan-todo AEH-236 not consumed yet — read by the lineage header and by the pass to choose its posture.
   lineageKind     LineageKind?
   /// What the person said this fork was for, verbatim.
   ///
@@ -963,7 +962,6 @@ model MenuItem {
   /// False once anything changes this card or any row on it: solid margin rule
   /// versus dashed. Every write path that touches the card's rows sets it,
   /// `applyRegionReplace` included.
-  /// @orphan-todo AEH-236 not consumed yet — read by the margin rule to pick solid versus dashed.
   carriedIntact  Boolean              @default(true)
 
   @@index([estimateId])
@@ -1137,7 +1135,6 @@ model RoleLineItem {
   /// a rule the card has already justified drawing.
   carriedFromId   String?
   /// False once this row's hours, title or existence change.
-  /// @orphan-todo AEH-236 not consumed yet — read by the margin rule to pick solid versus dashed.
   carriedIntact   Boolean  @default(true)
   /// True when the source row was LOCKED on the parent.
   ///
@@ -1146,7 +1143,6 @@ model RoleLineItem {
   /// about a fresh estimate nobody has reviewed would be a lie. What carries is
   /// the EVIDENCE that it happened — a claim about the past, which stays true.
   /// So a forked row is never frozen, and can still say it was checked.
-  /// @orphan-todo AEH-236 not consumed yet — read by the margin rule to pick green over taupe.
   carriedVerified Boolean  @default(false)
 
   @@index([menuItemId, role])
@@ -1208,11 +1204,9 @@ model EstimateStatement {
   /// a reworded assumption IS new text, not an amended version of old text.
   carriedFromId String?
   /// False once the wording changes.
-  /// @orphan-todo AEH-236 not consumed yet — read by the assumptions list to pick solid versus dashed.
   carriedIntact Boolean        @default(true)
   /// True when the source statement was locked on the parent. See
   /// RoleLineItem.carriedVerified for why the evidence carries and the lock does not.
-  /// @orphan-todo AEH-236 not consumed yet — read by the assumptions list to pick green over taupe.
   carriedVerified Boolean      @default(false)
 
   @@index([estimateId, kind, order])

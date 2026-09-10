@@ -1,5 +1,7 @@
 import { FOUR_HOUR_CAP, snapToQuarterHour, taxedHoursFor, type TaxPercents } from '@repo/shared';
 
+import { markAmended } from './carriage';
+
 import type {
   LineProvenance,
   Prisma,
@@ -359,6 +361,10 @@ export async function applyRegionReplace(
         }
       }
 
+      // Before the delete: the replaced rows lose their carriage with them, so
+      // the CARD is the only place left that can say this work came from a
+      // parent and has since moved. AEH-236.
+      await markAmended(tx, { lineItemIds: pinnedLineItemIds, cardIds: pinnedCardIds });
       if (pinnedLineItemIds.length > 0) {
         await tx.roleLineItem.deleteMany({ where: { id: { in: pinnedLineItemIds } } });
       }
@@ -511,6 +517,10 @@ export async function applyRestructure(
         }
 
         if (card.lineItemIds.length > 0) {
+          // Both ends move: the card losing the rows and the card gaining them
+          // each hold something different from what they were copied as, even
+          // though not one row's hours or wording changed. AEH-236.
+          await markAmended(tx, { lineItemIds: card.lineItemIds, cardIds: [menuItemId] });
           await tx.roleLineItem.updateMany({
             where: { id: { in: card.lineItemIds } },
             data: { menuItemId },

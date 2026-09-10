@@ -38,6 +38,13 @@ const changeCreate = vi.fn();
 //
 // `$transaction` hands the callback the same client, so the action's writes and
 // its reads inside the transaction land on one set of spies.
+// Typed with its real two-argument shape rather than as a bare `vi.fn()`, so
+// the assertions below can read `calls[i][1]` at all — an untyped spy gives
+// every call an empty tuple and indexing it is a compile error.
+const markAmendedSpy = vi.fn(
+  async (_db: unknown, _target: { lineItemIds?: string[]; cardIds?: string[] }) => {},
+);
+
 vi.mock('@repo/db', () => {
   const client = {
     estimate: {
@@ -63,6 +70,13 @@ vi.mock('@repo/db', () => {
     // so it answers empty — the refusal itself is covered by
     // lock-enforcement-db.test.ts against a real database.
     lockedWithin: async () => [],
+    // A buffer change moves a carried row's taxed figure, so the row stops
+    // matching the estimate it was forked from (AEH-236). Spied rather than
+    // stubbed away: the assertion that it is called with exactly the rows that
+    // MOVED lives below, because marking rows that did not move would put a
+    // dashed rule beside numbers nobody touched.
+    markAmended: (db: unknown, target: { lineItemIds?: string[]; cardIds?: string[] }) =>
+      markAmendedSpy(db, target),
   };
 });
 
@@ -168,6 +182,38 @@ describe('setEstimateTaxPct — the recompute', () => {
     );
     expect(touched).not.toContain('qa-2h');
     expect(touched).not.toContain('qa-1h');
+  });
+
+  /**
+   * AEH-236. A buffer change moves the taxed figure, so a carried row stops
+   * matching the estimate it came from and its margin rule goes dashed.
+   *
+   * The precision is the point. Marking every row in the estimate would put a
+   * dashed rule — "this was in the parent's price and has moved" — beside
+   * numbers that did not move at all, on the screen where somebody is deciding
+   * what to re-quote. So the write set is exactly `moved`, and rows already
+   * holding the right figure are excluded from both.
+   */
+  it('marks only the rows whose figure actually moved as amended', async () => {
+    await setEstimateTaxPct(EST, 'QA', 30);
+    expect(markAmendedSpy).toHaveBeenCalled();
+    const marked = markAmendedSpy.mock.calls.flatMap(
+      ([, target]) => (target as { lineItemIds?: string[] }).lineItemIds ?? [],
+    );
+    const touched = lineUpdateMany.mock.calls.flatMap(
+      ([a]) => ((a as { where: { id: { in: string[] } } }).where.id.in),
+    );
+    expect([...marked].sort()).toEqual([...touched].sort());
+    expect(marked).not.toContain('qa-2h');
+    expect(marked).not.toContain('qa-1h');
+  });
+
+  it('marks nothing when the buffer resolves to what it already was', async () => {
+    await setEstimateTaxPct(EST, 'QA', 20);
+    const marked = markAmendedSpy.mock.calls.flatMap(
+      ([, target]) => (target as { lineItemIds?: string[] }).lineItemIds ?? [],
+    );
+    expect(marked).toEqual([]);
   });
 
   /** `provenance` says where a number came from. A buffer change is not a source. */
