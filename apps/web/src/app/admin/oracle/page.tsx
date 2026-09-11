@@ -100,7 +100,8 @@ export default async function AdminOraclePage({
         ORDER BY (CASE WHEN ${ascending}::boolean THEN 1 ELSE -1 END) *
                  (CASE WHEN ${byTokens}::boolean
                        THEN (COALESCE(SUM(u."promptTokens"), 0) + COALESCE(SUM(u."completionTokens"), 0))::float8
-                       ELSE COALESCE(SUM(u."costUsd"), 0)::float8 END)
+                       ELSE COALESCE(SUM(u."costUsd"), 0)::float8 END),
+                 MAX(t."updatedAt") DESC
         LIMIT ${TAKE}
       `
     : null;
@@ -125,8 +126,13 @@ export default async function AdminOraclePage({
       // message rows and adding them up — ModelUsage is the one home for AI
       // spend, and a second path to the same number is exactly what AEH-286
       // collapsed.
+      // `threadId: { not: null }` is stated rather than left to the relation
+      // filter. An empty `is: {}` is the unfiltered case, and whether that
+      // reads as "the relation exists" or as "no constraint at all" decides
+      // whether this total is Oracle's spend or the entire bill — far too load
+      // -bearing a difference to leave to an implicit.
       prisma.modelUsage.aggregate({
-        where: { thread: { is: where } },
+        where: { threadId: { not: null }, ...(filtered ? { thread: { is: where } } : {}) },
         _sum: { costUsd: true },
       }),
       prisma.modelUsage.aggregate({
@@ -380,6 +386,17 @@ export default async function AdminOraclePage({
             </div>
           </Card>
           <RowCap shown={TAKE} total={scopedThreads} />
+          {/* A spend sort ranks ModelUsage, so a conversation with no usage row
+              has nothing to rank and never enters the list. Saying so beats a
+              reader counting rows and concluding the others were deleted. */}
+          {ranked && threads.length < TAKE && scopedThreads > threads.length && (
+            <p className="mt-1.5 text-[11.5px] text-ink-4" data-testid="oracle-unranked">
+              <span className="num">{(scopedThreads - threads.length).toLocaleString()}</span>{' '}
+              {scopedThreads - threads.length === 1 ? 'conversation has' : 'conversations have'} no
+              recorded spend, so this sort cannot rank{' '}
+              {scopedThreads - threads.length === 1 ? 'it' : 'them'}.
+            </p>
+          )}
         </>
       )}
     </div>
