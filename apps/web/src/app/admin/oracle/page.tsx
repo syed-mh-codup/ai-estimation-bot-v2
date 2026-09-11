@@ -200,9 +200,13 @@ export default async function AdminOraclePage({
     users: userVocab.map((u) => u.userId).filter((v): v is string => !!v),
   };
   const [estimateNames, userNames] = await Promise.all([
+    // @deleted-ok the filter vocabulary for a spend-and-history screen. The
+    // threads under a deleted estimate still happened and their cost was
+    // real, so they stay filterable — marked, like the usage screen's titles,
+    // rather than hidden behind a name that silently went missing. AEH-375.
     prisma.estimate.findMany({
       where: { id: { in: vocabIds.estimates } },
-      select: { id: true, title: true },
+      select: { id: true, title: true, deletedAt: true },
       orderBy: { title: 'asc' },
     }),
     prisma.user.findMany({
@@ -245,7 +249,10 @@ export default async function AdminOraclePage({
               label: 'Estimate',
               value: estimateId,
               allLabel: 'All estimates',
-              options: estimateNames.map((e) => ({ value: e.id, label: e.title })),
+              options: estimateNames.map((e) => ({
+                value: e.id,
+                label: e.deletedAt ? `${e.title} (deleted)` : e.title,
+              })),
             },
             {
               param: 'userId',

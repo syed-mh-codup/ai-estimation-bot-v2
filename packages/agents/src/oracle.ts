@@ -107,7 +107,9 @@ export async function buildOracleCorpus(
   estimateId: string,
 ): Promise<OracleCorpus | null> {
   const estimate = await db.estimate.findUnique({
-    where: { id: estimateId },
+    // Deleted estimates are out of the corpus, and `null` here is already the
+    // "no such estimate" answer every caller handles. AEH-375.
+    where: { id: estimateId, deletedAt: null },
     include: {
       sections: { orderBy: { order: 'asc' } },
       menuItems: { include: { lineItems: true } },

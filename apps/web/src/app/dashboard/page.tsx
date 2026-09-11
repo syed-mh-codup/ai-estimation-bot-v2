@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { familiesOf, prisma, projectNameOf, rootOf } from '@repo/db';
 import { auth } from '@/lib/auth';
-import { deleteEstimate } from '@/app/estimates/[id]/actions';
+import { deleteEstimate } from '@/app/estimates/[id]/delete-actions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Heading } from '@/components/ui/card';
@@ -72,6 +72,12 @@ export default async function DashboardPage() {
   // step with `compareByDue`. The dashboard loads every estimate anyway.
   const estimates = (
     await prisma.estimate.findMany({
+      // Deleted estimates are off the dashboard entirely, and this filter is
+      // also what re-roots their children: `familiesOf` walks only the rows it
+      // is given, so a child whose parent is missing from the set reads as an
+      // original for as long as the parent stays deleted. Recovering the
+      // parent puts it back in the set and the family reassembles. AEH-375.
+      where: { deletedAt: null },
       include: {
         owner: { select: { email: true } },
         custodian: { select: { email: true, name: true } },

@@ -82,6 +82,12 @@ async function deleteUser(formData: FormData) {
   // Estimate.ownerId is a required FK with ON DELETE RESTRICT, so this would
   // fail at the database anyway. Reassign first (the dialog next to Delete) or
   // remove the estimates.
+  //
+  // Counts DELETED estimates too, and must: a soft-deleted row still holds the
+  // FK, so filtering them out here would report zero and then let
+  // `user.delete` fail against the database instead.
+  // @deleted-ok a soft-deleted row still holds the FK that blocks the delete.
+  // AEH-375.
   const owned = await prisma.estimate.count({ where: { ownerId: userId } });
   if (owned > 0) return;
 
@@ -151,6 +157,9 @@ async function reassignEstimates(
   // Handing estimates to an account nobody can sign in to would strand them.
   if (target.disabledAt) return { error: 'That account is disabled — pick an active one.' };
 
+  // Deleted estimates move too. They still hold the FK that blocks deleting
+  // the account, and an estimate recovered after its owner left should belong
+  // to whoever inherited their work rather than to a ghost. AEH-375.
   const { count } = await prisma.estimate.updateMany({
     where: { ownerId: fromUserId },
     data: { ownerId: toUserId },
@@ -174,6 +183,10 @@ export default async function UsersAdminPage() {
       name: true,
       disabledAt: true,
       createdAt: true,
+      // Unfiltered on purpose: this number exists to explain why Delete is
+      // blocked, and what blocks it is the FK, which deleted estimates still
+      // hold. A count that hid them would say 0 next to a disabled Delete
+      // button. AEH-375.
       _count: { select: { estimates: true } },
     },
   });

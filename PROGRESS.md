@@ -9,6 +9,60 @@ On resume: read this, then `git status` and `git log --oneline -5`.
 
 ---
 
+## AEH-375 — soft delete + recovery (BUILT, awaiting review)
+
+Branch `feat/aeh-375-soft-delete`, cut from origin/master, 3 commits.
+Migration `20260911080911_aeh_375_estimate_soft_delete` — additive only
+(`deletedAt`, `deletedById`, an index, one FK).
+
+**`migrate deploy` must reach Neon BEFORE or WITH this code.** Every
+`estimate.find*` now selects `deletedAt`; shipping code first takes the
+platform down, and dev/main is the shared database.
+
+### The four decisions the ticket asked for (answered by the user)
+
+- **No purge, ever.** No sweep, no retention window, no cron. Destroying a
+  deleted estimate is a hand-run DELETE. The trash list only grows; paginate
+  it if it ever gets long, do not add a sweep by reflex.
+- **Recovery is owner-or-admin**, the same right as deleting.
+- **`/admin/trash`** is the discoverable list. Because `/admin/*` is
+  admin-only, an owner's route is the estimate's own URL, which renders a
+  deleted notice instead of a 404.
+- **Counting splits by meaning.** Model spend still counts a deleted estimate
+  (the bill was real) and the admin/users FK-block count must (the row still
+  holds the reference). Everything else excludes it.
+
+### Where the rule is enforced
+
+`pnpm audit:deleted` — a CI gate that enumerates all 47 estimate reads and
+fails unless each filters `deletedAt` or carries a `@deleted-ok <reason>`.
+Covers nested `include: { children }` and raw SQL. It is what caught a deleted
+fork still showing in the forks rail.
+
+### Not done
+
+- **The authenticated Recover click has not been exercised in a browser.**
+  Both screens were eyeballed and two real bugs fixed from the screenshots;
+  the button was proven to reach the server action. The action's logic is
+  unit-tested (17) and the DB behaviour integration-tested (9, including the
+  family re-forming on recovery). The unproven link is only "an authed click
+  completes and refreshes".
+- **e2e not run** (READ instead: no spec clicks Delete, the `estimate-count`
+  assertions are relative, nothing asserts a 404 on an estimate URL — so the
+  suite should be unaffected).
+
+### Two deliberate edges, both documented in code
+
+- A **deleted child no longer blocks a re-run** of its parent. On recovery its
+  carried marks may point at rows the re-run replaced — but `carriedFromId` is
+  a soft pointer with no FK, and the codebase already accepts exactly this
+  state after a hard delete.
+- **Unlink stays offered** for a deleted parent, while Reconcile and the fork
+  Run controls do not. Severing a tie to a deleted parent is reasonable;
+  spending a model call against it is not.
+
+---
+
 ## AEH-236 — estimate lineage (ALL SEVEN STAGES BUILT, awaiting review)
 
 Branch `feat/aeh-236-estimate-lineage`, cut from origin/master, 8 commits.

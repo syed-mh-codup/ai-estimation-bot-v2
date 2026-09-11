@@ -354,14 +354,23 @@ export default async function AdminUsagePage({
   // Titles only for the rows that will actually render, and for the chip. The
   // chip's estimate is fetched by the same query so a filter arrived at from an
   // estimate outside the cap still names itself rather than showing a raw id.
+  //
+  // Deliberately NOT filtered by `deletedAt`: the money was spent and the bill
+  // was real, so deleting an estimate must not quietly shrink a historical
+  // cost figure. This is the one place a deleted estimate still counts, and it
+  // is marked rather than hidden so nobody hunts for a row they cannot open —
+  // the chip included, which is why the flag is selected here and not at the
+  // call sites.
   const titleIds = [...new Set([...estimateRows.map((r) => r.id), ...(estimateId ? [estimateId] : [])])];
+  // @deleted-ok the spend happened and the bill was real; hiding it would
+  // shrink a historical cost figure. AEH-375.
   const titles = new Map(
     (
       await prisma.estimate.findMany({
         where: { id: { in: titleIds } },
-        select: { id: true, title: true },
+        select: { id: true, title: true, deletedAt: true },
       })
-    ).map((e) => [e.id, e.title]),
+    ).map((e) => [e.id, e.deletedAt ? `${e.title} (deleted)` : e.title]),
   );
 
   // The window selection stays in the statement (most recent N days); this only

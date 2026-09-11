@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const { id } = await params;
   const est = await prisma.estimate.findUnique({
-    where: { id },
+    where: { id, deletedAt: null },
     select: { ingestStatus: true, ingestStage: true, ingestPct: true, ingestError: true },
   });
   if (!est) return NextResponse.json({ error: 'not found' }, { status: 404 });

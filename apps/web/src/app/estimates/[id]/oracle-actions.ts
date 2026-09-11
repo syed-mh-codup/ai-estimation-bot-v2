@@ -53,8 +53,10 @@ export async function createOracleThread(
   // Confirms the estimate exists before minting a thread against it. Every
   // signed-in user may ask about any estimate — the workspace is shared; it is
   // the CONVERSATION that is private.
+  // Deleted included, so no thread can be opened against a thrown-away
+  // estimate — `buildOracleCorpus` filters the same way. AEH-375.
   const estimate = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    where: { id: estimateId, deletedAt: null },
     select: { id: true },
   });
   if (!estimate) throw new Error('Estimate not found');

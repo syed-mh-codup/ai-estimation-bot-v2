@@ -50,8 +50,12 @@ async function requireSession(): Promise<void> {
 
 /** Throws if the estimate is missing or FINALISED (edits are locked). */
 async function assertEditable(estimateId: string): Promise<void> {
+  // Deleted counts as missing here. This is the gate every ledger edit in this
+  // file passes through, so filtering it once refuses the lot — including a
+  // hand-posted server action, which the page's own deleted notice cannot
+  // stop. AEH-375.
   const est = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    where: { id: estimateId, deletedAt: null },
     select: { status: true },
   });
   if (!est) throw new Error('Estimate not found');
@@ -433,6 +437,8 @@ export async function setEstimateTaxPct(
 
   return prisma.$transaction(
     async (tx) => {
+      // @deleted-ok inside setEstimateTaxPct, behind the buffer-lock guard
+      // and `assertEditable`'s filter above. AEH-375.
       const before = await tx.estimate.findUniqueOrThrow({
         where: { id: estimateId },
         select: RATE_SELECT,
@@ -548,6 +554,8 @@ export async function setCustodian(id: string, custodianId: string | null): Prom
   const actor = await requireUser();
   await assertEditable(id);
 
+  // @deleted-ok `assertEditable` on the line above already refused a deleted
+  // estimate; this is the second read for the notification. AEH-375.
   const est = await prisma.estimate.findUnique({
     where: { id },
     select: { title: true, dueAt: true, custodianId: true },
@@ -621,6 +629,7 @@ export async function setDueAt(id: string, value: string | null): Promise<void> 
 
   const dueAt = fromDateInputValue(value ?? '');
 
+  // @deleted-ok behind `assertEditable` above. AEH-375.
   const current = await prisma.estimate.findUnique({ where: { id }, select: { dueAt: true } });
   if (!current) throw new Error('Estimate not found');
   // Same date re-submitted (a blur with no edit): doing nothing is not just an
@@ -679,31 +688,7 @@ function cleanList(items: string[]): string[] {
   return items.map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
-/**
- * Delete an estimate and everything under it (sections, menu items, line items,
- * uploaded files all cascade). Allowed regardless of status — the owner may
- * remove a finalised estimate.
- *
- * Unlike the edit actions above, this is restricted to the owner or an admin.
- * Every signed-in user can *see* and edit every estimate — that's the shared
- * workspace this tool is — but destruction is not recoverable, so it needs an
- * accountable actor rather than merely an authenticated one.
- */
-export async function deleteEstimate(id: string): Promise<void> {
-  await requireEstimateOwnerOrAdmin(id);
-  await prisma.estimate.delete({ where: { id } });
-}
-
-/** Throws unless the caller owns this estimate or is an admin. */
-async function requireEstimateOwnerOrAdmin(estimateId: string): Promise<void> {
-  const user = await requireUser();
-  if (user.role === 'ADMIN') return;
-  const est = await prisma.estimate.findUnique({
-    where: { id: estimateId },
-    select: { ownerId: true },
-  });
-  if (!est) throw new Error('Estimate not found');
-  if (est.ownerId !== user.id) {
-    throw new Error('Only the owner or an admin can delete this estimate');
-  }
-}
+// `deleteEstimate` and its owner-or-admin guard moved to `delete-actions.ts`
+// when deletion stopped destroying anything (AEH-375). They live with
+// `recoverEstimate`, which shares the same guard and is meaningless apart
+// from it.

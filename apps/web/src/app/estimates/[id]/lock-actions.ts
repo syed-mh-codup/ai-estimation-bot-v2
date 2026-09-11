@@ -47,8 +47,9 @@ export type LockActionResult = {
 
 /** Refuses a FINALISED estimate — nothing about it may change, locks included. */
 async function assertOpen(estimateId: string): Promise<void> {
+  // Deleted counts as missing: the gate for every action in this file. AEH-375.
   const est = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    where: { id: estimateId, deletedAt: null },
     select: { status: true },
   });
   if (!est) throw new Error('Estimate not found');

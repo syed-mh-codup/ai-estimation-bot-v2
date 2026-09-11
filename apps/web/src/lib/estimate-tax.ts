@@ -108,6 +108,9 @@ export async function taxContextForEstimate(
   estimateId: string,
   client: TaxCapable = prisma,
 ): Promise<TaxContext> {
+  // @deleted-ok resolves the rates an estimate was costed under, always
+  // downstream of a caller that has already decided the estimate is readable —
+  // and a deleted estimate's stored hours still have to add up. AEH-375.
   const est = await client.estimate.findUniqueOrThrow({
     where: { id: estimateId },
     select: RATE_SELECT,

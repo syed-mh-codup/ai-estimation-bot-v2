@@ -42,8 +42,9 @@ export async function recordSuggestedAssumption(
 ): Promise<{ ok: boolean; reason?: string }> {
   await requireUser();
 
+  // Deleted counts as missing. AEH-375.
   const est = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    where: { id: estimateId, deletedAt: null },
     select: { status: true },
   });
   if (!est) return { ok: false, reason: 'Estimate not found' };

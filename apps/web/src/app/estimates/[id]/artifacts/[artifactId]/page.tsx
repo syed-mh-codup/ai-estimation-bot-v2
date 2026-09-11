@@ -54,13 +54,17 @@ export default async function ArtifactPage({
     where: { id: artifactId },
     include: {
       artifactType: { select: { name: true, key: true } },
-      estimate: { select: { id: true, title: true, runFinishedAt: true } },
+      estimate: { select: { id: true, title: true, runFinishedAt: true, deletedAt: true } },
       sections: { orderBy: { order: 'asc' }, select: { sectionId: true, title: true } },
     },
   });
   // Checked rather than assumed: an artifact id from another estimate would
   // otherwise render here under this estimate's breadcrumb.
-  if (!artifact || artifact.estimateId !== estimateId) notFound();
+  //
+  // A deleted estimate takes its documents with it. The artifact rows survive
+  // untouched and come back with a recovery, but nothing under a thrown-away
+  // estimate should still be readable at its own URL. AEH-375.
+  if (!artifact || artifact.estimateId !== estimateId || artifact.estimate.deletedAt) notFound();
 
   // Written by the outline step after passing its schema, so the shape is
   // already guaranteed; re-validating here would break a progress view over a

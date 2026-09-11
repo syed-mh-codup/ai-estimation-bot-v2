@@ -51,12 +51,20 @@ beforeEach(() => {
 });
 
 describe('AEH-240: the daily deadline sweep', () => {
-  it('only ever looks at unfinalised estimates that have a deadline', async () => {
+  it('only ever looks at live, unfinalised estimates that have a deadline', async () => {
     findMany.mockResolvedValue([]);
     await sweepDueReminders(db, NOW, send);
 
     const args = findMany.mock.calls[0]![0];
-    expect(args.where).toEqual({ dueAt: { not: null }, status: { not: 'FINALISED' } });
+    // `deletedAt: null` since AEH-375: a deleted estimate must not email
+    // anybody about a deadline it has no way left of meeting. Asserted on the
+    // WHERE rather than on the absence of a send, because a filter dropped
+    // here would only show up as mail somebody actually received.
+    expect(args.where).toEqual({
+      dueAt: { not: null },
+      status: { not: 'FINALISED' },
+      deletedAt: null,
+    });
     // Bounded, and the oldest deadlines win the budget — what gets deferred to
     // tomorrow is the least urgent, never the most.
     expect(args.take).toBe(SWEEP_LIMIT);
