@@ -23,7 +23,6 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronRight, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { AskOracleButton } from './AskOracleButton';
 import { Button } from '@/components/ui/button';
 import { InlineText } from '@/components/ui/input';
 import type { CarriedMark, ItemDTO, SectionDTO, LineItemDTO } from './dto';
@@ -39,6 +38,8 @@ import {
 } from './ledger-context';
 import { SideTag } from './SideTag';
 import { MarkFilter } from './MarkFilter';
+import { Mark } from './Mark';
+import { CardMenu } from './CardMenu';
 import { CardLockButton, LineLockBadge, LineLockButton, RoleLockButton } from './LockControls';
 import { EditBar } from './EditBar';
 import { EditActivity } from './EditActivity';
@@ -77,6 +78,9 @@ const TITLE_FIELD = 'flex-[1_1_16rem]';
  */
 const MICRO_CHIP =
   'shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase';
+/** The same chip in the process tone, for the two marks that are about a run. */
+const BRONZE_CHIP =
+  'shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase';
 
 export function MenuCardEditor({ estimateId }: { estimateId: string }) {
   const {
@@ -535,8 +539,6 @@ function ItemRow({
     isFinalised,
     overheadStale,
     onRenameItem,
-    onToggleItem,
-    onDeleteItem,
     onAddLineItem,
     selectedCardIds,
     toggleCardSelected,
@@ -653,21 +655,24 @@ function ItemRow({
               )}
               data-testid={`item-title-${item.id}`}
             />
+            {/* Each chip is now the way in to what it means, rather than a
+                tooltip you have to already suspect is there. AEH-377. */}
             {!item.enabled && (
-              <span className="shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
+              <Mark kind="off" cardTitle={item.title} className={MICRO_CHIP}>
                 Off
-              </span>
+              </Mark>
             )}
             {item.injected && (
               // Colour never travels alone here, so the label does the work and
               // the tone only reinforces it.
-              <span
-                className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
-                title="Implied by the source material, not stated in it — costed by the estimator council"
+              <Mark
+                kind="inferred"
+                cardTitle={item.title}
+                className={BRONZE_CHIP}
                 data-testid={`item-inferred-${item.id}`}
               >
                 Inferred
-              </span>
+              </Mark>
             )}
             {item.overhead && overheadStale && (
               // This card's hours are a percentage OF other cards' taxed hours,
@@ -675,13 +680,29 @@ function ItemRow({
               // than silently rewritten: nothing here separates a generated
               // figure from an estimator's edit, so recomputing would discard
               // real decisions. A re-run rebuilds it. AEH-335.
-              <span
-                className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
-                title="Costed against buffers that have since changed — re-run to rebuild this card"
+              <Mark
+                kind="stale"
+                cardTitle={item.title}
+                className={BRONZE_CHIP}
                 data-testid={`item-overhead-stale-${item.id}`}
               >
                 Stale
-              </span>
+              </Mark>
+            )}
+            {/* Not a card flag but a card fact, and the one the filter row can
+                report as an ABSENCE: the Archivist found nothing to anchor this
+                against, so its hours came from reasoning rather than from work
+                already delivered. Overhead cards never had a preset to match and
+                are excluded — see `cardMarks`. */}
+            {!item.overhead && item.sourcePresetId === null && (
+              <Mark
+                kind="unmatched"
+                cardTitle={item.title}
+                className={MICRO_CHIP}
+                data-testid={`item-unmatched-${item.id}`}
+              >
+                No match
+              </Mark>
             )}
             {item.flags.thinSlice && (
               <span
@@ -702,15 +723,12 @@ function ItemRow({
               </span>
             )}
             <ItemProvenance item={item} />
-            {/* Deliberately NOT in the hover cluster below: that whole cluster is
-              gated on !isFinalised, and asking what drove a number is exactly
-              what you want to do on an estimate that has been signed off. */}
-            <AskOracleButton
-              label={`Ask Oracle about ${item.title}`}
-              question={`Explain the menu card "${item.title}" (${item.taxonomyKey}). What in the source material drove it, and where did its hours come from?`}
-              testid={`ask-oracle-item-${item.id}`}
-            />
           </div>
+          {/* Outside the wrapping title cell, so it stays pinned at the right of
+              the item column instead of drifting onto a second line of chips. */}
+          {!isFinalised && (
+            <CardMenu item={item} lockedOff={lockedOff} onAddLineItem={onAddLineItem} />
+          )}
         </div>
 
         {ROLES.map((r) => (
@@ -737,40 +755,6 @@ function ItemRow({
           {round(itemTaxed(item))}
         </div>
 
-        {!isFinalised && (
-          <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1 bg-surface-2 pl-2 opacity-0 group-hover:opacity-100">
-            <button
-              type="button"
-              onClick={() => onToggleItem(item.id, !item.enabled)}
-              // Switching a card back ON is never gated — the judgment is about
-              // removing scope something else stands on, not about adding it.
-              //
-              // A ledger lock does NOT gate this, in either direction. It says
-              // a line's hours and description are settled; switching the card
-              // in or out of the estimate changes neither. See lock-guards.ts.
-              disabled={item.enabled && lockedOff}
-              title={
-                item.enabled && lockedOff
-                  ? 'Other scope in this estimate depends on this card'
-                  : undefined
-              }
-              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-3 hover:border-ink-4 hover:text-ink disabled:cursor-not-allowed disabled:border-line-soft disabled:text-ink-4 disabled:hover:border-line-soft disabled:hover:text-ink-4"
-              data-testid={`toggle-item-${item.id}`}
-            >
-              {item.enabled ? 'Disable' : 'Enable'}
-            </button>
-            <button
-              type="button"
-              onClick={() => onDeleteItem(item.id)}
-              title="Delete item"
-              aria-label="Delete item"
-              className="rounded border border-line bg-surface p-1 text-ink-4 hover:border-brick-line hover:text-brick"
-              data-testid={`delete-item-${item.id}`}
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </div>
-        )}
       </div>
 
       {!isCollapsed && (
@@ -1021,16 +1005,14 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
             person's judgement and the council's arithmetic, and reading it as
             either "edited by hand" or as the crew's own would be wrong. */}
         {li.provenance !== 'CREW' && (
-          <span
-            title={
-              li.provenance === 'HUMAN'
-                ? 'Typed by hand'
-                : 'Re-priced by the council inside a steered edit'
-            }
-            className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 uppercase"
+          <Mark
+            kind="edited"
+            cardTitle={item.title}
+            className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 underline decoration-line decoration-dotted underline-offset-2 uppercase hover:text-green"
+            data-testid={`line-provenance-${li.id}`}
           >
             {li.provenance === 'HUMAN' ? 'edited' : 'steered'}
-          </span>
+          </Mark>
         )}
       </div>
 
