@@ -69,7 +69,7 @@ export default async function AdminTrashPage() {
                   <th className="eyebrow px-4 py-2.5 font-bold">Estimate</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Owner</th>
                   <th className="eyebrow px-4 py-2.5 font-bold">Deleted by</th>
-                  <th className="eyebrow px-4 py-2.5 font-bold">Deleted</th>
+                  <th className="eyebrow px-4 py-2.5 font-bold">Deleted (UTC)</th>
                   <th className="eyebrow px-4 py-2.5 font-bold text-right">Actions</th>
                 </tr>
               </thead>
@@ -104,7 +104,12 @@ export default async function AdminTrashPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end">
-                        <RecoverEstimateButton estimateId={e.id} label="Recover" size="sm" />
+                        <RecoverEstimateButton
+                          estimateId={e.id}
+                          label="Recover"
+                          size="sm"
+                          variant="outline"
+                        />
                       </div>
                     </td>
                   </tr>

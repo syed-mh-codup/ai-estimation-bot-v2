@@ -28,10 +28,17 @@ export function RecoverEstimateButton({
   estimateId,
   label = 'Recover this estimate',
   size = 'default',
+  variant = 'default',
 }: {
   estimateId: string;
   label?: string;
   size?: 'default' | 'sm' | 'xs';
+  /**
+   * `outline` down a table of rows, solid on the estimate's own page. The
+   * notice has one thing to offer and should look like it; a list of them
+   * repeating the page's primary green reads as ten primary actions.
+   */
+  variant?: 'default' | 'outline';
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +58,7 @@ export function RecoverEstimateButton({
       <Button
         type="button"
         size={size}
+        variant={variant}
         onClick={submit}
         disabled={pending}
         data-testid={`recover-estimate-${estimateId}`}
