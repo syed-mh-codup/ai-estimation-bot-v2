@@ -125,17 +125,30 @@ export default async function globalSetup(config: FullConfig) {
     // Reset to a clean single active v1 each run: the WS24-04 config test
     // creates new versions, so deleting+recreating keeps the starting version
     // deterministic (and the single-active invariant intact).
+    // Deleting the config takes its threshold and overhead rows with it, by
+    // cascade — they belong to a version, not to the installation.
     await prisma.estimationConfig.deleteMany({});
     const config = await prisma.estimationConfig.create({
       data: {
         version: 1,
         active: true,
-        complexityRules: {},
         pmCommunicationTaxPct: 15,
         baCommunicationTaxPct: 10,
         qaRegressionBufferPct: 20,
         hiddenWorkBlocksFinalise: false,
-        infraBaseline: {},
+        // These were `complexityRules: {}` / `infraBaseline: {}` before AEH-348,
+        // and this is the same starting point said in columns: the shipped
+        // multipliers, and no bands or overhead items at all. The specs build
+        // their estimates directly rather than running the pipeline, so nothing
+        // here is ever scored — what matters is that it stays deterministic and
+        // that no overhead cards appear in a total a spec asserts on.
+        legacyKeywords: [],
+        legacyScoreBonus: 1.5,
+        aiKeywords: [],
+        aiScoreBonus: 1.3,
+        dataVolumeMultiplierNone: 1.0,
+        dataVolumeMultiplierLow: 1.1,
+        dataVolumeMultiplierHigh: 1.5,
         changeReason: 'e2e bootstrap',
       },
     });

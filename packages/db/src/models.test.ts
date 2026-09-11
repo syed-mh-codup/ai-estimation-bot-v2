@@ -85,13 +85,23 @@ describe('WS1-05: EstimationConfig active-version uniqueness', () => {
       data: {
         version: 9999,
         active: false,
-        complexityRules: { legacy: 4, integrations: 3, ai: 4, simpleWeb: 2 },
         pmCommunicationTaxPct: 0.1,
         baCommunicationTaxPct: 0.1,
         qaRegressionBufferPct: 0.2,
         hiddenWorkBlocksFinalise: false,
-        infraBaseline: { envSetup: 8, cicd: 16, deploymentHypercare: 8 },
         changeMotivation: 'OTHER',
+        // Before AEH-348 these two were Json blobs, and the values this test
+        // passed matched neither engine schema — `{ legacy: 4, … }` and
+        // `{ envSetup: 8, … }` were decoration nothing would have parsed. The
+        // column form cannot be decoration, which is the point.
+        legacyKeywords: ['mainframe'],
+        legacyScoreBonus: 1.5,
+        apiThresholds: { create: [{ position: 0, minCount: 0, maxCount: 3, score: 2 }] },
+        overheadItems: {
+          create: [
+            { position: 0, title: 'Code Review', taxonomyKey: 'process.code-review', devPct: 8 },
+          ],
+        },
       },
     });
     expect(cfg.version).toBe(9999);

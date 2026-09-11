@@ -123,12 +123,29 @@ async function seedConfig(taxPct: number): Promise<number> {
     data: {
       version,
       active: true,
-      complexityRules: DEFAULT_COMPLEXITY_RULES,
       pmCommunicationTaxPct: taxPct,
       baCommunicationTaxPct: taxPct,
       qaRegressionBufferPct: taxPct,
-      infraBaseline: {},
       changeReason: 'eval',
+      // Still driven by the one known-good rule set, just spread across the
+      // columns that replaced the blob in AEH-348. No overhead items: these
+      // evals count hours the specialists asked for, and injected cards would
+      // be hours nobody in the eval asked for.
+      legacyKeywords: DEFAULT_COMPLEXITY_RULES.legacyKeywords,
+      legacyScoreBonus: DEFAULT_COMPLEXITY_RULES.legacyScoreBonus,
+      aiKeywords: DEFAULT_COMPLEXITY_RULES.aiKeywords,
+      aiScoreBonus: DEFAULT_COMPLEXITY_RULES.aiScoreBonus,
+      dataVolumeMultiplierNone: DEFAULT_COMPLEXITY_RULES.dataVolumeMultipliers.NONE,
+      dataVolumeMultiplierLow: DEFAULT_COMPLEXITY_RULES.dataVolumeMultipliers.LOW,
+      dataVolumeMultiplierHigh: DEFAULT_COMPLEXITY_RULES.dataVolumeMultipliers.HIGH,
+      apiThresholds: {
+        create: DEFAULT_COMPLEXITY_RULES.apiIntegrationThresholds.map((band, position) => ({
+          position,
+          minCount: band.minCount,
+          maxCount: band.maxCount,
+          score: band.score,
+        })),
+      },
     },
   });
   return version;

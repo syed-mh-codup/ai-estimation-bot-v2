@@ -219,10 +219,56 @@ export async function runEstimate(
   ]);
 
   // ── Active config (complexity rules + taxation %) ───────────────────────────
+  //
+  // The two rule sets are ordered child rows rather than Json blobs since
+  // AEH-348. `position` is loaded ascending on purpose for the thresholds: the
+  // scorer takes the first band that contains the integration count and stops,
+  // so the order an admin arranged them in IS the rule, not a presentation
+  // detail. Left to the database's own order it would be arbitrary.
   const config = await db.estimationConfig.findFirstOrThrow({
     where: { active: true },
     orderBy: { version: 'desc' },
+    include: {
+      apiThresholds: { orderBy: { position: 'asc' } },
+      overheadItems: { orderBy: { position: 'asc' } },
+    },
   });
+
+  // The shapes the engine has always worked in, now assembled from columns
+  // instead of parsed out of a blob. Both schemas stay as the boundary check —
+  // they can no longer realistically fail on shape, but they still hold the
+  // percentage bounds, which a column alone does not.
+  const complexityRules = {
+    apiIntegrationThresholds: config.apiThresholds.map((band) => ({
+      minCount: band.minCount,
+      maxCount: band.maxCount,
+      score: band.score,
+    })),
+    legacyKeywords: config.legacyKeywords,
+    legacyScoreBonus: config.legacyScoreBonus,
+    dataVolumeMultipliers: {
+      NONE: config.dataVolumeMultiplierNone,
+      LOW: config.dataVolumeMultiplierLow,
+      HIGH: config.dataVolumeMultiplierHigh,
+    },
+    aiKeywords: config.aiKeywords,
+    aiScoreBonus: config.aiScoreBonus,
+  };
+  const infraBaseline = {
+    items: config.overheadItems.map((item) => ({
+      title: item.title,
+      taxonomyKey: item.taxonomyKey,
+      // A role charging nothing is a null column now, and `pct` omits it —
+      // which is what `injectProcessOverhead` already skips on. Writing a 0
+      // instead would round to no hours and leave a 0% card on the estimate.
+      pct: {
+        ...(item.devPct === null ? {} : { DEV: item.devPct }),
+        ...(item.qaPct === null ? {} : { QA: item.qaPct }),
+        ...(item.pmPct === null ? {} : { PM: item.pmPct }),
+        ...(item.baPct === null ? {} : { BA: item.baPct }),
+      },
+    })),
+  };
 
   // ── Taxonomy entries for the Librarian (empty until taxonomy is derived) ────
   const taxonomy = await loadTaxonomyEntries(db);
@@ -271,7 +317,7 @@ export async function runEstimate(
 
   // ── 3. Complexity (deterministic, fed by real Librarian/Detective signals) ──
   await report('Scoring complexity', 35);
-  const complexity = runComplexityScorecard(lib.requirements, riskFindings, config.complexityRules);
+  const complexity = runComplexityScorecard(lib.requirements, riskFindings, complexityRules);
 
   // ── 4. Specialist council per requirement (DEV/QA/PM/BA, each ≤4h line items) ─
   const specialistCtx: SpecialistContext = {
@@ -425,11 +471,16 @@ export async function runEstimate(
   // A config that does not parse injects nothing and says so loudly. Falling
   // back to built-in defaults would quietly put hours nobody configured into a
   // client-facing total, which is the habit this ticket exists to break.
-  const overheadParsed = ProcessOverheadSchema.safeParse(config.infraBaseline);
+  //
+  // Since AEH-348 the shape cannot be wrong — it is assembled from columns — so
+  // what survives here is the percentage bounds, which only a save can violate.
+  // An empty item list is not a failure: it is an admin who configured no
+  // overhead, and it injects nothing without complaining about it.
+  const overheadParsed = ProcessOverheadSchema.safeParse(infraBaseline);
   if (!overheadParsed.success) {
     console.warn(
-      `[runEstimate] ${estimateId} delivery overhead not configured or malformed — no overhead cards injected. ` +
-        `Set it at /admin/config; expected {"items":[{"title","taxonomyKey","pct":{"DEV":8}}]}.`,
+      `[runEstimate] ${estimateId} delivery overhead rejected — no overhead cards injected. ` +
+        `Fix it at /admin/config; each role percentage must be between 0 and 100.`,
     );
   }
   const withOverhead = overheadParsed.success

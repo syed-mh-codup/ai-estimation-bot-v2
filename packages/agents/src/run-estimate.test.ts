@@ -134,12 +134,28 @@ beforeAll(async () => {
     data: {
       version: (highest?.version ?? 0) + 1,
       active: true,
-      complexityRules: DEFAULT_COMPLEXITY_RULES,
       pmCommunicationTaxPct: 15,
       baCommunicationTaxPct: 10,
       qaRegressionBufferPct: 20,
-      infraBaseline: {},
       changeReason: 'run-estimate test',
+      // The same known-good rule set as before AEH-348, now in the columns that
+      // replaced the blob. No overhead items, which is what `infraBaseline: {}`
+      // used to mean — the suites below count menu items exactly.
+      legacyKeywords: DEFAULT_COMPLEXITY_RULES.legacyKeywords,
+      legacyScoreBonus: DEFAULT_COMPLEXITY_RULES.legacyScoreBonus,
+      aiKeywords: DEFAULT_COMPLEXITY_RULES.aiKeywords,
+      aiScoreBonus: DEFAULT_COMPLEXITY_RULES.aiScoreBonus,
+      dataVolumeMultiplierNone: DEFAULT_COMPLEXITY_RULES.dataVolumeMultipliers.NONE,
+      dataVolumeMultiplierLow: DEFAULT_COMPLEXITY_RULES.dataVolumeMultipliers.LOW,
+      dataVolumeMultiplierHigh: DEFAULT_COMPLEXITY_RULES.dataVolumeMultipliers.HIGH,
+      apiThresholds: {
+        create: DEFAULT_COMPLEXITY_RULES.apiIntegrationThresholds.map((band, position) => ({
+          position,
+          minCount: band.minCount,
+          maxCount: band.maxCount,
+          score: band.score,
+        })),
+      },
     },
   });
 
@@ -470,20 +486,35 @@ describe('WS15-04: hidden-work audit runs inside the pipeline', () => {
   let riskyEstimateId = '';
 
   beforeAll(async () => {
-    // Give this estimate real overhead config. The file-level fixture uses `{}`
-    // deliberately (the suites above count menu items exactly), and this describe
-    // runs last, so switching it on here exercises the injector end-to-end
-    // without disturbing them.
-    await db.estimationConfig.updateMany({
+    // Give this estimate real overhead config. The file-level fixture configures
+    // none deliberately (the suites above count menu items exactly), and this
+    // describe runs last, so switching it on here exercises the injector
+    // end-to-end without disturbing them.
+    //
+    // Written as rows on the active config rather than as one `updateMany`:
+    // since AEH-348 these are child records, and `updateMany` takes no nested
+    // writes — it would have to be a blob again to go through that door.
+    const activeConfig = await db.estimationConfig.findFirstOrThrow({
       where: { active: true },
-      data: {
-        infraBaseline: {
-          items: [
-            { title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 10 } },
-            { title: 'Manual End-to-End Passes', taxonomyKey: 'process.manual-e2e', pct: { QA: 20 } },
-          ],
+      select: { id: true },
+    });
+    await db.processOverheadItem.createMany({
+      data: [
+        {
+          configId: activeConfig.id,
+          position: 0,
+          title: 'Code Review',
+          taxonomyKey: 'process.code-review',
+          devPct: 10,
         },
-      },
+        {
+          configId: activeConfig.id,
+          position: 1,
+          title: 'Manual End-to-End Passes',
+          taxonomyKey: 'process.manual-e2e',
+          qaPct: 20,
+        },
+      ],
     });
 
     const est = await db.estimate.create({
