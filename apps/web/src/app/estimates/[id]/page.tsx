@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
-import { Prisma, prisma, rootOf, toMenuItem } from '@repo/db';
+import { Prisma, familiesOf, prisma, projectNameOf, rootOf, toMenuItem } from '@repo/db';
 import { createSheetsProvider } from '@repo/providers';
 import { exportToSheets } from '@repo/agents';
 import type { MenuItem as MenuItemDTO } from '@repo/shared';
@@ -37,6 +37,7 @@ import { listLedgerEdits } from './edit-actions';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
+import { Breadcrumb } from './Breadcrumb';
 import { DocumentBar } from './DocumentBar';
 import { InspectDock } from './InspectDock';
 import { ACTIVITY_SLOT } from './dock';
@@ -298,6 +299,22 @@ export default async function EstimateDetailPage({
       })();
   const inAFamily = Boolean(estimate.parentId) || estimate.children.length > 0;
 
+  // The family's name for the breadcrumb, resolved the way the lineage screen
+  // resolves it: it can be set on ANY member, so it is a walk rather than a
+  // column read. Only for an estimate that is in a family — a standalone one
+  // has no project, and the crumb says so by having one segment. AEH-377.
+  const projectName = inAFamily
+    ? await (async () => {
+        const all = await prisma.estimate.findMany({
+          where: { deletedAt: null },
+          select: { id: true, title: true, parentId: true, projectName: true },
+        });
+        const root = rootOf(all, estimate.id);
+        if (!root) return null;
+        return projectNameOf(familiesOf(all).get(root.id) ?? [], root);
+      })()
+    : null;
+
   // A deleted parent is no parent for anything that ACTS on it. The family
   // walk already cannot see it, so the dashboard shows this estimate as an
   // original; the controls that reconcile against the parent or re-run "as a
@@ -549,18 +566,10 @@ export default async function EstimateDetailPage({
 
   return (
     <div data-testid="estimate-detail">
-      {/* Back goes UP one level, and for a fork that level is the project.
-          The dashboard lists a family as a single project row, so sending a
-          fork straight there skips the view that actually holds its siblings —
-          and the label follows the destination, because a link that says
-          "Estimates" and lands on one project is worse than either. */}
-      <Link
-        href={inAFamily ? `/estimates/${estimate.id}/lineage` : '/dashboard'}
-        className="text-[12.5px] text-ink-3 hover:text-ink hover:underline"
-        data-testid="back-link"
-      >
-        ← {inAFamily ? 'Project' : 'Estimates'}
-      </Link>
+      <Breadcrumb
+        projectName={projectName}
+        projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
+      />
 
       <div className="mt-3">
         <EstimateHeader
