@@ -8,7 +8,15 @@ import { itemTaxed, round, useLedger } from './ledger-context';
  * is how you get to "Back office" without scrolling past everything else, and
  * it doubles as a per-section subtotal readout.
  */
-export function ContentsCard() {
+export function ContentsCard({
+  hasRisk,
+  openRisk,
+}: {
+  /** Whether the risk section renders at all — resolved findings still count. */
+  hasRisk: boolean;
+  /** How many still need a decision, so the row can say so without opening it. */
+  openRisk: number;
+}) {
   const { sectionsSorted, itemsIn, rollup } = useLedger();
 
   const subtotal = (sectionId: string | null) =>
@@ -23,12 +31,29 @@ export function ContentsCard() {
         <Row href="#sow" label="Statement of work" />
         <Row href="#narrative" label="Narrative" />
         <Row href="#assumptions" label="Assumptions" />
+        {hasRisk && (
+          <Row
+            href="#risk"
+            label="Flagged risk"
+            value={openRisk > 0 ? `${openRisk} open` : undefined}
+          />
+        )}
         <Row href="#menucard" label="Menu card" value={`${round(rollup.grand)}h`} />
+        {/* Each section's own anchor, not the menu card's. These rows have
+            pointed at `#menucard` since this was written, which meant every
+            jump below the first four landed in the same place and the list read
+            as broken to anyone who tried it twice. AEH-377. */}
         {sectionsSorted.map((s) => (
-          <Row key={s.id} href="#menucard" label={s.title} value={round(subtotal(s.id))} sub />
+          <Row
+            key={s.id}
+            href={`#section-${s.id}`}
+            label={s.title}
+            value={round(subtotal(s.id))}
+            sub
+          />
         ))}
         {ungrouped.length > 0 && (
-          <Row href="#menucard" label="Ungrouped" value={round(subtotal(null))} sub />
+          <Row href="#section-ungrouped" label="Ungrouped" value={round(subtotal(null))} sub />
         )}
       </nav>
     </div>

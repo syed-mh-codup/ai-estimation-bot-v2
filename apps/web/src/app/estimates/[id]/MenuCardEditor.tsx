@@ -38,6 +38,7 @@ import {
   type TaxPercents,
 } from './ledger-context';
 import { SideTag } from './SideTag';
+import { MarkFilter } from './MarkFilter';
 import { CardLockButton, LineLockBadge, LineLockButton, RoleLockButton } from './LockControls';
 import { EditBar } from './EditBar';
 import { EditActivity } from './EditActivity';
@@ -271,6 +272,10 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
 
       {!rootCollapsed && !isEmpty && (
         <>
+          {/* Above the heads rather than in the rail: this describes the rows
+              below it, and reading it means reading them. AEH-377. */}
+          <MarkFilter />
+
           {/* Column heads carry the buffer each role attracts, stated where its
               numbers live rather than in a footnote nobody reads. */}
           <div
@@ -379,7 +384,16 @@ function SectionGroup({ section, items, collapsed, onToggleCollapse, isUngrouped
   );
 
   return (
-    <div ref={setNodeRef} data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}>
+    <div
+      ref={setNodeRef}
+      // The contents list has linked at sections since it was written and never
+      // reached one: it pointed every row at `#menucard`, and no section had an
+      // id for it to point at instead. Both halves are fixed together — a
+      // target with no link is as useless as the link with no target. AEH-377.
+      id={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
+      className="scroll-mt-14"
+      data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
+    >
       <div
         className={cn(
           COLS,
@@ -526,8 +540,10 @@ function ItemRow({
     onAddLineItem,
     selectedCardIds,
     toggleCardSelected,
+    isCardDimmed,
   } = useLedger();
   const selected = selectedCardIds.includes(item.id);
+  const dimmed = isCardDimmed(item);
   const sortable = useSortable({ id: item.id, disabled: isFinalised });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -557,8 +573,14 @@ function ItemRow({
         // bronze rule above already carry meanings of their own, and a third
         // background state would be unreadable against them.
         selected && 'ring-1 ring-green/50 ring-inset',
+        // Receding rather than hiding, while a mark is being looked at. The rows
+        // stay in place and keep their heights, so picking a chip never makes
+        // the ledger jump under the pointer — and the cards you did not ask for
+        // are still there to give the ones you did their context. AEH-377.
+        dimmed && 'opacity-25',
       )}
       data-testid={`menu-item-${item.id}`}
+      data-dimmed={dimmed || undefined}
     >
       <div className={cn(COLS, 'group relative items-center px-3.5 py-2 hover:bg-surface-2')}>
         <div className="flex min-w-0 items-center gap-1.5">

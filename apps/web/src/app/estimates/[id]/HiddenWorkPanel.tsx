@@ -1,17 +1,23 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@repo/db';
 import { requireUser } from '@/lib/rbac';
-import { Eyebrow } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CollapsibleSection } from '@/components/ui/collapsible-section';
 
 /**
  * Risks the Detective raised that nobody costed.
  *
- * Lives in the sticky rail rather than hanging off RunControls, which collapses
- * to a single quiet line the moment a menu card exists — that is, exactly when
- * the estimator is doing the reviewing. Sitting beside the Finalise button is
- * also the point: this is the list that button waits on.
+ * A section of the document, beside Narrative and Assumptions — not a card in
+ * the rail. Those three are the same thing in three voices: the crew's readings
+ * of the brief. The narrative says what the work is, the assumptions say what is
+ * being taken for granted, and this says what could be wrong with both.
+ *
+ * It earns the width. A finding carries a citation into the source material and
+ * three decisions — cost it, say it is already covered, or dismiss it with a
+ * written reason — and that reason is a free-text field somebody has to compose
+ * a sentence in. Against a 280px rail it was the narrowest column on the screen
+ * holding the heaviest decision on it. AEH-377.
  *
  * Known flags never appear here. Those were costed automatically and are already
  * cards in the ledger, marked Inferred. What is left is what the pipeline could
@@ -165,73 +171,84 @@ export async function HiddenWorkPanel({
   const settled = findings.filter((f) => f.outcome !== 'OPEN');
 
   return (
-    <div
-      className={`rounded-[10px] border bg-surface px-4 py-3.5 ${
-        open.length > 0 ? 'border-bronze-line' : 'border-line'
-      }`}
+    <CollapsibleSection
+      id="risk"
+      className={`mt-3.5 scroll-mt-4 ${open.length > 0 ? 'border-bronze-line' : ''}`}
+      storageKey={`est:${estimateId}:risk`}
+      title="Flagged risk"
+      meta={
+        open.length > 0 ? (
+          <span className="rounded-full border border-bronze-line bg-bronze-tint px-2.5 py-0.5 text-[11px] font-semibold text-bronze-ink">
+            <span className="num">{open.length}</span> need{open.length === 1 ? 's' : ''} a decision
+          </span>
+        ) : (
+          <span className="text-ink-4">
+            <span className="num">{settled.length}</span> resolved
+          </span>
+        )
+      }
       data-testid="hidden-work-panel"
     >
-      <Eyebrow>Flagged risk</Eyebrow>
-
       {open.length === 0 ? (
-        <p className="mt-1.5 text-[12px] text-ink-3">
+        <p className="text-[12.5px] text-ink-3">
           <span className="num">{settled.length}</span> resolved. Nothing outstanding.
         </p>
       ) : (
-        <p className="mt-1.5 text-[12px] text-ink-3">
-          Implied by the source material and not costed. The estimator council would not price
-          these without a name it recognised, so they need a decision.
+        <p className="max-w-[78ch] text-[12.5px] leading-relaxed text-ink-3">
+          Implied by the source material and deliberately not costed. The estimator council would
+          not price these without a name it recognised, so each one needs a person.
         </p>
       )}
 
-      <ul className="mt-2.5 flex flex-col gap-3">
+      <ul className="mt-3 flex flex-col gap-4">
         {open.map((f) => (
-          <li key={f.id} className="border-t border-line-soft pt-2.5 first:border-t-0 first:pt-0">
+          <li key={f.id} className="border-t border-line-soft pt-3.5 first:border-t-0 first:pt-0">
             <div className="num text-[11px] font-bold tracking-[0.07em] text-bronze-ink uppercase">
               {f.riskFlag}
             </div>
-            <p className="mt-0.5 text-[12.5px] leading-snug text-ink-2">{f.claim}</p>
-            <p className="mt-0.5 text-[11.5px] text-ink-4">{f.citation}</p>
+            <p className="mt-1 max-w-[82ch] text-[13px] leading-relaxed text-ink-2">{f.claim}</p>
+            {/* Where the claim came from, and a way back to it. The section has
+                to be opened as well as scrolled to — a deep link that lands on a
+                collapsed block shows the reader nothing, which is the bug
+                AEH-259 fixed for the Oracle's own quote jumps. */}
+            <p className="mt-1 max-w-[82ch] text-[11.5px] leading-relaxed text-ink-4">
+              {f.citation}{' '}
+              <a href="#sow" className="whitespace-nowrap text-green hover:underline">
+                Statement of work &#8599;
+              </a>
+            </p>
 
             {!isFinalised && (
-              <div className="mt-1.5 flex flex-col gap-1.5">
-                <div className="flex flex-wrap gap-1.5">
-                  <form action={costIt}>
-                    <input type="hidden" name="findingId" value={f.id} />
-                    <input type="hidden" name="estimateId" value={estimateId} />
-                    <Button type="submit" size="sm" data-testid={`cost-${f.id}`}>
-                      Cost it
-                    </Button>
-                  </form>
-                  <form action={markCovered}>
-                    <input type="hidden" name="findingId" value={f.id} />
-                    <input type="hidden" name="estimateId" value={estimateId} />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="outline"
-                      data-testid={`covered-${f.id}`}
-                    >
-                      Already covered
-                    </Button>
-                  </form>
-                </div>
-                <form action={dismiss} className="flex gap-1.5">
+              // One row on a wide screen, wrapping to two when it has to. The
+              // dismissal reason keeps a real measure either way: it is a
+              // sentence somebody has to compose, and it used to be typed into
+              // a box narrower than the words going in it.
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <form action={costIt}>
+                  <input type="hidden" name="findingId" value={f.id} />
+                  <input type="hidden" name="estimateId" value={estimateId} />
+                  <Button type="submit" size="sm" data-testid={`cost-${f.id}`}>
+                    Cost it
+                  </Button>
+                </form>
+                <form action={markCovered}>
+                  <input type="hidden" name="findingId" value={f.id} />
+                  <input type="hidden" name="estimateId" value={estimateId} />
+                  <Button type="submit" size="sm" variant="outline" data-testid={`covered-${f.id}`}>
+                    Already covered
+                  </Button>
+                </form>
+                <form action={dismiss} className="flex min-w-[280px] flex-1 gap-2">
                   <input type="hidden" name="findingId" value={f.id} />
                   <input type="hidden" name="estimateId" value={estimateId} />
                   <Input
                     name="reason"
                     required
                     placeholder="Not costing it because…"
-                    className="h-8 px-2 text-[12px]"
+                    className="h-8 px-2.5 text-[12.5px]"
                     aria-label={`Reason for dismissing ${f.riskFlag}`}
                   />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="quiet"
-                    data-testid={`dismiss-${f.id}`}
-                  >
+                  <Button type="submit" size="sm" variant="quiet" data-testid={`dismiss-${f.id}`}>
                     Dismiss
                   </Button>
                 </form>
@@ -247,24 +264,35 @@ export async function HiddenWorkPanel({
         </div>
       )}
 
+      {/* Folded away rather than listed. A decision somebody already took is
+          record, not work, and it should not compete with the ones still open —
+          but "why did nobody cost this" is exactly the question asked three
+          weeks later, so it stays one click away rather than disappearing. */}
       {settled.some((f) => f.outcome === 'DISMISSED') && (
-        <ul className="mt-2 flex flex-col gap-1.5">
-          {settled
-            .filter((f) => f.outcome === 'DISMISSED')
-            .map((f) => (
-              <li key={f.id} className="text-[11.5px] leading-snug text-ink-3">
-                <span className="num text-ink-4">{f.riskFlag}</span> — {f.dismissReason}
-                {(nameOf(f.dismissedById) || f.dismissedAt) && (
-                  <span className="block text-ink-4">
-                    {nameOf(f.dismissedById)}
-                    {nameOf(f.dismissedById) && f.dismissedAt ? ' · ' : ''}
-                    {f.dismissedAt ? f.dismissedAt.toISOString().slice(0, 10) : ''}
-                  </span>
-                )}
-              </li>
-            ))}
-        </ul>
+        <details className="group mt-2">
+          <summary className="cursor-pointer list-none text-[11.5px] text-ink-3 hover:text-green">
+            <span className="group-open:hidden">Show what was dismissed, and why</span>
+            <span className="hidden group-open:inline">Hide the dismissed</span>
+          </summary>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {settled
+              .filter((f) => f.outcome === 'DISMISSED')
+              .map((f) => (
+                <li key={f.id} className="max-w-[82ch] text-[11.5px] leading-relaxed text-ink-3">
+                  <span className="num text-ink-4">{f.riskFlag}</span> — {f.dismissReason}
+                  {(nameOf(f.dismissedById) || f.dismissedAt) && (
+                    <span className="text-ink-4">
+                      {' · '}
+                      {nameOf(f.dismissedById)}
+                      {nameOf(f.dismissedById) && f.dismissedAt ? ' · ' : ''}
+                      {f.dismissedAt ? f.dismissedAt.toISOString().slice(0, 10) : ''}
+                    </span>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </details>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }

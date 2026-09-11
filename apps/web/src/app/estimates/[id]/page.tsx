@@ -349,8 +349,13 @@ export default async function EstimateDetailPage({
   // The gate. Warn or block is an admin switch, not a hardcoded stance: a
   // blocking gate is only as good as the Detective's precision, and nobody has
   // watched this stage run against real SOWs yet.
-  const [openHiddenWork, gateConfig] = await Promise.all([
+  // Two counts, not one. The gate below cares only about what is still open;
+  // the contents list cares whether the section renders at all, and a section
+  // holding nothing but resolved findings still does. Linking to a section that
+  // is not there is the bug this same commit fixes further down. AEH-377.
+  const [openHiddenWork, anyHiddenWork, gateConfig] = await Promise.all([
     prisma.hiddenWorkFinding.count({ where: { estimateId: id, outcome: 'OPEN' } }),
+    prisma.hiddenWorkFinding.count({ where: { estimateId: id } }),
     prisma.estimationConfig.findFirst({
       where: { active: true },
       orderBy: { version: 'desc' },
@@ -626,6 +631,13 @@ export default async function EstimateDetailPage({
               />
             </CollapsibleSection>
 
+            {/* The third of the crew's three readings of the brief, after what
+                the work is and what is being taken for granted: what could be
+                wrong with either. It was in the rail, which made the narrowest
+                column on the screen the home of its heaviest decision — three
+                choices and a written reason. AEH-377. */}
+            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
+
             {/* The Menu card owns its own empty state — it is the thing that
                 holds the "add a section" affordance, and an invitation that
                 sits somewhere you cannot act on is just a sign. */}
@@ -745,7 +757,6 @@ export default async function EstimateDetailPage({
                 </Link>
               </div>
             )}
-            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
             <ArtifactsPanel
               estimateId={estimate.id}
               types={artifactTypes}
@@ -781,7 +792,7 @@ export default async function EstimateDetailPage({
             {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
 
-            {hasMenu && <ContentsCard />}
+            {hasMenu && <ContentsCard hasRisk={anyHiddenWork > 0} openRisk={openHiddenWork} />}
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Details</Eyebrow>
