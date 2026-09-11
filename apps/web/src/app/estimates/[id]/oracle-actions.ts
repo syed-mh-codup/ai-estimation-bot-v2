@@ -87,8 +87,15 @@ export async function deleteOracleThread(threadId: string): Promise<void> {
 export type LoadedThread = {
   thread: OracleThreadDTO;
   messages: OracleMessageDTO[];
-  /** Rough size of what gets replayed next turn, for the "start a new one" nudge. */
-  approxTokens: number;
+  /**
+   * Rough size of what gets replayed next turn, for the "start a new one" nudge.
+   *
+   * Named for the context it measures rather than for tokens, because it is not
+   * recorded usage: nothing bills it, it has no output side to split, and it is
+   * a client-side guess from string length. Every other token number in this app
+   * comes from ModelUsage and is a real charge. AEH-313.
+   */
+  approxContextTokens: number;
   /** True when the caller is reading someone else's thread as an admin. */
   readOnly: boolean;
 };
@@ -131,7 +138,8 @@ export async function loadOracleThread(threadId: string): Promise<LoadedThread> 
   return {
     thread: toThreadDTO(row),
     messages: row.messages.map((m) => toMessageDTO(m, now)),
-    approxTokens: estimateThreadTokens(row.messages) + Math.round(now.corpusText.length / 4),
+    approxContextTokens:
+      estimateThreadTokens(row.messages) + Math.round(now.corpusText.length / 4),
     readOnly: row.userId !== access.user.id,
   };
 }

@@ -126,9 +126,20 @@ export default async function AdminOracleThreadPage({
               {m.role === 'ASSISTANT' && (
                 <p className="mt-2.5 flex flex-wrap gap-x-3 text-[11px] text-ink-4">
                   <span className="num">{m.modelString ?? 'unknown model'}</span>
+                  {/* Total first, split second — the inverse of what this line
+                      used to show. Every other token figure in the app now
+                      leads with the total, and this was the one surface that
+                      led with the split, so it read as a different kind of
+                      number from the one on /admin/oracle a click away.
+                      AEH-313. */}
                   {m.promptTokens !== null && (
-                    <span className="num">
-                      {m.promptTokens.toLocaleString()} in / {(m.completionTokens ?? 0).toLocaleString()} out
+                    <span className="num text-ink-3">
+                      {(m.promptTokens + (m.completionTokens ?? 0)).toLocaleString()} tokens
+                      <span className="text-ink-4">
+                        {' '}
+                        ({m.promptTokens.toLocaleString()} in /{' '}
+                        {(m.completionTokens ?? 0).toLocaleString()} out)
+                      </span>
                     </span>
                   )}
                   {m.costUsd !== null && <span className="num">${m.costUsd.toFixed(5)}</span>}
