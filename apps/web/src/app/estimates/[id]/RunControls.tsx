@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, Check } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   CrewTrack,
@@ -13,6 +13,7 @@ import {
   type RunStatus,
 } from '@/components/ui/crew-track';
 import { cn } from '@/lib/utils';
+import { StateBanner } from './StateBanner';
 
 type RunState = {
   status: RunStatus;
@@ -37,6 +38,12 @@ export type RunControlsProps = {
    * the case the server permits and a person still needs warning about.
    */
   isFork?: boolean;
+  /**
+   * Findings still needing a decision, for the settled banner to name. Passed
+   * in rather than read from the ledger because it is a server-side count of a
+   * table the editor does not carry. AEH-377.
+   */
+  openRisk?: number;
 };
 
 /**
@@ -46,7 +53,13 @@ export type RunControlsProps = {
  * page into the Menu Card on completion. Because all state is DB-backed, a hard
  * reload mid-run resumes the same progress.
  */
-export function RunControls({ estimateId, hasMenu, initial, isFork = false }: RunControlsProps) {
+export function RunControls({
+  estimateId,
+  hasMenu,
+  initial,
+  isFork = false,
+  openRisk = 0,
+}: RunControlsProps) {
   const router = useRouter();
   const [run, setRun] = useState<RunState>(initial);
   const [now, setNow] = useState(() => Date.now());
@@ -153,33 +166,30 @@ export function RunControls({ estimateId, hasMenu, initial, isFork = false }: Ru
   //    worth looking at. The full crew track earns its space only when the run
   //    IS the event: in flight, failed, or nothing drafted yet.
   if (hasMenu && (run.status === 'DONE' || run.status === 'IDLE')) {
+    const rerun = (
+      <Button variant="outline" size="sm" onClick={start} data-testid="run-estimate">
+        Re-run estimate
+      </Button>
+    );
+
+    // A run that finished has something to say beyond that it happened: what it
+    // produced, and what about it still needs a person. The banner says it.
+    // AEH-377.
+    if (run.status === 'DONE') {
+      return <StateBanner openRisk={openRisk} elapsed={elapsed} onRerun={rerun} />;
+    }
+
+    // No run on record, but a menu card exists — somebody built it by hand.
+    // There is no result to narrate, so this stays the quiet line it was.
     return (
       <section
         className="flex flex-wrap items-center gap-2.5 rounded-[10px] border border-line bg-surface px-4 py-3"
         data-testid="run-panel"
       >
-        {run.status === 'DONE' && (
-          <Check className="h-3.5 w-3.5 shrink-0 text-green" strokeWidth={3} aria-hidden />
-        )}
         <span className="flex-1 text-[12.5px] text-ink-3">
-          {run.status === 'DONE' ? (
-            <>
-              The crew drafted this menu card
-              {elapsed ? (
-                <>
-                  {' in '}
-                  <span className="num">{elapsed}</span>
-                </>
-              ) : null}
-              .
-            </>
-          ) : (
-            'No crew run recorded for this menu card.'
-          )}
+          No crew run recorded for this menu card.
         </span>
-        <Button variant="outline" size="sm" onClick={start} data-testid="run-estimate">
-          Re-run estimate
-        </Button>
+        {rerun}
       </section>
     );
   }

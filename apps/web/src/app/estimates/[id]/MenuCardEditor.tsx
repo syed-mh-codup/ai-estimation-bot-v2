@@ -23,7 +23,6 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronRight, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { AskOracleButton } from './AskOracleButton';
 import { Button } from '@/components/ui/button';
 import { InlineText } from '@/components/ui/input';
 import type { CarriedMark, ItemDTO, SectionDTO, LineItemDTO } from './dto';
@@ -38,6 +37,11 @@ import {
   type TaxPercents,
 } from './ledger-context';
 import { SideTag } from './SideTag';
+import { MarkFilter } from './MarkFilter';
+import { Mark } from './Mark';
+import { BRONZE_CHIP, MICRO_CHIP } from './marks';
+import { BELOW_DOC_BAR } from './DocumentBar';
+import { CardMenu } from './CardMenu';
 import { CardLockButton, LineLockBadge, LineLockButton, RoleLockButton } from './LockControls';
 import { EditBar } from './EditBar';
 import { EditActivity } from './EditActivity';
@@ -69,13 +73,6 @@ const ROLE_CELL = 'hidden sm:block';
 const TITLE_CELL = 'flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1';
 /** The floor referred to above. `min-w-0` in `InlineText` keeps it shrinkable. */
 const TITLE_FIELD = 'flex-[1_1_16rem]';
-/**
- * The 9.5px chip already used for "Off" and "Inferred". Neutral on purpose:
- * these say what a card IS, not that anything is wrong with it, and the colour
- * contract reserves tone for state (green settles, bronze is in flight).
- */
-const MICRO_CHIP =
-  'shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase';
 
 export function MenuCardEditor({ estimateId }: { estimateId: string }) {
   const {
@@ -222,7 +219,7 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
   );
 
   return (
-    <section className="mt-4 scroll-mt-4" id="menucard" data-testid="menu-card">
+    <section className="mt-4 scroll-mt-14" id="menucard" data-testid="menu-card">
       <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
         <button
           type="button"
@@ -271,6 +268,10 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
 
       {!rootCollapsed && !isEmpty && (
         <>
+          {/* Above the heads rather than in the rail: this describes the rows
+              below it, and reading it means reading them. AEH-377. */}
+          <MarkFilter />
+
           {/* Column heads carry the buffer each role attracts, stated where its
               numbers live rather than in a footnote nobody reads. */}
           <div
@@ -278,7 +279,14 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
               COLS,
               // `group` so the per-role padlocks in these heads reveal on hover,
               // the way every other lock control on this screen does.
-              'group sticky top-0 z-[3] border-b border-line bg-canvas px-3.5 py-2',
+              //
+              // Under the document bar rather than at `top-0`, which is now the
+              // bar's. Two things pinned to the same line put one of them
+              // behind the other, and the column heads are the ones that lose:
+              // they describe the rows below them, and the bar describes the
+              // whole page. AEH-377.
+              'group sticky z-[3] border-b border-line bg-canvas px-3.5 py-2',
+              BELOW_DOC_BAR,
             )}
           >
             <div className="text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase">Item</div>
@@ -379,7 +387,16 @@ function SectionGroup({ section, items, collapsed, onToggleCollapse, isUngrouped
   );
 
   return (
-    <div ref={setNodeRef} data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}>
+    <div
+      ref={setNodeRef}
+      // The contents list has linked at sections since it was written and never
+      // reached one: it pointed every row at `#menucard`, and no section had an
+      // id for it to point at instead. Both halves are fixed together — a
+      // target with no link is as useless as the link with no target. AEH-377.
+      id={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
+      className="scroll-mt-[6.5rem]"
+      data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
+    >
       <div
         className={cn(
           COLS,
@@ -521,13 +538,13 @@ function ItemRow({
     isFinalised,
     overheadStale,
     onRenameItem,
-    onToggleItem,
-    onDeleteItem,
     onAddLineItem,
     selectedCardIds,
     toggleCardSelected,
+    isCardDimmed,
   } = useLedger();
   const selected = selectedCardIds.includes(item.id);
+  const dimmed = isCardDimmed(item);
   const sortable = useSortable({ id: item.id, disabled: isFinalised });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -557,8 +574,14 @@ function ItemRow({
         // bronze rule above already carry meanings of their own, and a third
         // background state would be unreadable against them.
         selected && 'ring-1 ring-green/50 ring-inset',
+        // Receding rather than hiding, while a mark is being looked at. The rows
+        // stay in place and keep their heights, so picking a chip never makes
+        // the ledger jump under the pointer — and the cards you did not ask for
+        // are still there to give the ones you did their context. AEH-377.
+        dimmed && 'opacity-25',
       )}
       data-testid={`menu-item-${item.id}`}
+      data-dimmed={dimmed || undefined}
     >
       <div className={cn(COLS, 'group relative items-center px-3.5 py-2 hover:bg-surface-2')}>
         <div className="flex min-w-0 items-center gap-1.5">
@@ -631,21 +654,24 @@ function ItemRow({
               )}
               data-testid={`item-title-${item.id}`}
             />
+            {/* Each chip is now the way in to what it means, rather than a
+                tooltip you have to already suspect is there. AEH-377. */}
             {!item.enabled && (
-              <span className="shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase">
+              <Mark kind="off" cardTitle={item.title} className={MICRO_CHIP}>
                 Off
-              </span>
+              </Mark>
             )}
             {item.injected && (
               // Colour never travels alone here, so the label does the work and
               // the tone only reinforces it.
-              <span
-                className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
-                title="Implied by the source material, not stated in it — costed by the estimator council"
+              <Mark
+                kind="inferred"
+                cardTitle={item.title}
+                className={BRONZE_CHIP}
                 data-testid={`item-inferred-${item.id}`}
               >
                 Inferred
-              </span>
+              </Mark>
             )}
             {item.overhead && overheadStale && (
               // This card's hours are a percentage OF other cards' taxed hours,
@@ -653,13 +679,29 @@ function ItemRow({
               // than silently rewritten: nothing here separates a generated
               // figure from an estimator's edit, so recomputing would discard
               // real decisions. A re-run rebuilds it. AEH-335.
-              <span
-                className="shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase"
-                title="Costed against buffers that have since changed — re-run to rebuild this card"
+              <Mark
+                kind="stale"
+                cardTitle={item.title}
+                className={BRONZE_CHIP}
                 data-testid={`item-overhead-stale-${item.id}`}
               >
                 Stale
-              </span>
+              </Mark>
+            )}
+            {/* Not a card flag but a card fact, and the one the filter row can
+                report as an ABSENCE: the Archivist found nothing to anchor this
+                against, so its hours came from reasoning rather than from work
+                already delivered. Overhead cards never had a preset to match and
+                are excluded — see `cardMarks`. */}
+            {!item.overhead && item.sourcePresetId === null && (
+              <Mark
+                kind="unmatched"
+                cardTitle={item.title}
+                className={MICRO_CHIP}
+                data-testid={`item-unmatched-${item.id}`}
+              >
+                No match
+              </Mark>
             )}
             {item.flags.thinSlice && (
               <span
@@ -680,15 +722,12 @@ function ItemRow({
               </span>
             )}
             <ItemProvenance item={item} />
-            {/* Deliberately NOT in the hover cluster below: that whole cluster is
-              gated on !isFinalised, and asking what drove a number is exactly
-              what you want to do on an estimate that has been signed off. */}
-            <AskOracleButton
-              label={`Ask Oracle about ${item.title}`}
-              question={`Explain the menu card "${item.title}" (${item.taxonomyKey}). What in the source material drove it, and where did its hours come from?`}
-              testid={`ask-oracle-item-${item.id}`}
-            />
           </div>
+          {/* Outside the wrapping title cell, so it stays pinned at the right of
+              the item column instead of drifting onto a second line of chips. */}
+          {!isFinalised && (
+            <CardMenu item={item} lockedOff={lockedOff} onAddLineItem={onAddLineItem} />
+          )}
         </div>
 
         {ROLES.map((r) => (
@@ -715,40 +754,6 @@ function ItemRow({
           {round(itemTaxed(item))}
         </div>
 
-        {!isFinalised && (
-          <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1 bg-surface-2 pl-2 opacity-0 group-hover:opacity-100">
-            <button
-              type="button"
-              onClick={() => onToggleItem(item.id, !item.enabled)}
-              // Switching a card back ON is never gated — the judgment is about
-              // removing scope something else stands on, not about adding it.
-              //
-              // A ledger lock does NOT gate this, in either direction. It says
-              // a line's hours and description are settled; switching the card
-              // in or out of the estimate changes neither. See lock-guards.ts.
-              disabled={item.enabled && lockedOff}
-              title={
-                item.enabled && lockedOff
-                  ? 'Other scope in this estimate depends on this card'
-                  : undefined
-              }
-              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-3 hover:border-ink-4 hover:text-ink disabled:cursor-not-allowed disabled:border-line-soft disabled:text-ink-4 disabled:hover:border-line-soft disabled:hover:text-ink-4"
-              data-testid={`toggle-item-${item.id}`}
-            >
-              {item.enabled ? 'Disable' : 'Enable'}
-            </button>
-            <button
-              type="button"
-              onClick={() => onDeleteItem(item.id)}
-              title="Delete item"
-              aria-label="Delete item"
-              className="rounded border border-line bg-surface p-1 text-ink-4 hover:border-brick-line hover:text-brick"
-              data-testid={`delete-item-${item.id}`}
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </div>
-        )}
       </div>
 
       {!isCollapsed && (
@@ -999,16 +1004,14 @@ function LineRow({ li, role, item }: { li: LineItemDTO; role: Role; item: ItemDT
             person's judgement and the council's arithmetic, and reading it as
             either "edited by hand" or as the crew's own would be wrong. */}
         {li.provenance !== 'CREW' && (
-          <span
-            title={
-              li.provenance === 'HUMAN'
-                ? 'Typed by hand'
-                : 'Re-priced by the council inside a steered edit'
-            }
-            className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 uppercase"
+          <Mark
+            kind="edited"
+            cardTitle={item.title}
+            className="shrink-0 text-[9.5px] font-bold tracking-[0.06em] text-ink-4 underline decoration-line decoration-dotted underline-offset-2 uppercase hover:text-green"
+            data-testid={`line-provenance-${li.id}`}
           >
             {li.provenance === 'HUMAN' ? 'edited' : 'steered'}
-          </span>
+          </Mark>
         )}
       </div>
 

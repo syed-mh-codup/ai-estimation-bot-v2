@@ -32,13 +32,15 @@ import { CustodianField, DueDateField } from './CustodyFields';
 import type { CustodianOption } from './CustodyFields';
 import { dueLabel, toDateInputValue } from '@/lib/due-date';
 import { EditableList } from './EditableList';
-import { CollapseAllButton } from './CollapseAllButton';
 import { LedgerProvider } from './ledger-context';
 import { listLedgerEdits } from './edit-actions';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
+import { DocumentBar } from './DocumentBar';
+import { InspectDock } from './InspectDock';
+import { ACTIVITY_SLOT } from './dock';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { ExportSheets } from './ExportSheets';
@@ -349,8 +351,13 @@ export default async function EstimateDetailPage({
   // The gate. Warn or block is an admin switch, not a hardcoded stance: a
   // blocking gate is only as good as the Detective's precision, and nobody has
   // watched this stage run against real SOWs yet.
-  const [openHiddenWork, gateConfig] = await Promise.all([
+  // Two counts, not one. The gate below cares only about what is still open;
+  // the contents list cares whether the section renders at all, and a section
+  // holding nothing but resolved findings still does. Linking to a section that
+  // is not there is the bug this same commit fixes further down. AEH-377.
+  const [openHiddenWork, anyHiddenWork, gateConfig] = await Promise.all([
     prisma.hiddenWorkFinding.count({ where: { estimateId: id, outcome: 'OPEN' } }),
+    prisma.hiddenWorkFinding.count({ where: { estimateId: id } }),
     prisma.estimationConfig.findFirst({
       where: { active: true },
       orderBy: { version: 'desc' },
@@ -497,7 +504,7 @@ export default async function EstimateDetailPage({
   }));
 
   return (
-    <div data-testid="estimate-detail">
+    <div className="dock-gutter" data-testid="estimate-detail">
       {/* Back goes UP one level, and for a fork that level is the project.
           The dashboard lists a family as a single project row, so sending a
           fork straight there skips the view that actually holds its siblings —
@@ -547,6 +554,13 @@ export default async function EstimateDetailPage({
         <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           {/* ── the document ─────────────────────────────────────────────── */}
           <div className="min-w-0">
+            {/* The document's own navigation, pinned: where you are, where else
+                you can go, and how much of the page is folded. It belongs to
+                the document rather than the rail because it moves you around
+                what you are reading instead of acting on the estimate. The
+                ledger's column heads give up `top-0` to it. AEH-377. */}
+            <DocumentBar hasMenu={hasMenu} hasRisk={anyHiddenWork > 0} />
+
             {/* On a FORK the hierarchy inverts. Reconciling is the thing
                 somebody forked in order to do; running is the one that rebuilds
                 from the SOW and discards every card the fork copied. So the
@@ -564,6 +578,7 @@ export default async function EstimateDetailPage({
                 isFork={false}
                 estimateId={estimate.id}
                 hasMenu={hasMenu}
+                openRisk={openHiddenWork}
                 initial={{
                   status: estimate.runStatus,
                   stage: estimate.runStage,
@@ -577,7 +592,7 @@ export default async function EstimateDetailPage({
 
             <CollapsibleSection
               id="sow"
-              className="mt-3.5 scroll-mt-4"
+              className="mt-3.5 scroll-mt-14"
               storageKey={`est:${estimate.id}:sow`}
               title="Statement of work"
               data-testid="section-sow"
@@ -587,7 +602,7 @@ export default async function EstimateDetailPage({
 
             <CollapsibleSection
               id="narrative"
-              className="mt-3.5 scroll-mt-4"
+              className="mt-3.5 scroll-mt-14"
               storageKey={`est:${estimate.id}:narrative`}
               title="Narrative"
               meta={hasMenu ? 'written by the Architect' : undefined}
@@ -608,7 +623,7 @@ export default async function EstimateDetailPage({
 
             <CollapsibleSection
               id="assumptions"
-              className="mt-3.5 scroll-mt-4"
+              className="mt-3.5 scroll-mt-14"
               storageKey={`est:${estimate.id}:assumptions`}
               title="Assumptions"
               data-testid="section-assumptions"
@@ -625,6 +640,13 @@ export default async function EstimateDetailPage({
                 kind="ASSUMPTION"
               />
             </CollapsibleSection>
+
+            {/* The third of the crew's three readings of the brief, after what
+                the work is and what is being taken for granted: what could be
+                wrong with either. It was in the rail, which made the narrowest
+                column on the screen the home of its heaviest decision — three
+                choices and a written reason. AEH-377. */}
+            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
 
             {/* The Menu card owns its own empty state — it is the thing that
                 holds the "add a section" affordance, and an invitation that
@@ -683,7 +705,6 @@ export default async function EstimateDetailPage({
                     action={exportSheetsAction}
                   />
                 )}
-                <CollapseAllButton />
                 {/* Below the run and export controls: forking is something you
                     do to an estimate that already says something, not a way of
                     starting one. */}
@@ -745,13 +766,6 @@ export default async function EstimateDetailPage({
                 </Link>
               </div>
             )}
-            <HiddenWorkPanel estimateId={estimate.id} isFinalised={isFinalised} />
-            <ArtifactsPanel
-              estimateId={estimate.id}
-              types={artifactTypes}
-              initial={artifactRows}
-            />
-            <RunDiagnosticsPanel estimateId={estimate.id} />
             {/* The run, demoted, on a fork whose hero slot the reconciliation
                 has taken. Still reachable — the rule allows a fork with no
                 children and no siblings to re-run — but it carries the warning
@@ -777,11 +791,9 @@ export default async function EstimateDetailPage({
               projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
             />
 
-            {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
-            {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
 
-            {hasMenu && <ContentsCard />}
+            {hasMenu && <ContentsCard hasRisk={anyHiddenWork > 0} openRisk={openHiddenWork} />}
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Details</Eyebrow>
@@ -864,9 +876,44 @@ export default async function EstimateDetailPage({
       {/* Outside LedgerProvider on purpose: that provider is keyed on the row
           set and remounts its whole subtree on router.refresh(), which fires
           the moment a run finishes. A conversation inside it would be wiped at
-          exactly the point somebody is asking about the results. Entry points
-          within the ledger reach Oracle through the window-event bus. */}
-      <Oracle estimateId={estimate.id} initialThreads={oracleThreads} />
+          exactly the point somebody is asking about the results — and so would
+          the dock's own open tab. Entry points within the ledger reach it
+          through the window-event bus and the dock store.
+
+          The four panels here were the bottom four cards of a 280px rail, below
+          the fold and below the controls. They are what you consult ABOUT the
+          estimate rather than what it says or what you do to it, which is the
+          dock's job. `EditActivity` is the fifth and cannot come this way: it
+          counts what `useLedger` holds, so it stays inside the provider and
+          portals its list into the tab. AEH-377. */}
+      <InspectDock
+        isAdmin={viewer.role === 'ADMIN'}
+        panels={{
+          oracle: <Oracle estimateId={estimate.id} initialThreads={oracleThreads} />,
+          artifacts: (
+            <div className="p-3.5">
+              <ArtifactsPanel
+                estimateId={estimate.id}
+                types={artifactTypes}
+                initial={artifactRows}
+              />
+            </div>
+          ),
+          diagnostics: (
+            <div className="p-3.5">
+              <RunDiagnosticsPanel estimateId={estimate.id} />
+            </div>
+          ),
+          activity: <div className="p-3.5" id={ACTIVITY_SLOT} />,
+          admin:
+            viewer.role === 'ADMIN' ? (
+              <div className="flex flex-col gap-3.5 p-3.5">
+                <OracleAdminPanel estimateId={estimate.id} />
+                <ModelUsagePanel estimateId={estimate.id} />
+              </div>
+            ) : undefined,
+        }}
+      />
     </div>
   );
 }

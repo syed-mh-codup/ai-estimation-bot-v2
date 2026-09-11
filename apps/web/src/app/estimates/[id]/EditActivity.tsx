@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PanelRight, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogTitle, SheetContent } from '@/components/ui/dialog';
 import { useLedger } from './ledger-context';
+import { ACTIVITY_SLOT, openDock, useDock } from './dock';
 import { approveLedgerEdit, discardLedgerEdit, revertLedgerEdit } from './edit-actions';
 import { hoursDelta, isEditInFlight, isRevertible, type LedgerEditDTO } from './edit-dto';
 
@@ -57,13 +58,25 @@ function statusWords(e: LedgerEditDTO): string {
  * eight rows of thirty-four and nothing said so, so "did my bulk edit actually
  * start" was a question whose answer was off the bottom of a list.
  *
- * Fixed positioning from inside `LedgerProvider` is fine — `position: fixed`
- * ignores DOM nesting for layout — and it has to stay inside it, because
- * everything it counts comes from `useLedger`.
+ * It mounts inside `LedgerProvider` and has to — everything it counts comes
+ * from `useLedger` — but it SHOWS in the Inspect dock, which mounts outside it
+ * so a run finishing cannot wipe an open conversation. A portal is what spans
+ * that: the component stays where its data is and the list renders where the
+ * reader expects it, in the tab beside Oracle rather than in a flyout of its
+ * own. AEH-377.
  */
 export function EditActivity() {
   const { edits, editCounts } = useLedger();
-  const [open, setOpen] = useState(false);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const { open, tab } = useDock();
+  const showing = open && tab === 'activity';
+
+  // After the dock has painted its panel, not before: the element does not
+  // exist until the tab is the one on screen.
+  useEffect(() => {
+    setSlot(showing ? document.getElementById(ACTIVITY_SLOT) : null);
+  }, [showing]);
+
   if (editCounts.total === 0 && edits.length === 0) return null;
 
   // From the counts, not from `edits`. The list is a capped page — a
@@ -84,25 +97,27 @@ export function EditActivity() {
 
   return (
     <>
+      {/* A summary line in the ledger rather than a floating tab of its own.
+          What it says is the part that matters — "3 waiting on you" is a
+          question somebody has to answer, and it was previously legible only
+          after opening a panel to find out. */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => openDock('activity')}
         aria-label={`Steered edits: ${total}${parts.length ? `, ${parts.join(', ')}` : ''}`}
         className={cn(
-          // `bottom-28` clears Oracle's tab at `bottom-16`, so the two stack
-          // without either moving when the other appears or goes.
-          'fixed right-0 bottom-28 z-40 flex h-10 items-center gap-2 rounded-l-[10px] border border-r-0 bg-surface pr-3.5 pl-3 shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-colors',
+          'mt-2.5 flex h-8 w-full items-center gap-2 rounded-md border px-2.5 text-left transition-colors',
           'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
           waiting > 0 || failed > 0
             ? 'border-bronze-line bg-bronze-tint hover:border-bronze-ink'
-            : 'border-line hover:border-green-line hover:bg-green-tint',
+            : 'border-line bg-surface hover:border-green-line hover:bg-green-tint',
         )}
         data-testid="edit-activity-open"
       >
-        <PanelRight className="h-4 w-4 shrink-0 text-ink-4" aria-hidden />
-        <span className="text-[13px] font-medium whitespace-nowrap text-ink">
+        <PanelRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-ink">
           Edits
-          <span className="num ml-2 text-[11px] text-ink-4">
+          <span className="num ml-2 text-[11px] font-normal text-ink-4">
             {parts.length > 0 ? parts.join(' · ') : total}
           </span>
         </span>
@@ -111,11 +126,8 @@ export function EditActivity() {
         )}
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <SheetContent aria-describedby={undefined}>
-          <EditActivityList />
-        </SheetContent>
-      </Dialog>
+      {/* Into the dock, from inside the provider whose data this needs. */}
+      {slot ? createPortal(<EditActivityList />, slot) : null}
     </>
   );
 }
@@ -178,8 +190,11 @@ function EditActivityList() {
 
   return (
     <div className="flex min-h-0 flex-col" data-testid="edit-activity">
-      <div className="border-b border-line px-4 py-3.5 pr-11">
-        <DialogTitle>Steered edits</DialogTitle>
+      {/* A plain heading, not a `DialogTitle`: this is a panel of the page
+          now rather than the contents of a sheet, and Radix's title has to be
+          inside a dialog root to mean anything. */}
+      <div className="-mx-3.5 -mt-3.5 mb-3.5 border-b border-line px-4 py-3.5">
+        <h2 className="font-serif text-[17px] font-medium text-ink">Steered edits</h2>
         <p className="mt-0.5 text-[11.5px] text-ink-4">
           What was asked for, what it did, and what can be put back.
           {/* Said plainly when the list is a page of something larger, because

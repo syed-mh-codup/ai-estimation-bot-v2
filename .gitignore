@@ -46,3 +46,8 @@ apps/web/playwright-report/
 
 # Session-continuity scratch (CLAUDE.md) — notes for resuming work, not a repo artifact.
 progress.md
+
+# Design-canvas working files. Each artboard is re-seeded from these into the
+# published canvas, so they are worth keeping on disk and worthless in review —
+# a few thousand lines of mockup HTML that no build, test or import ever reads.
+/.design-canvas/
