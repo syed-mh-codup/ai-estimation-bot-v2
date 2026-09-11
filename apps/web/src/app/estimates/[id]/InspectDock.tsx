@@ -3,7 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { FileText, PanelRight, Activity, Stethoscope, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DOCK_TABS, closeDock, toggleDock, useDock, type DockTab } from './dock';
+import { DOCK_TABS, closeDock, openDock, toggleDock, useDock, type DockTab } from './dock';
 
 /**
  * Where you inspect the estimate, as a panel rather than a flyout. AEH-377.
@@ -17,8 +17,9 @@ import { DOCK_TABS, closeDock, toggleDock, useDock, type DockTab } from './dock'
  * rail had eleven cards in it and the two most-used surfaces were the ones not
  * in it at all.
  *
- * One dock, five tabs, and the rule that follows: the next inspection panel is
- * a tab, not a twelfth card.
+ * One dock, five tabs, one notch, and the rule that follows: the next
+ * inspection panel is a tab, not a twelfth card and not a sixth thing on the
+ * edge of the screen.
  *
  * It is FULL HEIGHT and it has a border rather than a shadow, which is the
  * whole difference between a dock and the flyout it replaces. A 440 by 640 box
@@ -71,32 +72,25 @@ export function InspectDock({
   const active = offered.includes(tab) ? tab : (offered[0] as DockTab);
 
   if (!open) {
+    // ONE notch, not one per tab. A tab is a thing you pick once you are
+    // inside the dock; five of them stacked on the edge of the page is five
+    // pieces of furniture floating over the estimate, which is more clutter
+    // than the two floating tabs this was meant to replace, not less.
     return (
-      <div
-        className="fixed right-0 bottom-16 z-40 flex flex-col items-end gap-1.5"
-        data-testid="dock-notches"
+      <button
+        type="button"
+        onClick={() => openDock(active)}
+        aria-label="Open the inspect dock"
+        className={cn(
+          'fixed right-0 bottom-16 z-40 flex h-9 items-center gap-2 rounded-l-[10px] border border-r-0 border-line bg-surface pr-3 pl-2.5 text-ink shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-colors',
+          'hover:border-green-line hover:bg-green-tint',
+          'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
+        )}
+        data-testid="inspect-notch"
       >
-        {offered.map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => toggleDock(key)}
-            aria-label={`${TAB_LABEL[key]} — open the inspect dock`}
-            title={TAB_LABEL[key]}
-            className={cn(
-              'flex h-9 items-center gap-2 rounded-l-[10px] border border-r-0 border-line bg-surface pr-3 pl-2.5 text-ink shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-colors',
-              'hover:border-green-line hover:bg-green-tint',
-              'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
-            )}
-            // `oracle-notch` is the resting state `oracle.spec.ts` asserts
-            // before it presses ⌘K. It is this button now.
-            data-testid={key === 'oracle' ? 'oracle-notch' : `dock-notch-${key}`}
-          >
-            <TabIcon tab={key} />
-            <span className="text-[12.5px] font-medium whitespace-nowrap">{TAB_LABEL[key]}</span>
-          </button>
-        ))}
-      </div>
+        <PanelRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+        <span className="text-[12.5px] font-medium whitespace-nowrap">Inspect</span>
+      </button>
     );
   }
 

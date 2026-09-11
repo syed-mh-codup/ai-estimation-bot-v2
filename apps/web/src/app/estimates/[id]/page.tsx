@@ -37,7 +37,6 @@ import { listLedgerEdits } from './edit-actions';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
-import { ContentsCard } from './ContentsCard';
 import { DocumentBar } from './DocumentBar';
 import { InspectDock } from './InspectDock';
 import { ACTIVITY_SLOT } from './dock';
@@ -838,7 +837,6 @@ export default async function EstimateDetailPage({
 
 
 
-            {hasMenu && <ContentsCard hasRisk={anyHiddenWork > 0} openRisk={openHiddenWork} />}
 
             <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
               <Eyebrow>Details</Eyebrow>

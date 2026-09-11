@@ -23,11 +23,12 @@ export function CollapsibleSection({
   'data-testid': testId,
 }: {
   /**
-   * Anchor for in-page links. ContentsCard has linked to #sow, #narrative and
-   * #assumptions since it was written, and none of them ever resolved: this
-   * component took no id and does not spread rest props, so only the menu card
-   * (which sets its own id) was reachable. Oracle's quote jump needs #sow to
-   * exist, which is what finally surfaced it. AEH-259.
+   * Anchor for in-page links. The rail's contents list linked to #sow,
+   * #narrative and #assumptions for a long time and none of them ever
+   * resolved: this component took no id and does not spread rest props, so
+   * only the menu card (which sets its own id) was reachable. Oracle's quote
+   * jump needs #sow to exist, which is what finally surfaced it. AEH-259.
+   * The document bar's Jump to is what reads these now. AEH-377.
    */
   id?: string;
   title: ReactNode;

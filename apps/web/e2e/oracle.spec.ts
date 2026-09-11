@@ -50,8 +50,9 @@ test.describe('asking Oracle about an estimate', () => {
     await login(page, TEST_USERS.estimator.email, TEST_USERS.estimator.password);
     await openEstimate(page);
 
-    // The resting state is a notch, not a button sitting over the page.
-    await expect(page.getByTestId('oracle-notch')).toBeVisible();
+    // The resting state is ONE notch for the whole Inspect dock, not a button
+    // per panel sitting over the page. Oracle is a tab inside it. AEH-377.
+    await expect(page.getByTestId('inspect-notch')).toBeVisible();
     await openOracle(page);
 
     await ask(page, QUESTION);
