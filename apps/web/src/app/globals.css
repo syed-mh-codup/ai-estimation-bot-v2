@@ -121,37 +121,3 @@ body {
   text-transform: uppercase;
   color: var(--color-ink-3);
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   The Inspect dock's gutter — AEH-377
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-/*
- * A dock is part of the page, which means the page makes room for it. That is
- * the whole difference between this and the flyout it replaced: a panel you
- * have to dismiss before you can look at the row it is about is a panel you
- * consult once.
- *
- * Only where there is width to spare. Below 1280px it overlays like a sheet
- * instead — reserving 420px of a 1100px screen would leave the ledger narrower
- * than its own columns.
- *
- * Driven by a data attribute on the root rather than a prop, because the
- * element that needs the padding is server-rendered and the dock's open state
- * is client state on the far side of LedgerProvider.
- */
-@media (min-width: 1280px) {
-  :root[data-dock='open'] .dock-gutter {
-    padding-right: 420px;
-  }
-}
-
-.dock-gutter {
-  transition: padding-right 180ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dock-gutter {
-    transition: none;
-  }
-}

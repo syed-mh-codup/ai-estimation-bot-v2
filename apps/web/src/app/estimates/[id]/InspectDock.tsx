@@ -23,8 +23,13 @@ import { DOCK_TABS, closeDock, toggleDock, useDock, type DockTab } from './dock'
  * It is FULL HEIGHT and it has a border rather than a shadow, which is the
  * whole difference between a dock and the flyout it replaces. A 440 by 640 box
  * floating over the ledger reads as temporary and has to be dismissed before
- * you can check the row it is about; a dock is part of the page, and the page
- * makes room for it.
+ * you can check the row it is about.
+ *
+ * It does NOT reflow the page. Reserving its width was tried and reverted: the
+ * document and the rail are a grid, so taking 420px off the container reflowed
+ * the ledger's columns and rewrapped the card titles underneath — the reader
+ * loses their place in the thing they opened the dock to ask about. There is
+ * margin to the right of the content to sit over, so it sits over it.
  *
  * `open` and `tab` live in `dock.ts` rather than here. Several of the things
  * that move them — Oracle's ⌘K, a quoted span closing the panel to reveal
@@ -54,19 +59,6 @@ export function InspectDock({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
-  // Tell the page to make room. Set on the root rather than passed as a prop:
-  // the element that needs the padding is server-rendered and sits on the far
-  // side of `LedgerProvider` from this. See `.dock-gutter` in globals.css,
-  // which reserves the width only where there is width to spare.
-  useEffect(() => {
-    const root = document.documentElement;
-    if (open) root.dataset.dock = 'open';
-    else delete root.dataset.dock;
-    return () => {
-      delete root.dataset.dock;
-    };
   }, [open]);
 
   const offered = DOCK_TABS.filter(

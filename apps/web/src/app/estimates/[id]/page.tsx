@@ -504,7 +504,7 @@ export default async function EstimateDetailPage({
   }));
 
   return (
-    <div className="dock-gutter" data-testid="estimate-detail">
+    <div data-testid="estimate-detail">
       {/* Back goes UP one level, and for a fork that level is the project.
           The dashboard lists a family as a single project row, so sending a
           fork straight there skips the view that actually holds its siblings —
