@@ -4,6 +4,7 @@ import { requireUser } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CollapsibleSection } from '@/components/ui/collapsible-section';
+import { JumpLink } from './JumpLink';
 
 /**
  * Risks the Detective raised that nobody costed.
@@ -213,9 +214,9 @@ export async function HiddenWorkPanel({
                 AEH-259 fixed for the Oracle's own quote jumps. */}
             <p className="mt-1 max-w-[82ch] text-[11.5px] leading-relaxed text-ink-4">
               {f.citation}{' '}
-              <a href="#sow" className="whitespace-nowrap text-green hover:underline">
+              <JumpLink to="sow" className="whitespace-nowrap text-green hover:underline">
                 Statement of work &#8599;
-              </a>
+              </JumpLink>
             </p>
 
             {!isFinalised && (
