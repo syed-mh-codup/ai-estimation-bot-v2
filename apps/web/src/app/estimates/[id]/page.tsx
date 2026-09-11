@@ -32,13 +32,13 @@ import { CustodianField, DueDateField } from './CustodyFields';
 import type { CustodianOption } from './CustodyFields';
 import { dueLabel, toDateInputValue } from '@/lib/due-date';
 import { EditableList } from './EditableList';
-import { CollapseAllButton } from './CollapseAllButton';
 import { LedgerProvider } from './ledger-context';
 import { listLedgerEdits } from './edit-actions';
 import { RollupCard } from './RollupCard';
 import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
+import { DocumentBar } from './DocumentBar';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { ExportSheets } from './ExportSheets';
@@ -552,6 +552,13 @@ export default async function EstimateDetailPage({
         <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           {/* ── the document ─────────────────────────────────────────────── */}
           <div className="min-w-0">
+            {/* The document's own navigation, pinned: where you are, where else
+                you can go, and how much of the page is folded. It belongs to
+                the document rather than the rail because it moves you around
+                what you are reading instead of acting on the estimate. The
+                ledger's column heads give up `top-0` to it. AEH-377. */}
+            <DocumentBar hasMenu={hasMenu} hasRisk={anyHiddenWork > 0} />
+
             {/* On a FORK the hierarchy inverts. Reconciling is the thing
                 somebody forked in order to do; running is the one that rebuilds
                 from the SOW and discards every card the fork copied. So the
@@ -583,7 +590,7 @@ export default async function EstimateDetailPage({
 
             <CollapsibleSection
               id="sow"
-              className="mt-3.5 scroll-mt-4"
+              className="mt-3.5 scroll-mt-14"
               storageKey={`est:${estimate.id}:sow`}
               title="Statement of work"
               data-testid="section-sow"
@@ -593,7 +600,7 @@ export default async function EstimateDetailPage({
 
             <CollapsibleSection
               id="narrative"
-              className="mt-3.5 scroll-mt-4"
+              className="mt-3.5 scroll-mt-14"
               storageKey={`est:${estimate.id}:narrative`}
               title="Narrative"
               meta={hasMenu ? 'written by the Architect' : undefined}
@@ -614,7 +621,7 @@ export default async function EstimateDetailPage({
 
             <CollapsibleSection
               id="assumptions"
-              className="mt-3.5 scroll-mt-4"
+              className="mt-3.5 scroll-mt-14"
               storageKey={`est:${estimate.id}:assumptions`}
               title="Assumptions"
               data-testid="section-assumptions"
@@ -696,7 +703,6 @@ export default async function EstimateDetailPage({
                     action={exportSheetsAction}
                   />
                 )}
-                <CollapseAllButton />
                 {/* Below the run and export controls: forking is something you
                     do to an estimate that already says something, not a way of
                     starting one. */}

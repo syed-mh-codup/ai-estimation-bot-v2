@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Lock, LockOpen } from 'lucide-react';
 import { Dialog, DialogTrigger, SheetContent, DialogTitle } from '@/components/ui/dialog';
 import { useLedger } from './ledger-context';
-import { BRONZE_CHIP, MICRO_CHIP } from './marks';
+import { BRONZE_CHIP, MICRO_CHIP, type MarkKey } from './marks';
 import { BEATS, NOTATION, NOTATION_CLOSING, type NotationSample } from './notation';
 
 /**
@@ -27,11 +27,16 @@ import { BEATS, NOTATION, NOTATION_CLOSING, type NotationSample } from './notati
  * a reference that is a way in rather than a dead end.
  */
 export function NotationSheet() {
-  const { markCounts, setActiveMark } = useLedger();
+  const { markCounts, activeMark, setActiveMark } = useLedger();
   const [open, setOpen] = useState(false);
 
-  const show = (mark: Parameters<typeof setActiveMark>[0]) => {
-    setActiveMark(mark);
+  // `setActiveMark` TOGGLES — re-picking the mark already lit clears it, which
+  // is right for the chips above the ledger because they are pressed buttons.
+  // Here the link says "Show", every time, so it has to show every time: from a
+  // sheet opened while Stale was already lit, a straight call would close the
+  // sheet and clear the filter, which is the opposite of what it offered.
+  const show = (mark: MarkKey) => {
+    if (activeMark !== mark) setActiveMark(mark);
     setOpen(false);
   };
 
@@ -76,12 +81,13 @@ export function NotationSheet() {
 
               <dl className="mt-2.5 space-y-3.5">
                 {group.entries.map((entry, i) => {
-                  const count = entry.mark ? markCounts[entry.mark] : undefined;
+                  const mark = entry.mark;
+                  const count = mark ? markCounts[mark] : undefined;
                   return (
                     <div
                       key={i}
                       className="border-t border-line-soft pt-3 first:border-t-0 first:pt-0"
-                      data-testid={entry.mark ? `notation-${entry.mark}` : undefined}
+                      data-testid={mark ? `notation-${mark}` : undefined}
                     >
                       <dt className="flex flex-wrap items-center gap-2">
                         <Sample sample={entry.sample} />
@@ -94,14 +100,14 @@ export function NotationSheet() {
                         {/* Only where something actually carries it. "0 in this
                             estimate" is a fact about nothing, and a row of them
                             teaches you to skip the line that matters. */}
-                        {entry.mark && count !== undefined && (
+                        {mark && count !== undefined && (
                           <>
                             {' '}
                             <button
                               type="button"
-                              onClick={() => show(entry.mark ?? null)}
+                              onClick={() => show(mark)}
                               className="font-semibold text-green underline decoration-dotted underline-offset-2 hover:text-green-deep"
-                              data-testid={`notation-goto-${entry.mark}`}
+                              data-testid={`notation-goto-${mark}`}
                             >
                               Show the {count} in this estimate
                             </button>

@@ -3,11 +3,19 @@
 import { Eyebrow } from '@/components/ui/card';
 import { JumpLink } from './JumpLink';
 import { itemTaxed, round, useLedger } from './ledger-context';
+import { documentOutline } from './outline';
 
 /**
- * A jump list for a long document. An estimate runs to hundreds of rows; this
- * is how you get to "Back office" without scrolling past everything else, and
- * it doubles as a per-section subtotal readout.
+ * The document's parts with a subtotal against each.
+ *
+ * It was the only navigation on the screen and it is not any more — the
+ * document bar carries that, pinned, where the question is actually asked. What
+ * this keeps is the half a pinned bar cannot do: the whole shape at once, with
+ * the hours beside each part, which is a rail thing because it is a number you
+ * are accountable for rather than a way of moving around.
+ *
+ * Both read `documentOutline`, so the two lists cannot disagree about what the
+ * page contains. AEH-377.
  */
 export function ContentsCard({
   hasRisk,
@@ -23,70 +31,44 @@ export function ContentsCard({
   const subtotal = (sectionId: string | null) =>
     itemsIn(sectionId).reduce((s, it) => (it.enabled ? s + itemTaxed(it) : s), 0);
 
-  const ungrouped = itemsIn(null);
+  const rows = documentOutline({
+    sections: sectionsSorted,
+    hasUngrouped: itemsIn(null).length > 0,
+    // This card only renders once there is a menu card, so the ledger's rows
+    // always belong in the list.
+    hasMenu: true,
+    hasRisk,
+  });
+
+  const valueFor = (id: string, section?: { id: string | null }) => {
+    if (section) return round(subtotal(section.id));
+    if (id === 'menucard') return `${round(rollup.grand)}h`;
+    if (id === 'risk') return openRisk > 0 ? `${openRisk} open` : undefined;
+    return undefined;
+  };
 
   return (
     <div className="rounded-[10px] border border-line bg-surface px-4 py-3.5">
       <Eyebrow>Contents</Eyebrow>
       <nav className="mt-2 flex flex-col">
-        <Row to="sow" label="Statement of work" />
-        <Row to="narrative" label="Narrative" />
-        <Row to="assumptions" label="Assumptions" />
-        {hasRisk && (
-          <Row
-            to="risk"
-            label="Flagged risk"
-            value={openRisk > 0 ? `${openRisk} open` : undefined}
-          />
-        )}
-        <Row to="menucard" label="Menu card" value={`${round(rollup.grand)}h`} />
-        {/* Each section's own anchor, not the menu card's. These rows have
-            pointed at `#menucard` since this was written, which meant every
-            jump below the first four landed in the same place and the list read
-            as broken to anyone who tried it twice. AEH-377. */}
-        {sectionsSorted.map((s) => (
-          <Row
-            key={s.id}
-            to={`section-${s.id}`}
-            label={s.title}
-            value={round(subtotal(s.id))}
-            sub
-          />
+        {rows.map((row) => (
+          <JumpLink
+            key={row.id}
+            to={row.id}
+            className={
+              'flex items-baseline justify-between gap-2.5 border-b border-line-soft py-1.5 last:border-b-0 hover:text-green ' +
+              (row.section ? 'pl-3 text-[12px] text-ink-3' : 'text-[12.5px] text-ink-2')
+            }
+          >
+            <span className="min-w-0 truncate">{row.label}</span>
+            {valueFor(row.id, row.section) !== undefined && (
+              <span className="num shrink-0 text-[11px] text-ink-4">
+                {valueFor(row.id, row.section)}
+              </span>
+            )}
+          </JumpLink>
         ))}
-        {ungrouped.length > 0 && (
-          <Row to="section-ungrouped" label="Ungrouped" value={round(subtotal(null))} sub />
-        )}
       </nav>
     </div>
-  );
-}
-
-/**
- * `JumpLink` rather than a bare anchor, because half this list points at
- * collapsible sections and a jump that lands on a closed one shows the reader
- * nothing at all. Scrolling was never the missing half. AEH-377.
- */
-function Row({
-  to,
-  label,
-  value,
-  sub,
-}: {
-  to: string;
-  label: string;
-  value?: string | number;
-  sub?: boolean;
-}) {
-  return (
-    <JumpLink
-      to={to}
-      className={
-        'flex items-baseline justify-between gap-2.5 border-b border-line-soft py-1.5 last:border-b-0 hover:text-green ' +
-        (sub ? 'pl-3 text-[12px] text-ink-3' : 'text-[12.5px] text-ink-2')
-      }
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      {value !== undefined && <span className="num shrink-0 text-[11px] text-ink-4">{value}</span>}
-    </JumpLink>
   );
 }

@@ -9,10 +9,9 @@
  * OUTSIDE the provider, and the entry points inside it (a menu card, a
  * narrative line) cannot reach it by prop or context.
  *
- * Window events are the house idiom for this already — see
- * CollapseAllButton's `estimate:collapse-all`, which the same page uses to
- * reach every CollapsibleSection. Typed here so the two ends cannot disagree
- * about the payload.
+ * Window events are the house idiom for this already — `estimate:collapse-all`
+ * below reaches every CollapsibleSection on the page the same way. Typed here
+ * so the two ends cannot disagree about the payload.
  */
 
 /** Ask Oracle to open with a question already in the composer. */
@@ -21,6 +20,14 @@ export const ORACLE_ASK_EVENT = 'oracle:ask';
 export const ORACLE_CITE_EVENT = 'oracle:cite';
 /** Ask a CollapsibleSection to open itself. */
 export const EXPAND_SECTION_EVENT = 'estimate:expand-section';
+/**
+ * Ask every CollapsibleSection, and the menu card, to fold or unfold.
+ *
+ * Moved here from the button that used to send it: since AEH-377 the sender is
+ * the document bar, and a constant living in a component that no longer exists
+ * is how a magic string gets copied instead of imported.
+ */
+export const COLLAPSE_ALL_EVENT = 'estimate:collapse-all';
 
 export type OracleAskDetail = {
   /** Pre-filled question text. */
@@ -51,4 +58,8 @@ export function onBus<T>(name: string, handler: (detail: T) => void): () => void
   const listener = (e: Event) => handler((e as CustomEvent<T>).detail);
   window.addEventListener(name, listener);
   return () => window.removeEventListener(name, listener);
+}
+
+export function collapseAll(collapsed: boolean): void {
+  window.dispatchEvent(new CustomEvent(COLLAPSE_ALL_EVENT, { detail: { collapsed } }));
 }

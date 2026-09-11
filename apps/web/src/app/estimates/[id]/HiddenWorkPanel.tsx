@@ -174,7 +174,7 @@ export async function HiddenWorkPanel({
   return (
     <CollapsibleSection
       id="risk"
-      className={`mt-3.5 scroll-mt-4 ${open.length > 0 ? 'border-bronze-line' : ''}`}
+      className={`mt-3.5 scroll-mt-14 ${open.length > 0 ? 'border-bronze-line' : ''}`}
       storageKey={`est:${estimateId}:risk`}
       title="Flagged risk"
       meta={

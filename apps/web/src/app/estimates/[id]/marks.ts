@@ -26,7 +26,10 @@ import type { ItemDTO } from './dto';
  * `thinSlice` and `notSafelyRemovable` are absent for a blunter reason: the
  * preset graph has no edges, so `notSafelyRemovable` is false on every card
  * that exists today (AEH-314), and a chip whose count is always zero is worse
- * than no chip at all. Add them here when that lands.
+ * than no chip at all. Add them here when that lands — and when you do, the
+ * Slice and Load bearing chips in `MenuCardEditor` have to become `<Mark>`s
+ * rather than the plain spans they are now, or the reference sheet's second
+ * beat ("click any one of them and it explains itself") stops being true.
  */
 export const MARK_KEYS = [
   'inferred',

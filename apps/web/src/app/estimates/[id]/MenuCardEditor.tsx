@@ -40,6 +40,7 @@ import { SideTag } from './SideTag';
 import { MarkFilter } from './MarkFilter';
 import { Mark } from './Mark';
 import { BRONZE_CHIP, MICRO_CHIP } from './marks';
+import { BELOW_DOC_BAR } from './DocumentBar';
 import { CardMenu } from './CardMenu';
 import { CardLockButton, LineLockBadge, LineLockButton, RoleLockButton } from './LockControls';
 import { EditBar } from './EditBar';
@@ -218,7 +219,7 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
   );
 
   return (
-    <section className="mt-4 scroll-mt-4" id="menucard" data-testid="menu-card">
+    <section className="mt-4 scroll-mt-14" id="menucard" data-testid="menu-card">
       <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
         <button
           type="button"
@@ -278,7 +279,14 @@ export function MenuCardEditor({ estimateId }: { estimateId: string }) {
               COLS,
               // `group` so the per-role padlocks in these heads reveal on hover,
               // the way every other lock control on this screen does.
-              'group sticky top-0 z-[3] border-b border-line bg-canvas px-3.5 py-2',
+              //
+              // Under the document bar rather than at `top-0`, which is now the
+              // bar's. Two things pinned to the same line put one of them
+              // behind the other, and the column heads are the ones that lose:
+              // they describe the rows below them, and the bar describes the
+              // whole page. AEH-377.
+              'group sticky z-[3] border-b border-line bg-canvas px-3.5 py-2',
+              BELOW_DOC_BAR,
             )}
           >
             <div className="text-[10.5px] font-bold tracking-[0.09em] text-ink-3 uppercase">Item</div>
@@ -386,7 +394,7 @@ function SectionGroup({ section, items, collapsed, onToggleCollapse, isUngrouped
       // id for it to point at instead. Both halves are fixed together — a
       // target with no link is as useless as the link with no target. AEH-377.
       id={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
-      className="scroll-mt-14"
+      className="scroll-mt-[6.5rem]"
       data-testid={isUngrouped ? 'section-ungrouped' : `section-${section.id}`}
     >
       <div
