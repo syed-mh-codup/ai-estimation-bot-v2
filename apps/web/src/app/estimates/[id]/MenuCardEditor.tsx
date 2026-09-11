@@ -39,6 +39,7 @@ import {
 import { SideTag } from './SideTag';
 import { MarkFilter } from './MarkFilter';
 import { Mark } from './Mark';
+import { BRONZE_CHIP, MICRO_CHIP } from './marks';
 import { CardMenu } from './CardMenu';
 import { CardLockButton, LineLockBadge, LineLockButton, RoleLockButton } from './LockControls';
 import { EditBar } from './EditBar';
@@ -71,16 +72,6 @@ const ROLE_CELL = 'hidden sm:block';
 const TITLE_CELL = 'flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1';
 /** The floor referred to above. `min-w-0` in `InlineText` keeps it shrinkable. */
 const TITLE_FIELD = 'flex-[1_1_16rem]';
-/**
- * The 9.5px chip already used for "Off" and "Inferred". Neutral on purpose:
- * these say what a card IS, not that anything is wrong with it, and the colour
- * contract reserves tone for state (green settles, bronze is in flight).
- */
-const MICRO_CHIP =
-  'shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase';
-/** The same chip in the process tone, for the two marks that are about a run. */
-const BRONZE_CHIP =
-  'shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase';
 
 export function MenuCardEditor({ estimateId }: { estimateId: string }) {
   const {

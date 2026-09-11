@@ -63,14 +63,20 @@ export function StateBanner({
         </h2>
 
         {/* Both sentences are conditional, and the banner keeps its shape with
-            neither: a clean estimate says so by having nothing to add. */}
+            neither: a clean estimate says so by having nothing to add.
+            Finalising is only GATED on open findings when the active config
+            says so, so a finalised estimate can still carry undecided ones —
+            and the panel below is read-only once it is. Telling somebody to
+            decide what they can no longer decide is worse than saying nothing,
+            so the wording turns to the record it has become. */}
         {(openRisk > 0 || inferredOn > 0) && (
           <p className="mt-1 max-w-[76ch] text-[12.5px] leading-relaxed text-green">
             {openRisk > 0 && (
               <>
-                <span className="num">{openRisk}</span> risk{openRisk === 1 ? '' : 's'} need
-                {openRisk === 1 ? 's' : ''} a decision
-                {isFinalised ? '' : ' before you can finalise'}.{' '}
+                <span className="num">{openRisk}</span> risk{openRisk === 1 ? '' : 's'}{' '}
+                {isFinalised
+                  ? `${openRisk === 1 ? 'was' : 'were'} left undecided when this was finalised.`
+                  : `need${openRisk === 1 ? 's' : ''} a decision before you can finalise.`}{' '}
               </>
             )}
             {inferredOn > 0 && (
@@ -90,7 +96,7 @@ export function StateBanner({
               className="inline-flex h-7 items-center rounded-md border border-green bg-green px-2.5 text-[12px] font-semibold text-surface hover:bg-green-deep hover:text-surface"
               data-testid="banner-goto-risk"
             >
-              Decide the {openRisk} risk{openRisk === 1 ? '' : 's'}
+              {isFinalised ? 'See' : 'Decide'} the {openRisk} risk{openRisk === 1 ? '' : 's'}
             </JumpLink>
           )}
           {inferredOn > 0 && (

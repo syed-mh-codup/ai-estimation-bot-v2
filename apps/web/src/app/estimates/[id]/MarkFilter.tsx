@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLedger } from './ledger-context';
 import { MARK_KEYS, MARK_LABEL, MARK_STORY } from './marks';
+import { NotationSheet } from './NotationSheet';
 
 /**
  * What is unusual about this estimate, above the ledger it describes. AEH-377.
@@ -19,19 +20,26 @@ import { MARK_KEYS, MARK_LABEL, MARK_STORY } from './marks';
  * Only marks that something actually carries appear. A chip reading zero on
  * every estimate that has never moved a buffer is noise, and noise in a summary
  * row teaches people to stop reading the row.
+ *
+ * The reference sheet hangs off the end of the row, demoted to a link on
+ * purpose — the marks now explain themselves where you meet them, so the whole
+ * vocabulary at once is for reading up rather than looking up. It stays there
+ * on an estimate carrying no marks at all, because the rest of the notation —
+ * the buffers, the dash, the padlocks — applies to every estimate there is.
  */
 export function MarkFilter() {
   const { markCounts, activeMark, setActiveMark } = useLedger();
 
   const present = MARK_KEYS.filter((key) => markCounts[key] !== undefined);
-  if (present.length === 0) return null;
 
   return (
     <div
       className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-dashed border-line pb-2.5"
       data-testid="mark-filter"
     >
-      <span className="mr-0.5 shrink-0 text-[11.5px] text-ink-4">In this estimate</span>
+      {present.length > 0 && (
+        <span className="mr-0.5 shrink-0 text-[11.5px] text-ink-4">In this estimate</span>
+      )}
 
       {present.map((key) => {
         const on = activeMark === key;
@@ -69,6 +77,13 @@ export function MarkFilter() {
           <X className="h-3 w-3" aria-hidden /> Show all
         </button>
       )}
+
+      {/* Pushed to the far end of the row: it is the least urgent thing here
+          and has to stay out of the way of the chips, which are about this
+          estimate rather than about the notation. */}
+      <span className="ml-auto shrink-0">
+        <NotationSheet />
+      </span>
     </div>
   );
 }

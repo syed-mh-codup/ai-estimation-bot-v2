@@ -2,10 +2,11 @@
  * What a card is marked with, and how many cards carry each mark. AEH-377.
  *
  * A module of its own rather than more of `dto.ts`, because this is the one
- * vocabulary two very different surfaces have to agree on — the chips above the
- * ledger, and the dimming of the rows below them. A chip reading "3" that dims
- * all but two cards is a bug nobody would report and everybody would quietly
- * distrust, so both read `cardMarks` and neither re-derives anything.
+ * vocabulary three very different surfaces have to agree on — the chips above
+ * the ledger, the dimming of the rows below them, and the reference sheet that
+ * explains both. A chip reading "3" that dims all but two cards is a bug nobody
+ * would report and everybody would quietly distrust, so both read `cardMarks`
+ * and neither re-derives anything.
  *
  * Pure and free of React on purpose: the arithmetic is directly assertable,
  * which is the only way this gets tested at all — the ledger's interactive half
@@ -61,6 +62,23 @@ export const MARK_STORY: Record<MarkKey, string> = {
   stale: 'Costed against buffers that have since changed. A re-run rebuilds it.',
   off: 'Priced and kept, but not counted in the total.',
 };
+
+/**
+ * The 9.5px chip a mark is drawn in, and the same chip in the process tone.
+ *
+ * Here rather than beside the ledger that draws them because the reference
+ * sheet draws them too, and a reference whose samples have drifted from the
+ * screen they describe is worse than no reference: it teaches you to match a
+ * shape that is not there any more. Neutral is the default on purpose — these
+ * chips say what a card IS, not that anything is wrong with it, and the colour
+ * contract reserves tone for state (green settles, bronze is in flight).
+ */
+export const MICRO_CHIP =
+  'shrink-0 rounded border border-line bg-surface px-1 text-[9.5px] font-bold tracking-[0.07em] text-ink-3 uppercase';
+
+/** The same chip in the process tone, for the two marks that are about a run. */
+export const BRONZE_CHIP =
+  'shrink-0 rounded border border-bronze-line bg-bronze-tint px-1 text-[9.5px] font-bold tracking-[0.07em] text-bronze-ink uppercase';
 
 /** What `cardMarks` needs that a card cannot tell you by itself. */
 export type MarkContext = {
