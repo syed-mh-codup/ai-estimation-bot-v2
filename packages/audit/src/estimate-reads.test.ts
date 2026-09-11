@@ -43,6 +43,15 @@ describe('AEH-375 gate: estimate reads exclude deleted rows', () => {
     expect(audit.reads.filter((r) => !r.filtered && r.excused).length).toBeGreaterThan(10);
   });
 
+  it('covers raw SQL, which bypasses every Prisma-level filter', () => {
+    // Zero today, and that is the assertion's whole content: every raw
+    // statement in the repo is against ModelUsage, presets, the changelog,
+    // vectors or statements, none of which is this table. The gate below
+    // treats a raw statement naming "Estimate" exactly like a client read, so
+    // the first one to appear has to filter or explain itself.
+    expect(audit.diagnostics.rawReads).toBe(0);
+  });
+
   it('sees nested relation reads, not just top-level queries', () => {
     // `include: { children: {…} }` is a second read of Estimate inside an
     // Estimate query, and it is how a deleted fork nearly stayed in the forks

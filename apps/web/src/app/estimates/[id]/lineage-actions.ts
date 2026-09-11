@@ -27,6 +27,29 @@ async function allNodes() {
 }
 
 /**
+ * The same set, deleted members included — what a rename has to WRITE.
+ *
+ * Reads use `allNodes`, because a deleted estimate is in nobody's family while
+ * it is deleted. Writing the name is the exception, and it is the one case
+ * where the hidden members matter: `projectName` is denormalised onto every
+ * member, so renaming only the visible ones leaves a deleted member holding
+ * the old name, and recovering it later would put an estimate back into the
+ * family under a name the rest of it no longer uses. `projectNameOf` takes the
+ * first non-null it finds in caller order, so which name the family then shows
+ * would depend on how the dashboard happened to sort that day.
+ *
+ * AEH-375. The ticket's requirement is that recovery puts the family back
+ * together; a member with a stale name is not back together.
+ */
+async function allNodesIncludingDeleted() {
+  // @deleted-ok the write set for a rename spans the whole family, hidden
+  // members included, so that recovery does not resurrect a stale name.
+  return prisma.estimate.findMany({
+    select: { id: true, parentId: true, projectName: true, title: true },
+  });
+}
+
+/**
  * Rename the project a given estimate belongs to.
  *
  * Writes every member of the family in one statement, because the name is
@@ -48,8 +71,11 @@ export async function renameProject(estimateId: string, name: string): Promise<M
     return { kind: 'refused', error: 'That estimate no longer exists.' };
   }
 
+  // Validated against what the caller can SEE, written across the whole
+  // family including what they cannot — see `allNodesIncludingDeleted`.
+  const writeSet = familyIds(await allNodesIncludingDeleted(), estimateId);
   await prisma.estimate.updateMany({
-    where: { id: { in: familyIds(nodes, estimateId) } },
+    where: { id: { in: writeSet } },
     data: { projectName: trimmed },
   });
 

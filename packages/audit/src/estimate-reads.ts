@@ -32,6 +32,13 @@ import { collectSourceFilePaths, repoRelative } from './source-set.js';
  * the same way — it is how a deleted fork nearly stayed in the forks rail.
  * Only `children` can be filtered; `parent` is to-one and Prisma takes no
  * `where` on it, so a deleted parent has to be handled where it renders.
+ *
+ * Raw SQL is in scope as well. Nothing queries the Estimate table through
+ * `$queryRaw` today — every raw statement in the repo is against ModelUsage,
+ * presets, the changelog, vectors or statements — but a gate that silently
+ * stopped at the Prisma client would be exactly the kind of hole this exists
+ * to prevent, and the first raw estimate query would slip straight through
+ * it. So any raw statement naming the table is checked for `deletedAt` too.
  */
 
 /** Prisma reads. Writes are not audited: writing to a deleted row is fine. */
@@ -66,7 +73,7 @@ export interface EstimateReadAudit {
   reads: EstimateRead[];
   /** Reads that neither filter nor say why not. The gate asserts this is empty. */
   unguarded: EstimateRead[];
-  diagnostics: { filesScanned: number; nestedReads: number };
+  diagnostics: { filesScanned: number; nestedReads: number; rawReads: number };
 }
 
 /** The `where` property's source text, or '' when the call has no `where`. */
@@ -112,6 +119,13 @@ function enclosingStatement(node: ts.Node): ts.Node | undefined {
   return cur;
 }
 
+/** `db.$queryRaw…`, `$executeRaw…`, tagged or not. */
+function isRawCall(call: ts.CallExpression): boolean {
+  const callee = call.expression;
+  const name = ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
+  return name.startsWith('$queryRaw') || name.startsWith('$executeRaw');
+}
+
 /** `prisma.estimate.findMany` → 'findMany'. Anything else → undefined. */
 function estimateReadMethod(call: ts.CallExpression): string | undefined {
   const callee = call.expression;
@@ -130,11 +144,18 @@ export function runEstimateReadAudit(opts: { repoRoot: string }): EstimateReadAu
   const paths = collectSourceFilePaths(opts.repoRoot);
   const reads: EstimateRead[] = [];
   let nestedReads = 0;
+  let rawReads = 0;
 
   for (const path of paths) {
     const text = readFileSync(path, 'utf8');
     // A cheap gate before parsing: most files never mention the model.
-    if (!text.includes('.estimate.') && !text.includes('children:')) continue;
+    if (
+      !text.includes('.estimate.') &&
+      !text.includes('children:') &&
+      !text.includes('"Estimate"')
+    ) {
+      continue;
+    }
 
     const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX);
     const rel = repoRelative(opts.repoRoot, path);
@@ -154,6 +175,14 @@ export function runEstimateReadAudit(opts: { repoRoot: string }): EstimateReadAu
 
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
+        // Raw SQL against the table. `$queryRaw` and friends bypass every
+        // Prisma-level filter, so they get the same question asked of them.
+        if (isRawCall(node) && node.getText(file).includes('"Estimate"')) {
+          rawReads += 1;
+          const raw = node.getText(file);
+          record(node, 'raw-sql', raw.includes('deletedAt') ? 'deletedAt' : '');
+        }
+
         const method = estimateReadMethod(node);
         if (method) {
           record(node, method, whereText(node));
@@ -188,7 +217,7 @@ export function runEstimateReadAudit(opts: { repoRoot: string }): EstimateReadAu
   return {
     reads,
     unguarded: reads.filter((r) => !r.filtered && !r.excused),
-    diagnostics: { filesScanned: paths.length, nestedReads },
+    diagnostics: { filesScanned: paths.length, nestedReads, rawReads },
   };
 }
 
@@ -199,6 +228,7 @@ export function formatEstimateReadReport(audit: EstimateReadAudit): string {
   lines.push(`  filtered by deletedAt: ${audit.reads.filter((r) => r.filtered).length}`);
   lines.push(`  excused with ${DELETED_OK}: ${audit.reads.filter((r) => !r.filtered && r.excused).length}`);
   lines.push(`  nested include.children reads: ${audit.diagnostics.nestedReads}`);
+  lines.push(`  raw SQL statements naming the table: ${audit.diagnostics.rawReads}`);
   if (audit.unguarded.length === 0) {
     lines.push('\nEvery read either excludes deleted estimates or says why it does not.');
     return lines.join('\n');

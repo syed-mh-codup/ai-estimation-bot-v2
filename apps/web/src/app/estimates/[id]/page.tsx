@@ -297,6 +297,15 @@ export default async function EstimateDetailPage({
       })();
   const inAFamily = Boolean(estimate.parentId) || estimate.children.length > 0;
 
+  // A deleted parent is no parent for anything that ACTS on it. The family
+  // walk already cannot see it, so the dashboard shows this estimate as an
+  // original; the controls that reconcile against the parent or re-run "as a
+  // fork" have to agree, or this page offers work `startReconciliation`
+  // refuses. Linking and unlinking deliberately still use the real column —
+  // severing a tie to a deleted parent is a reasonable thing to want.
+  // AEH-375.
+  const hasLiveParent = Boolean(estimate.parentId) && !estimate.parent?.deletedAt;
+
   // The newest reconciliation, server-rendered so the panel has something to
   // show before its first poll. Only a fork can have one.
   const reconciliation: ReconciliationDTO | null = !estimate.parentId
@@ -593,7 +602,7 @@ export default async function EstimateDetailPage({
                 Reconciling is NOT once-only: a settled pass offers "Reconcile
                 again", and the dispatcher refuses only while one is still
                 running. So this is a standing control, not a one-shot. */}
-            {estimate.parentId && !isFinalised ? (
+            {hasLiveParent && !isFinalised ? (
               <ReconcilePanel estimateId={estimate.id} initial={reconciliation} />
             ) : (
               <RunControls
@@ -792,7 +801,7 @@ export default async function EstimateDetailPage({
                 has taken. Still reachable — the rule allows a fork with no
                 children and no siblings to re-run — but it carries the warning
                 that doing so throws the copy away. */}
-            {estimate.parentId && !isFinalised && (
+            {hasLiveParent && !isFinalised && (
               <RunControls
                 isFork
                 estimateId={estimate.id}

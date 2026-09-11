@@ -27,6 +27,9 @@ export async function startReconciliation(estimateId: string): Promise<MutationO
     select: {
       status: true,
       parentId: true,
+      // A to-one relation takes no `where`, so the parent's stamp is selected
+      // and checked below instead. AEH-375.
+      parent: { select: { deletedAt: true } },
       lineageKind: true,
       forkPrompt: true,
       ingestStatus: true,
@@ -39,6 +42,20 @@ export async function startReconciliation(estimateId: string): Promise<MutationO
     return {
       kind: 'refused',
       error: 'Only a forked estimate can be reconciled — this one has nothing to reconcile against.',
+    };
+  }
+  // A DELETED parent is no parent for this purpose. The pass reads the
+  // parent's brief and spends a model call diffing against it, and everywhere
+  // else already treats this estimate as an original while the parent is
+  // deleted — the dashboard groups it alone, and its own page hides the
+  // lineage line. Reconciling against a document nobody can open would be the
+  // one place that disagreed. Recover the parent and it is offered again.
+  // AEH-375.
+  if (estimate.parent?.deletedAt) {
+    return {
+      kind: 'refused',
+      error:
+        'The estimate this one was forked from has been deleted, so there is nothing to reconcile against. Recover it first and this becomes available again.',
     };
   }
   if (estimate.status === 'FINALISED') {
