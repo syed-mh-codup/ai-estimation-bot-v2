@@ -66,7 +66,10 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
 
   const calls = totals._count._all;
   const cost = totals._sum.costUsd ?? 0;
-  const tokens = (totals._sum.promptTokens ?? 0) + (totals._sum.completionTokens ?? 0);
+  // Split rather than summed on the spot — see the Tokens stat below. AEH-313.
+  const promptTokens = totals._sum.promptTokens ?? 0;
+  const completionTokens = totals._sum.completionTokens ?? 0;
+  const tokens = promptTokens + completionTokens;
   // Same rule as the full report: a null cost is unknown, not free, so a total
   // that absorbed one says so rather than presenting itself as the whole bill.
   const unpriced = calls - totals._count.costUsd;
@@ -113,7 +116,15 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
             <Stat label="Total cost" value={money(cost)} />
             <Stat label="Calls" value={calls.toLocaleString()} />
-            <Stat label="Tokens" value={tokens.toLocaleString()} />
+            <Stat
+              label="Tokens"
+              value={tokens.toLocaleString()}
+              hint={
+                tokens > 0
+                  ? `${promptTokens.toLocaleString()} in / ${completionTokens.toLocaleString()} out`
+                  : undefined
+              }
+            />
             <Stat label="Runs" value={runCount} />
           </div>
 
@@ -175,11 +186,22 @@ export async function ModelUsagePanel({ estimateId }: { estimateId: string }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: number | string;
+  hint?: string;
+}) {
   return (
     <div>
       <div className="eyebrow">{label}</div>
       <div className="num mt-0.5 text-[15px] text-ink">{value}</div>
+      {/* The same secondary slot /admin/usage gives its stats, added here so the
+          token split reads identically on both. AEH-313. */}
+      {hint && <div className="num mt-0.5 text-[11px] text-ink-4">{hint}</div>}
     </div>
   );
 }

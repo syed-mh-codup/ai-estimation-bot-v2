@@ -75,7 +75,7 @@ export function Oracle({
   const [threads, setThreads] = useState(initialThreads);
   const [activeId, setActiveId] = useState<string | null>(initialThreads[0]?.id ?? null);
   const [messages, setMessages] = useState<OracleMessageDTO[]>([]);
-  const [approxTokens, setApproxTokens] = useState(0);
+  const [approxContextTokens, setApproxContextTokens] = useState(0);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +133,7 @@ export function Oracle({
     try {
       const loaded = await loadOracleThread(threadId);
       setMessages(loaded.messages);
-      setApproxTokens(loaded.approxTokens);
+      setApproxContextTokens(loaded.approxContextTokens);
     } catch {
       setError('That conversation could not be loaded.');
     }
@@ -293,7 +293,7 @@ export function Oracle({
     setActiveId(created.id);
     loadedRef.current = created.id;
     setMessages([]);
-    setApproxTokens(0);
+    setApproxContextTokens(0);
     inputRef.current?.focus();
   }
 
@@ -335,7 +335,7 @@ export function Oracle({
   }
 
   const active = threads.find((t) => t.id === activeId) ?? null;
-  const tooLong = approxTokens > THREAD_NUDGE_TOKENS;
+  const tooLong = approxContextTokens > THREAD_NUDGE_TOKENS;
 
   return (
     <div
