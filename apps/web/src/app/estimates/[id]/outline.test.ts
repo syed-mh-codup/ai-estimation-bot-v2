@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { documentOutline, rowInView } from './outline';
+import { MENU_CARD_LABEL, documentOutline, rowInView } from './outline';
 
 const SECTIONS = [
   { id: 's1', title: 'Front of house' },
@@ -50,6 +50,36 @@ describe('documentOutline', () => {
     const sections = rows.filter((r) => r.section !== undefined);
     expect(sections.map((r) => r.id)).toEqual(['section-s1', 'section-s2']);
     expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
+  });
+
+  /**
+   * The breadcrumb's other half. Only a section is contained by anything, and
+   * the container is always the menu card — the document is two levels deep and
+   * the bar draws exactly those two.
+   */
+  it('gives every menu-card section the menu card as its parent, and nothing else one', () => {
+    const rows = documentOutline({
+      sections: SECTIONS,
+      hasUngrouped: true,
+      hasMenu: true,
+      hasRisk: true,
+    });
+    for (const row of rows) {
+      if (row.section) expect(row.parent).toBe(MENU_CARD_LABEL);
+      else expect(row.parent).toBeUndefined();
+    }
+  });
+
+  it('names the menu card the same way in the row and in the crumb', () => {
+    const rows = documentOutline({
+      sections: SECTIONS,
+      hasUngrouped: false,
+      hasMenu: true,
+      hasRisk: false,
+    });
+    const menucard = rows.find((r) => r.id === 'menucard');
+    expect(menucard?.label).toBe(MENU_CARD_LABEL);
+    expect(rows.find((r) => r.id === 'section-s1')?.parent).toBe(menucard?.label);
   });
 
   it('carries the section id each subtotal is computed from', () => {

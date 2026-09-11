@@ -175,19 +175,33 @@ export function RunControls({
     // A run that finished has something to say beyond that it happened: what it
     // produced, and what about it still needs a person. The banner says it.
     // AEH-377.
-    if (run.status === 'DONE') {
+    //
+    // NOT on the fork instance. `isFork` is only ever true for the copy of this
+    // panel that a fork demotes into the 280px rail, and the banner is a
+    // document-column element — a headline sentence, two figures and two
+    // buttons, laid out for the width the ledger gets. Rendered in the rail it
+    // is squeezed to a third of that, and it is not even passed `openRisk`
+    // there, so it would state confidently that no risk needs deciding.
+    //
+    // It is also the wrong claim to make on a fork: what happened to a fork is
+    // the reconciliation, which owns the hero slot above, not a run that
+    // rebuilt it from the statement of work. So the rail keeps the quiet line.
+    if (run.status === 'DONE' && !isFork) {
       return <StateBanner openRisk={openRisk} elapsed={elapsed} onRerun={rerun} />;
     }
 
-    // No run on record, but a menu card exists — somebody built it by hand.
-    // There is no result to narrate, so this stays the quiet line it was.
+    // No run on record and a menu card exists — somebody built it by hand — or
+    // this is the fork's demoted copy, which has no room to narrate anything.
+    // Either way there is nothing to say beyond what the control offers.
     return (
       <section
         className="flex flex-wrap items-center gap-2.5 rounded-[10px] border border-line bg-surface px-4 py-3"
         data-testid="run-panel"
       >
         <span className="flex-1 text-[12.5px] text-ink-3">
-          No crew run recorded for this menu card.
+          {run.status === 'DONE'
+            ? 'This menu card was built by a crew run.'
+            : 'No crew run recorded for this menu card.'}
         </span>
         {rerun}
       </section>

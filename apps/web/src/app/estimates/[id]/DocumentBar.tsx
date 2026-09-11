@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronsDownUp, ChevronsUpDown, List } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, List } from 'lucide-react';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { cn } from '@/lib/utils';
 import { useLedger } from './ledger-context';
@@ -65,13 +65,27 @@ export function DocumentBar({
       className="sticky top-0 z-[4] flex h-11 items-center gap-2 border-b border-line bg-canvas"
       data-testid="document-bar"
     >
-      {/* Named rather than merely highlighted in a list, because the question
-          this answers is asked while looking at a row two thousand pixels from
-          any list: what am I reading. */}
-      <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink">
-        <span className="mr-1.5 font-normal text-ink-4">In</span>
-        <span data-testid="document-bar-here">{here?.label ?? 'this estimate'}</span>
-      </span>
+      {/* A breadcrumb, not a label. Named rather than merely highlighted in a
+          list, because the question it answers is asked while looking at a row
+          two thousand pixels from any list: what am I reading. And two levels
+          rather than one, because inside the ledger "Back office" alone is
+          ambiguous — it is the menu card's Back office, and the crumb is what
+          says the ledger is what you are in. */}
+      <List className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+      <nav
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]"
+        aria-label="Where you are"
+      >
+        {here?.parent && (
+          <>
+            <span className="shrink-0 text-ink-4">{here.parent}</span>
+            <ChevronRight className="h-3 w-3 shrink-0 text-ink-4" aria-hidden />
+          </>
+        )}
+        <span className="min-w-0 truncate font-semibold text-ink" data-testid="document-bar-here">
+          {here?.label ?? 'this estimate'}
+        </span>
+      </nav>
 
       <Menu>
         <MenuTrigger asChild>
@@ -80,7 +94,7 @@ export function DocumentBar({
             className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 text-[12px] text-ink-2 hover:border-ink-4 hover:text-ink focus-visible:ring-1 focus-visible:ring-green focus-visible:outline-none"
             data-testid="jump-to"
           >
-            <List className="h-3.5 w-3.5" aria-hidden /> Jump to
+            Jump to <ChevronDown className="h-3.5 w-3.5" aria-hidden />
           </button>
         </MenuTrigger>
         <MenuContent align="end" className="max-h-[60vh] overflow-y-auto">

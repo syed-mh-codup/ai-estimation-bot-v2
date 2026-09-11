@@ -22,12 +22,25 @@ export type OutlineRow = {
   label: string;
   /**
    * A section of the menu card rather than a part of the document. It is
-   * indented in the contents card, and it carries the section id the subtotal
-   * is computed from — `null` being the ungrouped bucket, which has no row of
-   * its own in the database.
+   * indented in Jump to, and it carries the section id a subtotal would be
+   * computed from — `null` being the ungrouped bucket, which has no row of its
+   * own in the database.
    */
   section?: { id: string | null };
+  /**
+   * What contains this row, for the bar's breadcrumb. Only a menu-card section
+   * has one, and it is always the menu card: the document is two levels deep
+   * and no deeper.
+   *
+   * Here rather than derived in the bar so the label exists once. A breadcrumb
+   * whose parent says "Menu card" while the row it points at says something
+   * else is the kind of drift that survives review.
+   */
+  parent?: string;
 };
+
+/** The one containing part, named once. */
+export const MENU_CARD_LABEL = 'Menu card';
 
 export function documentOutline(args: {
   /** Menu-card sections, already in display order. */
@@ -51,12 +64,22 @@ export function documentOutline(args: {
   if (args.hasRisk) rows.push({ id: 'risk', label: 'Flagged risk' });
 
   if (args.hasMenu) {
-    rows.push({ id: 'menucard', label: 'Menu card' });
+    rows.push({ id: 'menucard', label: MENU_CARD_LABEL });
     for (const s of args.sections) {
-      rows.push({ id: `section-${s.id}`, label: s.title, section: { id: s.id } });
+      rows.push({
+        id: `section-${s.id}`,
+        label: s.title,
+        section: { id: s.id },
+        parent: MENU_CARD_LABEL,
+      });
     }
     if (args.hasUngrouped) {
-      rows.push({ id: 'section-ungrouped', label: 'Ungrouped', section: { id: null } });
+      rows.push({
+        id: 'section-ungrouped',
+        label: 'Ungrouped',
+        section: { id: null },
+        parent: MENU_CARD_LABEL,
+      });
     }
   }
 
