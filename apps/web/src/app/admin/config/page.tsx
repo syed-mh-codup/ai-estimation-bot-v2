@@ -8,7 +8,7 @@ import { Pill } from '@/components/ui/pill';
 import { Button } from '@/components/ui/button';
 import { Input, FieldLabel, Select } from '@/components/ui/input';
 import { OverheadRows, ThresholdRows } from './RuleRows';
-import type { ChangeMotivation } from '@repo/db';
+import { MOTIVATIONS, parseConfigForm } from './parse-form';
 
 /**
  * The house settings every estimate is costed against.
@@ -21,135 +21,15 @@ import type { ChangeMotivation } from '@repo/db';
  * work a SOW actually asked for. AEH-348.
  */
 
-const MOTIVATIONS: ChangeMotivation[] = [
-  'CORRECTION',
-  'NEW_PROCESS',
-  'POST_DELIVERY_VALIDATION',
-  'TECH_ADVANCEMENT',
-  'UPSKILL',
-  'OTHER',
-];
-
-function isMotivation(v: string): v is ChangeMotivation {
-  return (MOTIVATIONS as string[]).includes(v);
-}
-
-/** Comma-separated keywords in, trimmed list out. Same idiom as the presets admin. */
-const csv = (v: FormDataEntryValue | null): string[] =>
-  typeof v === 'string'
-    ? v
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
-const num = (v: FormDataEntryValue | null): number =>
-  typeof v === 'string' ? Number(v.trim()) : NaN;
-
-const text = (v: FormDataEntryValue | null): string => (typeof v === 'string' ? v.trim() : '');
-
-/** Distinguishes "this box was left blank" from "this box held nonsense". */
-const INVALID = Symbol('invalid');
-
-/**
- * A role's overhead percentage, where blank is a meaningful answer.
- *
- * Blank means the role is charged nothing and gets no card; 0 would mean a card
- * costing nothing, which is a line on a client's estimate for no hours. The
- * empty string is therefore checked BEFORE any numeric coercion — `Number('')`
- * is 0, not NaN, so a cleared box run through `Number()` would quietly turn
- * "don't charge QA" into "charge QA zero".
- */
-function optionalPct(v: FormDataEntryValue | null): number | null | typeof INVALID {
-  if (typeof v !== 'string' || v.trim() === '') return null;
-  const n = Number(v.trim());
-  return Number.isFinite(n) ? n : INVALID;
-}
-
 async function saveConfig(formData: FormData) {
   'use server';
   await requireAdmin();
 
-  const pm = num(formData.get('pmCommunicationTaxPct'));
-  const ba = num(formData.get('baCommunicationTaxPct'));
-  const qa = num(formData.get('qaRegressionBufferPct'));
-  const legacyScoreBonus = num(formData.get('legacyScoreBonus'));
-  const aiScoreBonus = num(formData.get('aiScoreBonus'));
-  const dataVolumeMultiplierNone = num(formData.get('dataVolumeMultiplierNone'));
-  const dataVolumeMultiplierLow = num(formData.get('dataVolumeMultiplierLow'));
-  const dataVolumeMultiplierHigh = num(formData.get('dataVolumeMultiplierHigh'));
-  const legacyKeywords = csv(formData.get('legacyKeywords'));
-  const aiKeywords = csv(formData.get('aiKeywords'));
-  const hiddenWorkBlocksFinalise = formData.get('hiddenWorkBlocksFinalise') === 'on';
-  const changeReason = text(formData.get('changeReason'));
-  const motivationRaw = formData.get('changeMotivation');
-  const changeMotivation =
-    typeof motivationRaw === 'string' && isMotivation(motivationRaw) ? motivationRaw : 'OTHER';
-
-  // The repeating rows arrive as one list per column, in document order, so a
-  // row is the i-th entry of each. No index travels through the form, which is
-  // what stops a removed row from renumbering the ones after it.
-  const thresholdMins = formData.getAll('thresholdMin');
-  const thresholdMaxes = formData.getAll('thresholdMax');
-  const thresholdScores = formData.getAll('thresholdScore');
-  const apiThresholds = thresholdMins.map((_, i) => ({
-    position: i,
-    minCount: Math.trunc(num(thresholdMins[i] ?? null)),
-    maxCount: Math.trunc(num(thresholdMaxes[i] ?? null)),
-    score: num(thresholdScores[i] ?? null),
-  }));
-
-  const overheadTitles = formData.getAll('overheadTitle');
-  const overheadKeys = formData.getAll('overheadKey');
-  const overheadDev = formData.getAll('overheadDevPct');
-  const overheadQa = formData.getAll('overheadQaPct');
-  const overheadPm = formData.getAll('overheadPmPct');
-  const overheadBa = formData.getAll('overheadBaPct');
-  const overheadItems = overheadTitles.map((_, i) => ({
-    position: i,
-    title: text(overheadTitles[i] ?? null),
-    taxonomyKey: text(overheadKeys[i] ?? null),
-    devPct: optionalPct(overheadDev[i] ?? null),
-    qaPct: optionalPct(overheadQa[i] ?? null),
-    pmPct: optionalPct(overheadPm[i] ?? null),
-    baPct: optionalPct(overheadBa[i] ?? null),
-  }));
-
-  // Reject invalid input rather than persisting a broken config version. The
-  // column shapes made a malformed RULE SET unrepresentable; what is still worth
-  // checking is what a person can type, and that the columns of a repeating row
-  // arrived at the same length — zipping by position assumes they did.
-  const scalarsOk = [
-    pm,
-    ba,
-    qa,
-    legacyScoreBonus,
-    aiScoreBonus,
-    dataVolumeMultiplierNone,
-    dataVolumeMultiplierLow,
-    dataVolumeMultiplierHigh,
-  ].every((n) => Number.isFinite(n));
-  const rowsAligned =
-    thresholdMaxes.length === thresholdMins.length &&
-    thresholdScores.length === thresholdMins.length &&
-    overheadKeys.length === overheadTitles.length &&
-    [overheadDev, overheadQa, overheadPm, overheadBa].every(
-      (column) => column.length === overheadTitles.length,
-    );
-  const thresholdsOk = apiThresholds.every(
-    (band) =>
-      Number.isFinite(band.minCount) && Number.isFinite(band.maxCount) && Number.isFinite(band.score),
-  );
-  const overheadOk = overheadItems.every(
-    (item) =>
-      item.title !== '' &&
-      item.taxonomyKey !== '' &&
-      [item.devPct, item.qaPct, item.pmPct, item.baPct].every((pct) => pct !== INVALID),
-  );
-
-  if (!scalarsOk || !rowsAligned || !thresholdsOk || !overheadOk || !changeReason) {
-    return;
-  }
+  // Reading the form back is its own module, and tested there: the two rule
+  // lists arrive as one flat sequence per column and the rows exist only in so
+  // far as that function reconstructs them. Getting it wrong does not throw.
+  const parsed = parseConfigForm(formData);
+  if (!parsed) return;
 
   const last = await prisma.estimationConfig.findFirst({
     orderBy: { version: 'desc' },
@@ -168,32 +48,21 @@ async function saveConfig(formData: FormData) {
       data: {
         version: nextVersion,
         active: true,
-        pmCommunicationTaxPct: pm,
-        baCommunicationTaxPct: ba,
-        qaRegressionBufferPct: qa,
-        legacyKeywords,
-        legacyScoreBonus,
-        aiKeywords,
-        aiScoreBonus,
-        dataVolumeMultiplierNone,
-        dataVolumeMultiplierLow,
-        dataVolumeMultiplierHigh,
-        hiddenWorkBlocksFinalise,
-        changeReason,
-        changeMotivation,
-        apiThresholds: { create: apiThresholds },
-        overheadItems: {
-          create: overheadItems.map((item) => ({
-            position: item.position,
-            title: item.title,
-            taxonomyKey: item.taxonomyKey,
-            // Narrowed above: INVALID cannot reach here.
-            devPct: item.devPct as number | null,
-            qaPct: item.qaPct as number | null,
-            pmPct: item.pmPct as number | null,
-            baPct: item.baPct as number | null,
-          })),
-        },
+        pmCommunicationTaxPct: parsed.pmCommunicationTaxPct,
+        baCommunicationTaxPct: parsed.baCommunicationTaxPct,
+        qaRegressionBufferPct: parsed.qaRegressionBufferPct,
+        legacyKeywords: parsed.legacyKeywords,
+        legacyScoreBonus: parsed.legacyScoreBonus,
+        aiKeywords: parsed.aiKeywords,
+        aiScoreBonus: parsed.aiScoreBonus,
+        dataVolumeMultiplierNone: parsed.dataVolumeMultiplierNone,
+        dataVolumeMultiplierLow: parsed.dataVolumeMultiplierLow,
+        dataVolumeMultiplierHigh: parsed.dataVolumeMultiplierHigh,
+        hiddenWorkBlocksFinalise: parsed.hiddenWorkBlocksFinalise,
+        changeReason: parsed.changeReason,
+        changeMotivation: parsed.changeMotivation,
+        apiThresholds: { create: parsed.apiThresholds },
+        overheadItems: { create: parsed.overheadItems },
       },
     }),
   ]);
