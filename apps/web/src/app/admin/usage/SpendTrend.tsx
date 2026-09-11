@@ -121,7 +121,19 @@ function Panel({
               minTickGap={24}
               {...AXIS}
             />
-            <YAxis tickFormatter={tickFormat} width={48} {...AXIS} />
+            {/* `interval={0}` because Recharts silently DROPS a tick label it
+                thinks will not fit, and at this panel height it dropped every
+                fourth one — leaving an axis reading 0 / 0.03 / 0.06 / 0.12,
+                whose labels are evenly spaced on screen but not in value. An
+                axis that lies about its own scale is worse than a shorter one,
+                so the tick count is lowered until they all genuinely fit. */}
+            <YAxis
+              tickFormatter={tickFormat}
+              width={52}
+              tickCount={4}
+              interval={0}
+              {...AXIS}
+            />
             <Tooltip
               cursor={{ stroke: 'var(--color-ink-4)', strokeDasharray: '3 3' }}
               content={({ active, payload, label }) => {
