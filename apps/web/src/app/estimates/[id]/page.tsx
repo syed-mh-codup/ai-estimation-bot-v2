@@ -569,6 +569,7 @@ export default async function EstimateDetailPage({
                 isFork={false}
                 estimateId={estimate.id}
                 hasMenu={hasMenu}
+                openRisk={openHiddenWork}
                 initial={{
                   status: estimate.runStatus,
                   stage: estimate.runStage,
