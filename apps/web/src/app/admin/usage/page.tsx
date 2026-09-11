@@ -145,13 +145,20 @@ export default async function AdminUsagePage({
     .slice(0, MAX_ROWS);
 
   // Titles only for the rows that will actually render.
+  //
+  // Deliberately NOT filtered by `deletedAt`: the money was spent and the bill
+  // was real, so deleting an estimate must not quietly shrink a historical
+  // cost figure. This is the one place a deleted estimate still counts. It is
+  // marked rather than hidden, so nobody hunts for a row they cannot open.
+  // @deleted-ok the spend happened and the bill was real; hiding it would
+  // shrink a historical cost figure. AEH-375.
   const titles = new Map(
     (
       await prisma.estimate.findMany({
         where: { id: { in: estimateRanked.map(([id]) => id) } },
-        select: { id: true, title: true },
+        select: { id: true, title: true, deletedAt: true },
       })
-    ).map((e) => [e.id, e.title]),
+    ).map((e) => [e.id, e.deletedAt ? `${e.title} (deleted)` : e.title]),
   );
 
   const money = (v: number) => (v > 0 ? `$${v.toFixed(4)}` : '—');

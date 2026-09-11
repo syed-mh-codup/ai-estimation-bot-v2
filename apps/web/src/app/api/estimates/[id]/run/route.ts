@@ -32,7 +32,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!session?.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const { id } = await params;
-  const est = await prisma.estimate.findUnique({ where: { id }, select: { id: true, runStatus: true } });
+  // Deleted, and the 404 below is the whole guard: a run rebuilds the ledger
+  // from the SOW and costs real money, neither of which a thrown-away estimate
+  // has any business doing. AEH-375.
+  const est = await prisma.estimate.findUnique({
+    where: { id, deletedAt: null },
+    select: { id: true, runStatus: true },
+  });
   if (!est) return NextResponse.json({ error: 'not found' }, { status: 404 });
   // `code`, not just a message. Both this and the refusals below are 409, and
    // the client has to tell them apart: "somebody else already started it" is
@@ -45,7 +51,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   // Lineage, before the lock check only because it is one query and needs no
   // try/catch. AEH-236.
-  const family = await prisma.estimate.findMany({ select: { id: true, parentId: true } });
+  // Deleted members excluded, which is deliberate in both directions: a
+  // re-run is not blocked by a child somebody has thrown away, and a deleted
+  // estimate cannot itself be re-run because the check above already 404s it.
+  // AEH-375.
+  const family = await prisma.estimate.findMany({
+    where: { deletedAt: null },
+    select: { id: true, parentId: true },
+  });
   const blocked = rerunBlock(family, id);
   if (blocked) {
     return NextResponse.json(

@@ -28,6 +28,10 @@ export default async function LineagePage({ params }: { params: Promise<{ id: st
   // Every estimate, because a family is a recursive walk — the same set the
   // dashboard already loads, and only the columns the comparison needs.
   const all = await prisma.estimate.findMany({
+    // Deleted members drop out of the tree, and the `notFound()` below means
+    // this screen 404s for a deleted estimate rather than rendering an empty
+    // family. AEH-375.
+    where: { deletedAt: null },
     select: {
       id: true,
       title: true,

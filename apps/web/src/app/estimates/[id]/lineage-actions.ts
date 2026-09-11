@@ -19,6 +19,9 @@ import type { MutationOutcome } from './dto';
 /** Every estimate, as the lineage helpers want it. Small enough to load whole. */
 async function allNodes() {
   return prisma.estimate.findMany({
+    // A deleted estimate is not part of any family while it is deleted, so it
+    // is neither a rename target nor a link candidate. AEH-375.
+    where: { deletedAt: null },
     select: { id: true, parentId: true, projectName: true, title: true },
   });
 }
@@ -134,8 +137,10 @@ export async function linkToParent(
  */
 export async function unlinkFromParent(childId: string): Promise<MutationOutcome> {
   await requireUser();
+  // A deleted estimate belongs to no family, so there is no link to break.
+  // AEH-375.
   const child = await prisma.estimate.findUnique({
-    where: { id: childId },
+    where: { id: childId, deletedAt: null },
     select: { parentId: true },
   });
   if (!child) return { kind: 'refused', error: 'That estimate no longer exists.' };

@@ -52,6 +52,9 @@ const check = (ok: boolean, label: string, detail = ''): void => {
  * Google's API — and telling those two apart is the point of doing it first.
  */
 async function loadEstimate(db: PrismaClient, estimateId: string | null) {
+  // @deleted-ok a hand-run developer script for checking Google credentials,
+  // not a product read path. It takes whatever estimate it is pointed at.
+  // AEH-375.
   const estimate = estimateId
     ? await db.estimate.findUnique({ where: { id: estimateId }, include: { menuItems: { include: { lineItems: true } } } })
     : await db.estimate.findFirst({

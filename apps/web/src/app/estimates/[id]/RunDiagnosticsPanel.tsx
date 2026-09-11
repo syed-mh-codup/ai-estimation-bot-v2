@@ -39,6 +39,8 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 }
 
 export async function RunDiagnosticsPanel({ estimateId }: { estimateId: string }) {
+  // @deleted-ok rendered only by the estimate page, which returns the deleted
+  // notice long before it reaches this panel. AEH-375.
   const est = await prisma.estimate.findUnique({
     where: { id: estimateId },
     select: { agentState: true },

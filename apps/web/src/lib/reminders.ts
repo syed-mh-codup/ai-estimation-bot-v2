@@ -58,7 +58,9 @@ export async function sweepDueReminders(
   const candidates = await db.estimate.findMany({
     // FINALISED work has no deadline left to miss, which is also why the rail
     // stops offering the field once an estimate is finalised.
-    where: { dueAt: { not: null }, status: { not: 'FINALISED' } },
+    // A deleted estimate must not email anybody about a deadline it no longer
+    // has any way of meeting. AEH-375.
+    where: { dueAt: { not: null }, status: { not: 'FINALISED' }, deletedAt: null },
     orderBy: { dueAt: 'asc' },
     take: SWEEP_LIMIT,
     select: {

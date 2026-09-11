@@ -16,6 +16,7 @@
     "audit": "pnpm --filter @repo/audit audit",
     "audit:fields": "pnpm --filter @repo/audit audit:fields",
     "audit:exports": "pnpm --filter @repo/audit audit:exports",
+    "audit:deleted": "pnpm --filter @repo/audit audit:deleted",
     "db:seed": "pnpm --filter @repo/db db:seed && pnpm --filter @repo/db db:seed:taxonomy",
     "db:seed:admin": "pnpm --filter @repo/db db:seed:admin",
     "db:embed:presets": "pnpm --filter @repo/agents embed:presets",

@@ -442,7 +442,11 @@ export async function promoteEstimate(
   estimateId: string,
 ): Promise<PromoteResult> {
   const est = await db.estimate.findUnique({
-    where: { id: estimateId },
+    // A deleted estimate promotes nothing into the shared preset library — its
+    // cards would become the anchor every future estimate reads, sourced from
+    // a document nobody can open. The null branch below already returns an
+    // empty result, so this needs no other handling. AEH-375.
+    where: { id: estimateId, deletedAt: null },
     // Injected cards are NOT excluded any more.
     //
     // AEH-227 excluded every `injected` row, correctly: back then an injected

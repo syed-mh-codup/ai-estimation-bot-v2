@@ -37,7 +37,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const estimate = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    // A deleted estimate generates nothing. This route spends real money on a
+    // model call, so it 404s rather than quietly producing a document nobody
+    // can reach. AEH-375.
+    where: { id: estimateId, deletedAt: null },
     select: { id: true, title: true },
   });
   if (!estimate) return NextResponse.json({ error: 'Estimate not found' }, { status: 404 });

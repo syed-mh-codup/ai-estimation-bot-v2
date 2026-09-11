@@ -188,6 +188,10 @@ export async function runEstimate(
   const step: StepRunner = deps.step ?? ((_id, fn) => fn());
 
   await report('Loading prompts & config', 2);
+  // @deleted-ok a mid-job read. The job is started behind a gate that
+  // already refused a deleted estimate, and a delete landing while it runs
+  // must not make the job start failing — the work finishes and comes back
+  // with the estimate if it is recovered. AEH-375.
   const est = await db.estimate.findUniqueOrThrow({ where: { id: estimateId } });
 
   // Refuse a trivially-empty SOW rather than let the Librarian fabricate one

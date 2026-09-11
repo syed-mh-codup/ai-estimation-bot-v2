@@ -35,6 +35,9 @@ async function notifyOwner(
   send: (n: { to: string; name?: string | null; title: string; estimateId: string }) => Promise<{ sent: boolean }>,
 ): Promise<{ sent: boolean }> {
   try {
+    // @deleted-ok notifies the owner that the run they started has finished.
+    // Deleting mid-run does not un-start it, and the mail is about the job.
+    // AEH-375.
     const est = await prisma.estimate.findUnique({
       where: { id: estimateId },
       select: { title: true, owner: { select: { email: true, name: true } } },
@@ -146,6 +149,8 @@ const ingestFn = inngest.createFunction(
     const { estimateId } = event.data as EstimateEventData;
 
     const result = await step.run('ingest-files', async () => {
+      // @deleted-ok mid-ingest read, behind the gate that started the job. A
+      // delete landing while it runs must not make the step throw. AEH-375.
       const est = await prisma.estimate.findUniqueOrThrow({
         where: { id: estimateId },
         select: { sowText: true },

@@ -73,6 +73,10 @@ export async function buildArtifactDossier(
 
   const want = new Set(known);
 
+  // @deleted-ok a mid-job read. The job is started behind a gate that
+  // already refused a deleted estimate, and a delete landing while it runs
+  // must not make the job start failing — the work finishes and comes back
+  // with the estimate if it is recovered. AEH-375.
   const estimate = await db.estimate.findUnique({
     where: { id: estimateId },
     select: {

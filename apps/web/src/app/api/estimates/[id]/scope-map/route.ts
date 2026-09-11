@@ -46,7 +46,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!session?.user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const estimate = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    where: { id: estimateId, deletedAt: null },
     select: { id: true, _count: { select: { menuItems: true } } },
   });
   if (!estimate) return NextResponse.json({ error: 'Estimate not found' }, { status: 404 });

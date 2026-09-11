@@ -20,8 +20,10 @@ import type { MutationOutcome } from './dto';
 export async function startReconciliation(estimateId: string): Promise<MutationOutcome> {
   const actor = await requireUser();
 
+  // A reconciliation pass costs a model call and rewrites the ledger; a
+  // deleted estimate gets neither. AEH-375.
   const estimate = await prisma.estimate.findUnique({
-    where: { id: estimateId },
+    where: { id: estimateId, deletedAt: null },
     select: {
       status: true,
       parentId: true,

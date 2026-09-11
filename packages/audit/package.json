@@ -11,7 +11,8 @@
     "test": "vitest run",
     "audit": "tsx src/cli.ts all",
     "audit:fields": "tsx src/cli.ts fields",
-    "audit:exports": "tsx src/cli.ts exports"
+    "audit:exports": "tsx src/cli.ts exports",
+    "audit:deleted": "tsx src/cli.ts deleted"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

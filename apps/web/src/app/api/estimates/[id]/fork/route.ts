@@ -89,6 +89,9 @@ export async function POST(
   if (files.length > 0) {
     // Read back rather than reconstruct: the header has to land on exactly what
     // the copy wrote, and Prisma has no string-concat update to do it in place.
+    // @deleted-ok reads the fork just created, not the parent — a brand-new
+    // row cannot be deleted, and `forkEstimate` already refused a deleted
+    // parent. AEH-375.
     const est = await prisma.estimate.findUniqueOrThrow({
       where: { id: result.estimateId },
       select: { sowText: true },

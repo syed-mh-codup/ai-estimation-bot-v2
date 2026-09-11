@@ -32,7 +32,11 @@ import {
  */
 
 async function estimateExists(estimateId: string): Promise<void> {
-  const est = await prisma.estimate.findUnique({ where: { id: estimateId }, select: { id: true } });
+  // Deleted counts as missing: the gate for every action in this file. AEH-375.
+  const est = await prisma.estimate.findUnique({
+    where: { id: estimateId, deletedAt: null },
+    select: { id: true },
+  });
   if (!est) throw new Error('Estimate not found');
 }
 

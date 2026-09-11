@@ -42,7 +42,10 @@ export default async function ScopePage({
   if (!session?.user) redirect('/login');
 
   const estimate = await prisma.estimate.findUnique({
-    where: { id },
+    // 404s for a deleted estimate rather than showing the notice: the notice
+    // and the way back live on the estimate's own page, and duplicating them
+    // on every sub-screen would be three places to keep in step. AEH-375.
+    where: { id, deletedAt: null },
     select: {
       id: true,
       title: true,

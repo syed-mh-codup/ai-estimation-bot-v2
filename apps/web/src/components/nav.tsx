@@ -72,6 +72,9 @@ export async function Nav() {
           <NavLink href="/admin/changelog" testId="nav-admin-changelog">
             Changelog
           </NavLink>
+          <NavLink href="/admin/trash" testId="nav-admin-trash">
+            Trash
+          </NavLink>
         </nav>
       )}
 

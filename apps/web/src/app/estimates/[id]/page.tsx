@@ -40,7 +40,9 @@ import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
 import { ArtifactsPanel } from './ArtifactsPanel';
-import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
+import { updateNarrative, updateAssumptions } from './actions';
+import { deleteEstimate } from './delete-actions';
+import { DeletedEstimateNotice } from './DeletedEstimateNotice';
 import { ExportSheets } from './ExportSheets';
 import { lastExportLine, overwriteWarning, type ExportOutcome } from './export-interaction';
 import { cardFlags, carriedMark, lineEnvelope } from './dto';
@@ -66,8 +68,11 @@ async function requireSession() {
 async function exportSheetsAction(id: string, confirmed = false): Promise<ExportOutcome> {
   'use server';
   const viewer = await requireSession();
+  // Deleted estimates export nothing. This writes to a real spreadsheet
+  // somebody else may be reading, which is not a thing to do on behalf of a
+  // document that has been thrown away. AEH-375.
   const estimate = await prisma.estimate.findUnique({
-    where: { id },
+    where: { id, deletedAt: null },
     include: { menuItems: { include: { lineItems: true } } },
   });
   if (!estimate) return { kind: 'failed', error: 'That estimate no longer exists.' };
@@ -209,9 +214,17 @@ export default async function EstimateDetailPage({
 }) {
   const viewer = await requireSession();
   const { id } = await params;
+  //
+  // Deliberately NOT filtered by `deletedAt`. This page is the route an owner
+  // has back to a deleted estimate — admins get `/admin/trash`, and everyone
+  // keeps the link in their history — so it resolves and renders the notice
+  // below instead of a 404. The stamp rides along in this query rather than in
+  // a pre-flight read of its own, so the hot path costs nothing extra.
+  // @deleted-ok renders the deleted notice and the way back. AEH-375.
   const estimate = await prisma.estimate.findUnique({
     where: { id },
     include: {
+      deletedBy: { select: { email: true, name: true } },
       owner: { select: { email: true } },
       custodian: { select: { id: true, email: true, name: true, disabledAt: true } },
       // Newest first: the rail shows the last nudge that went out, which is the
@@ -232,14 +245,35 @@ export default async function EstimateDetailPage({
       // Lineage, both directions. AEH-236. The parent is one line under the
       // title; the children are a rail block, and that half is what stops
       // somebody quoting a round-1 number that round 2 has already moved.
-      parent: { select: { id: true, title: true } },
+      // `deletedAt` on the parent, and a `where` on the children, for the same
+      // reason: a deleted estimate must not show up on somebody else's screen,
+      // and both of these render its title. A to-one relation takes no
+      // `where`, so the parent is filtered at the render instead. AEH-375.
+      parent: { select: { id: true, title: true, deletedAt: true } },
       children: {
+        where: { deletedAt: null },
         select: { id: true, title: true, status: true, lineageKind: true, createdAt: true },
         orderBy: { createdAt: 'asc' },
       },
     },
   });
   if (!estimate) notFound();
+
+  // A deleted estimate stops here. Everything below builds the editor, and
+  // none of it should exist for a document somebody has thrown away — but the
+  // rows are all still there, so this is a notice and a way back rather than
+  // a 404. AEH-375.
+  if (estimate.deletedAt) {
+    return (
+      <DeletedEstimateNotice
+        estimateId={estimate.id}
+        title={estimate.title}
+        deletedAt={estimate.deletedAt}
+        deletedBy={estimate.deletedBy?.name ?? estimate.deletedBy?.email ?? null}
+        canRecover={viewer.role === 'ADMIN' || estimate.ownerId === viewer.id}
+      />
+    );
+  }
 
   // Candidates for relating this estimate to one that already exists. AEH-236.
   //
@@ -252,6 +286,8 @@ export default async function EstimateDetailPage({
     ? []
     : await (async () => {
         const all = await prisma.estimate.findMany({
+          // You cannot link to something nobody can see. AEH-375.
+          where: { deletedAt: null },
           select: { id: true, parentId: true, title: true },
           orderBy: { createdAt: 'desc' },
         });
@@ -518,7 +554,7 @@ export default async function EstimateDetailPage({
           status={estimate.status}
           isFinalised={isFinalised}
         />
-        {estimate.parent && estimate.lineageKind && (
+        {estimate.parent && !estimate.parent.deletedAt && estimate.lineageKind && (
           <ForkedFrom
             parent={estimate.parent}
             kind={estimate.lineageKind}

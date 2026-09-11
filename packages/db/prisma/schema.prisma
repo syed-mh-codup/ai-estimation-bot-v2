@@ -305,6 +305,9 @@ model User {
   reconciliations   EstimateReconciliation[]
   /// Individual proposals this user accepted or rejected. AEH-236.
   proposalDecisions ReconciliationProposal[]
+  /// Estimates this user deleted. Attribution, not ownership: the estimate is
+  /// still the owner's, it is merely stamped. See Estimate.deletedById.
+  deletedEstimates  Estimate[]      @relation("EstimateDeleter")
 }
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
@@ -776,7 +779,46 @@ model Estimate {
   /// Every reconciliation pass run on this estimate.
   reconciliations EstimateReconciliation[]
 
+  // ── Soft delete (AEH-375) ────────────────────────────────────────────────
+
+  /// When this estimate was deleted, or null while it is live.
+  ///
+  /// Deleting stamps this and does nothing else. Every section, card, line
+  /// item, dependency, statement, lock, artifact and export stays exactly
+  /// where it is, still carrying its own id — which is the whole reason this
+  /// is a stamp and not a snapshot. Snapshotting the subtree to JSON and
+  /// re-creating on demand was considered and is worse: a re-created row gets
+  /// a NEW id, so a fork's carried marks, a promoted preset's provenance and
+  /// every scope pick would all point at nothing.
+  ///
+  /// Nothing purges these rows. There is deliberately no sweep and no
+  /// retention window: a deleted estimate is kept indefinitely, and only a
+  /// hand-run DELETE against the database destroys anything. `deleteEstimate`
+  /// no longer removes a row at all.
+  ///
+  /// The read rule is NOT uniform, and the split is by what each number means.
+  /// Lineage walks, the dashboard, the link-to-existing candidates and the
+  /// deadline reminders all exclude a deleted estimate. Model-spend totals do
+  /// NOT: that money was actually spent, and a delete must not quietly shrink
+  /// a historical cost figure. See the estimate-read-paths audit, which pins
+  /// every one of those call sites.
+  deletedAt       DateTime?
+  /// Who deleted it. Null exactly when `deletedAt` is null.
+  ///
+  /// Recorded because the original complaint had two halves: nothing survived
+  /// a delete, and nothing recorded that it happened. A recovery list that
+  /// cannot say who deleted a thing, or when, only answers the first half.
+  ///
+  /// SetNull rather than Cascade, for the obvious reason: deleting the user
+  /// must not destroy the estimates they once deleted, which would be a
+  /// spectacular way to reintroduce exactly the bug this column exists for.
+  deletedById     String?
+  deletedBy       User?        @relation("EstimateDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+
   @@index([parentId])
+  /// The trash list reads `deletedAt: { not: null }`, and every other list-
+  /// shaped read filters `deletedAt: null`. Both want this.
+  @@index([deletedAt])
 }
 
 /// One change to one of an estimate buffer overrides.

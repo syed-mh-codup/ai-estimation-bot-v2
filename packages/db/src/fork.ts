@@ -99,7 +99,12 @@ export async function forkEstimate(db: PrismaClient, args: ForkArgs): Promise<Fo
   if (!title) return refuse('Give the fork a title before creating it.');
 
   const parent = await db.estimate.findUnique({
-    where: { id: args.parentId },
+    // A deleted parent refuses the fork. The child would be live, so it would
+    // show on the dashboard as an original (the family walk cannot see its
+    // parent) while carrying marks that point into a document nobody can
+    // open — and recovering the parent would then silently re-home it.
+    // AEH-375.
+    where: { id: args.parentId, deletedAt: null },
     select: {
       id: true,
       sowText: true,
