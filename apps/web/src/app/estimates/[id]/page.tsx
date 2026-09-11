@@ -39,6 +39,8 @@ import { HiddenWorkPanel } from './HiddenWorkPanel';
 import { RunDiagnosticsPanel } from './RunDiagnosticsPanel';
 import { ContentsCard } from './ContentsCard';
 import { DocumentBar } from './DocumentBar';
+import { InspectDock } from './InspectDock';
+import { ACTIVITY_SLOT } from './dock';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { updateNarrative, updateAssumptions, deleteEstimate } from './actions';
 import { ExportSheets } from './ExportSheets';
@@ -502,7 +504,7 @@ export default async function EstimateDetailPage({
   }));
 
   return (
-    <div data-testid="estimate-detail">
+    <div className="dock-gutter" data-testid="estimate-detail">
       {/* Back goes UP one level, and for a fork that level is the project.
           The dashboard lists a family as a single project row, so sending a
           fork straight there skips the view that actually holds its siblings —
@@ -764,12 +766,6 @@ export default async function EstimateDetailPage({
                 </Link>
               </div>
             )}
-            <ArtifactsPanel
-              estimateId={estimate.id}
-              types={artifactTypes}
-              initial={artifactRows}
-            />
-            <RunDiagnosticsPanel estimateId={estimate.id} />
             {/* The run, demoted, on a fork whose hero slot the reconciliation
                 has taken. Still reachable — the rule allows a fork with no
                 children and no siblings to re-run — but it carries the warning
@@ -795,8 +791,6 @@ export default async function EstimateDetailPage({
               projectHref={inAFamily ? `/estimates/${estimate.id}/lineage` : null}
             />
 
-            {viewer.role === 'ADMIN' && <OracleAdminPanel estimateId={estimate.id} />}
-            {viewer.role === 'ADMIN' && <ModelUsagePanel estimateId={estimate.id} />}
 
 
             {hasMenu && <ContentsCard hasRisk={anyHiddenWork > 0} openRisk={openHiddenWork} />}
@@ -882,9 +876,44 @@ export default async function EstimateDetailPage({
       {/* Outside LedgerProvider on purpose: that provider is keyed on the row
           set and remounts its whole subtree on router.refresh(), which fires
           the moment a run finishes. A conversation inside it would be wiped at
-          exactly the point somebody is asking about the results. Entry points
-          within the ledger reach Oracle through the window-event bus. */}
-      <Oracle estimateId={estimate.id} initialThreads={oracleThreads} />
+          exactly the point somebody is asking about the results — and so would
+          the dock's own open tab. Entry points within the ledger reach it
+          through the window-event bus and the dock store.
+
+          The four panels here were the bottom four cards of a 280px rail, below
+          the fold and below the controls. They are what you consult ABOUT the
+          estimate rather than what it says or what you do to it, which is the
+          dock's job. `EditActivity` is the fifth and cannot come this way: it
+          counts what `useLedger` holds, so it stays inside the provider and
+          portals its list into the tab. AEH-377. */}
+      <InspectDock
+        isAdmin={viewer.role === 'ADMIN'}
+        panels={{
+          oracle: <Oracle estimateId={estimate.id} initialThreads={oracleThreads} />,
+          artifacts: (
+            <div className="p-3.5">
+              <ArtifactsPanel
+                estimateId={estimate.id}
+                types={artifactTypes}
+                initial={artifactRows}
+              />
+            </div>
+          ),
+          diagnostics: (
+            <div className="p-3.5">
+              <RunDiagnosticsPanel estimateId={estimate.id} />
+            </div>
+          ),
+          activity: <div className="p-3.5" id={ACTIVITY_SLOT} />,
+          admin:
+            viewer.role === 'ADMIN' ? (
+              <div className="flex flex-col gap-3.5 p-3.5">
+                <OracleAdminPanel estimateId={estimate.id} />
+                <ModelUsagePanel estimateId={estimate.id} />
+              </div>
+            ) : undefined,
+        }}
+      />
     </div>
   );
 }
