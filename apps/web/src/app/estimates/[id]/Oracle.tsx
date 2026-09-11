@@ -8,7 +8,6 @@ import {
   Loader2,
   MessageSquarePlus,
   Quote,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -37,6 +36,7 @@ import {
   onBus,
   type OracleAskDetail,
 } from './oracle-bus';
+import { closeDock, openDock, toggleDock, useDock } from './dock';
 
 /**
  * Oracle — the floating surface on the estimate screen. AEH-259.
@@ -71,7 +71,13 @@ export function Oracle({
   estimateId: string;
   initialThreads: OracleThreadDTO[];
 }) {
-  const [open, setOpen] = useState(false);
+  // Open and close are the dock's, not Oracle's. It is one panel among five
+  // now, and the ⌘K that opens it, the notch that rests in its place and the
+  // quotation that closes it to reveal itself all have to agree with the four
+  // tabs beside it. AEH-377.
+  const { open: dockOpen, tab } = useDock();
+  const open = dockOpen && tab === 'oracle';
+  const setOpen = (next: boolean) => (next ? openDock('oracle') : closeDock());
   const [threads, setThreads] = useState(initialThreads);
   const [activeId, setActiveId] = useState<string | null>(initialThreads[0]?.id ?? null);
   const [messages, setMessages] = useState<OracleMessageDTO[]>([]);
@@ -97,13 +103,14 @@ export function Oracle({
 
   // ── Opening ────────────────────────────────────────────────────────────────
 
+  // ⌘K toggles the dock onto this tab — from closed, from another tab, and
+  // back shut. Escape is the dock's, handled once there for all five panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setOpen((v) => !v);
+        toggleDock('oracle');
       }
-      if (e.key === 'Escape') setOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -309,43 +316,26 @@ export function Oracle({
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        data-testid="oracle-notch"
-        aria-label={`Ask Oracle about this estimate (${shortcut})`}
-        className={cn(
-          'group fixed right-0 bottom-16 z-40 flex h-10 items-center gap-2 rounded-l-[10px] border border-r-0 border-line bg-surface pr-3.5 pl-3 text-ink shadow-[0_6px_24px_rgba(35,33,27,0.12)] transition-colors',
-          'hover:border-green-line hover:bg-green-tint',
-          'focus-visible:ring-2 focus-visible:ring-green focus-visible:outline-none',
-        )}
-      >
-        <Sparkles className="h-4 w-4 shrink-0 text-green" aria-hidden />
-        <span className="text-[13px] font-medium whitespace-nowrap">
-          Ask Oracle
-          {/* The shortcut stays on the label rather than only in the aria
-              description: it is how a returning user stops reaching for the
-              mouse, and it cannot teach that from inside a screen reader. */}
-          <span className="num ml-2 text-[11px] text-ink-4">{shortcut}</span>
-        </span>
-      </button>
-    );
-  }
+  // The resting state belongs to the dock now: its notch rail carries this
+  // panel's, so there is one stack of tabs on the edge rather than two
+  // floating buttons that had to be told about each other's heights.
+  if (!open) return null;
 
   const active = threads.find((t) => t.id === activeId) ?? null;
   const tooLong = approxContextTokens > THREAD_NUDGE_TOKENS;
 
   return (
-    <div
-      data-testid="oracle-panel"
-      className="fixed right-4 bottom-4 z-40 flex h-[min(640px,calc(100vh-2rem))] w-[min(440px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[10px] border border-line bg-surface shadow-[0_16px_48px_rgba(35,33,27,0.18)]"
-    >
-      <header className="flex items-center gap-2 border-b border-line bg-surface-2 px-3.5 py-2.5">
-        <Sparkles className="h-4 w-4 text-green" aria-hidden />
+    // Not positioned, not sized, no shadow: the dock owns all three. What used
+    // to be a 440 by 640 box floating over the ledger is now a full-height
+    // column of the page, which is the whole of the difference between a panel
+    // you consult and one you dismiss. AEH-377.
+    <div data-testid="oracle-panel" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="flex items-center gap-2 border-b border-line-soft px-3.5 py-2.5">
         <div className="flex-1 truncate font-serif text-[15px] text-ink">
           {active?.title ?? 'Ask Oracle'}
+          {/* The shortcut stays visible: it is how a returning user stops
+              reaching for the mouse, and an aria description cannot teach it. */}
+          <span className="num ml-2 text-[11px] text-ink-4">{shortcut}</span>
         </div>
         <button
           type="button"
@@ -353,7 +343,7 @@ export function Oracle({
           title="New thread"
           aria-label="New thread"
           data-testid="oracle-new-thread"
-          className="rounded p-1 text-ink-3 hover:bg-surface hover:text-ink"
+          className="rounded p-1 text-ink-3 hover:bg-surface-2 hover:text-ink"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
         </button>
@@ -362,7 +352,7 @@ export function Oracle({
           onClick={() => setOpen(false)}
           aria-label="Close Oracle"
           data-testid="oracle-close"
-          className="rounded p-1 text-ink-3 hover:bg-surface hover:text-ink"
+          className="rounded p-1 text-ink-3 hover:bg-surface-2 hover:text-ink"
         >
           <X className="h-3.5 w-3.5" />
         </button>

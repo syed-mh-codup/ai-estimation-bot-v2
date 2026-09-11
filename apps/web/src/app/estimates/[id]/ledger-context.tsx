@@ -40,6 +40,7 @@ import {
 import type { TaxChangeNote } from '@/lib/estimate-tax';
 import { retaxRole } from './dto';
 import type { ItemDTO, SectionDTO, LineItemDTO, MutationOutcome } from './dto';
+import { isDimmed, markCounts, type MarkContext, type MarkKey } from './marks';
 import {
   lockRegion,
   lockStatementRegion,
@@ -146,6 +147,25 @@ type Ledger = {
     inferred: number;
     inferredOn: number;
   };
+
+  // ── Marks (AEH-377) ────────────────────────────────────────────────────────
+  /**
+   * How many cards carry each mark, for the chips above the ledger — and only
+   * the marks something here actually carries.
+   *
+   * This is a summary before it is a filter: it answers "what is unusual about
+   * this estimate" without anybody clicking, which is the thing a legend could
+   * never do. It can also report an ABSENCE — "7 cards with no preset match" is
+   * not a visual mark at all, and no key could have listed it.
+   */
+  markCounts: Partial<Record<MarkKey, number>>;
+  /** The mark being looked at, if any. Everything without it dims. */
+  activeMark: MarkKey | null;
+  /** Pick a mark, or pass the one already active to go back to showing all. */
+  setActiveMark: (mark: MarkKey | null) => void;
+  /** Should this card recede while `activeMark` is being looked at? */
+  isCardDimmed: (item: ItemDTO) => boolean;
+
   sectionsSorted: SectionDTO[];
   itemsIn: (sectionId: string | null) => ItemDTO[];
   containerOf: (id: string) => string | null;
@@ -430,6 +450,44 @@ export function LedgerProvider({
       inferredOn,
     };
   }, [items]);
+
+  // ── Marks (AEH-377) ────────────────────────────────────────────────────────
+  const [activeMark, setActiveMarkState] = useState<MarkKey | null>(null);
+
+  /**
+   * Locks arrive as a map keyed by line id; the mark functions want a Set they
+   * can probe per row without rebuilding it for every card on the estimate.
+   */
+  const markContext = useMemo<MarkContext>(
+    () => ({ overheadStale, lockedLineIds: new Set(Object.keys(locks.lines)) }),
+    [overheadStale, locks],
+  );
+
+  const counts = useMemo(() => markCounts(items, markContext), [items, markContext]);
+
+  /**
+   * Clicking the mark you are already looking at goes back to showing
+   * everything, so the chip is its own escape. Without this the only way out is
+   * the "Show all" link beside the row, and a filter you can enter more easily
+   * than you can leave is a trap.
+   */
+  const setActiveMark = useCallback((mark: MarkKey | null) => {
+    setActiveMarkState((prev) => (mark !== null && prev === mark ? null : mark));
+  }, []);
+
+  /**
+   * A mark that stops existing stops being looked at. Switching the last "off"
+   * card back on while filtering by it would otherwise leave every row dimmed
+   * and no chip lit to explain why — an empty ledger that looks broken.
+   */
+  useEffect(() => {
+    if (activeMark !== null && counts[activeMark] === undefined) setActiveMarkState(null);
+  }, [activeMark, counts]);
+
+  const isCardDimmed = useCallback(
+    (item: ItemDTO) => isDimmed(item, activeMark, markContext),
+    [activeMark, markContext],
+  );
 
   /**
    * Apply now, keep it if the server agrees, put it back if it does not.
@@ -1010,6 +1068,10 @@ export function LedgerProvider({
     isFinalised,
     error,
     rollup,
+    markCounts: counts,
+    activeMark,
+    setActiveMark,
+    isCardDimmed,
     sectionsSorted,
     itemsIn,
     containerOf,
