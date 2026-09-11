@@ -585,14 +585,56 @@ model PromptVersion {
 
 // ─── Estimation Config ────────────────────────────────────────────────────────
 
+/// The house settings every estimate is costed against, versioned.
+///
+/// Two of these settings used to be Json blobs — `complexityRules` and
+/// `infraBaseline` — edited as raw JSON in a textarea on the config admin. That
+/// was not merely ugly. `computeComplexityScore` parses the complexity blob with
+/// `ComplexityRulesSchema.parse`, which THROWS, so a mistyped brace in that
+/// textarea did not fail on save; it failed the next estimate run, on a screen
+/// nobody was looking at. Columns make the malformed state unrepresentable
+/// rather than merely unlikely, and let a change be reviewed field by field.
+/// AEH-348.
 model EstimationConfig {
   id                       String           @id @default(cuid())
   version                  Int              @unique
   active                   Boolean          @default(false)
-  complexityRules          Json
+
+  // ── Role buffers ──────────────────────────────────────────────────────────
+  //
+  // House defaults only. An estimate may override each of the three for itself,
+  // and its taxed hours are persisted per line item against the `configVersion`
+  // it was costed under — so editing these never moves an existing estimate.
+  // AEH-335.
   pmCommunicationTaxPct    Float
   baCommunicationTaxPct    Float
   qaRegressionBufferPct    Float
+
+  // ── Complexity scoring (was `complexityRules Json`) ───────────────────────
+  //
+  // These five carry the shipped defaults, unlike the role buffers above, which
+  // carry none. The asymmetry is deliberate: a missing buffer percentage should
+  // stop a write, because somebody meant to set it, whereas these exist so that
+  // a config row is complete and scoreable BY CONSTRUCTION — which is the whole
+  // reason the blob became columns. The config admin sends all five explicitly
+  // and rejects a non-numeric one rather than falling through to the default.
+  /// Words whose presence anywhere in the SOW raise the complexity score.
+  legacyKeywords           String[]
+  /// Multiplier applied once when any legacy keyword matched, floored at 3.
+  legacyScoreBonus         Float            @default(1.5)
+  aiKeywords               String[]
+  aiScoreBonus             Float            @default(1.3)
+  /// Multiplier per data-volume band the Librarian judged. Three columns rather
+  /// than a map because the key set is closed and always has been — the engine
+  /// reads exactly NONE, LOW and HIGH, and nothing else can be supplied.
+  dataVolumeMultiplierNone Float            @default(1.0)
+  dataVolumeMultiplierLow  Float            @default(1.1)
+  dataVolumeMultiplierHigh Float            @default(1.5)
+  apiThresholds            ComplexityApiThreshold[]
+
+  // ── Delivery overhead (was `infraBaseline Json`) ──────────────────────────
+  overheadItems            ProcessOverheadItem[]
+
   /// Does an unresolved hidden-work finding stop an estimate being finalised,
   /// or merely say so?
   ///
@@ -602,10 +644,61 @@ model EstimationConfig {
   /// deciding it may stand between them and sending an estimate; flipping it on
   /// is one admin edit and no deploy. AEH-263.
   hiddenWorkBlocksFinalise Boolean          @default(false)
-  infraBaseline            Json
   changeReason             String?
   changeMotivation         ChangeMotivation @default(OTHER)
   createdAt                DateTime         @default(now())
+}
+
+/// One rung of the ladder from "how many integrations" to a base complexity
+/// score.
+///
+/// Owned by a config VERSION, not by the config: every save writes a new
+/// `EstimationConfig` row, and the history screen has to be able to show what
+/// each version held, so the rungs are copied forward rather than shared.
+model ComplexityApiThreshold {
+  id       String           @id @default(cuid())
+  configId String
+  config   EstimationConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  /// Evaluation order. The engine takes the FIRST band whose range contains the
+  /// integration count and stops, so two overlapping bands do not merge — the
+  /// earlier one wins. That makes the order a setting in its own right, which is
+  /// why it is stored rather than left to whatever order a query returned.
+  position Int
+  minCount Int
+  maxCount Int
+  score    Float
+  /// A version cannot hold two bands at one position, which is what makes
+  /// "first match wins" a decidable rule rather than a race.
+  @@unique([configId, position])
+}
+
+/// One delivery-overhead card: work every project carries that no SOW names.
+///
+/// Percentages rather than flat hours, because 24h of ceremony is 6% of a
+/// nine-month build and 120% of a two-week one. Each percentage is taken over
+/// the role's TAXED hours, and the resulting card is never taxed again.
+model ProcessOverheadItem {
+  id          String           @id @default(cuid())
+  configId    String
+  config      EstimationConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  /// Display and injection order. Carries no pricing meaning — unlike a
+  /// threshold's position, two overhead items never compete — but an admin who
+  /// arranges these cards expects them to stay arranged.
+  position    Int
+  title       String
+  /// Which taxonomy node the injected card is filed under. A bare key rather
+  /// than a relation: the engine reads it back to recognise its own overhead
+  /// cards, and a foreign key would let deleting a taxonomy node rewrite what a
+  /// past config version said. The admin screen offers the existing `process.*`
+  /// nodes as suggestions without requiring one.
+  taxonomyKey String
+  /// Percent of that role's taxed hours. Null charges the role nothing, which is
+  /// the common case — code review costs DEV time and nobody else's.
+  devPct      Float?
+  qaPct       Float?
+  pmPct       Float?
+  baPct       Float?
+  @@unique([configId, position])
 }
 
 // ─── MCP Connectors ───────────────────────────────────────────────────────────

@@ -58,8 +58,8 @@ beforeAll(async () => {
   await db.estimationConfig.create({
     data: {
       version: 9998, active: false,
-      complexityRules: {}, pmCommunicationTaxPct: 0, baCommunicationTaxPct: 0, qaRegressionBufferPct: 0,
-      infraBaseline: {}, changeMotivation: 'OTHER',
+      pmCommunicationTaxPct: 0, baCommunicationTaxPct: 0, qaRegressionBufferPct: 0,
+      changeMotivation: 'OTHER',
     },
   });
 });

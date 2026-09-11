@@ -90,7 +90,21 @@ describe('AEH-228: prisma schema parser', () => {
     // structural reason, not a stylistic one: a LedgerEdit is one envelope and
     // one write set decided up front, while a reconciliation is many per-card
     // dispositions each accepted or rejected on its own.
-    expect(schema.models.size).toBe(39);
+    // 41 and 28 since AEH-348, which added two models and no enum:
+    // ComplexityApiThreshold and ProcessOverheadItem, the contents of the two
+    // Json columns it removed from EstimationConfig. Child tables rather than
+    // columns on the config because both are LISTS whose length is a setting,
+    // and rows of a config VERSION rather than of the installation, because the
+    // history screen has to be able to say what each version scored against.
+    //
+    // No enum for either, and the absence is the point: a threshold's order is
+    // an integer position and an overhead item's role percentages are four
+    // nullable columns, so neither has a closed vocabulary a person chooses
+    // from. The one closed vocabulary here — the data-volume bands — stayed
+    // OFF this count, as three named columns on the config itself, because
+    // NONE/LOW/HIGH is already spelled out by `DataVolume` and a second enum
+    // would eventually disagree with the first.
+    expect(schema.models.size).toBe(41);
     expect(schema.enums.size).toBe(28);
   });
 
@@ -116,8 +130,10 @@ describe('AEH-228: prisma schema parser', () => {
   it('finds every Json column and excludes them from column-level auditing', () => {
     const ids = jsonFields(schema).map((f) => `${f.model}.${f.name}`);
     expect(ids).toEqual([
-      'EstimationConfig.complexityRules',
-      'EstimationConfig.infraBaseline',
+      // EstimationConfig held two Json columns until AEH-348 turned them into
+      // ordinary columns and two child tables. They are the only entries this
+      // list has ever lost, and the reason is worth keeping: they were the only
+      // ones a human edited by hand, as raw JSON, in a textarea.
       'Estimate.agentState',
       'MenuItem.meta',
       'RoleLineItem.meta',

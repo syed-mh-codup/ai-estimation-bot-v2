@@ -56,11 +56,9 @@ beforeAll(async () => {
     data: {
       version: CONFIG_VERSION,
       active: false,
-      complexityRules: {},
       pmCommunicationTaxPct: 12,
       baCommunicationTaxPct: 8,
       qaRegressionBufferPct: 20,
-      infraBaseline: {},
     },
   });
 

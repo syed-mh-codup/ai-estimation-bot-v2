@@ -79,62 +79,76 @@ async function main() {
     // Deactivate any other versions first so re-seeding a dirty DB (e.g. after
     // an e2e run created v2+) can't leave two active configs.
     await prisma.estimationConfig.updateMany({ where: { active: true }, data: { active: false } });
+    // The ladder from "how many integrations does this SOW want" to a base
+    // complexity score. `position` is the rule, not the presentation: the scorer
+    // takes the first band containing the count and stops.
+    const apiThresholds = [
+      { position: 0, minCount: 0, maxCount: 1, score: 1 },
+      { position: 1, minCount: 2, maxCount: 3, score: 3 },
+      { position: 2, minCount: 4, maxCount: 6, score: 4 },
+      { position: 3, minCount: 7, maxCount: 999, score: 5 },
+    ];
+    // Delivery overhead: work every project carries that no SOW names.
+    // Percentages, not flat hours — 24h of ceremony is 6% of a nine-month build
+    // and 120% of a two-week one.
+    //
+    // These are the complement of the tax percentages below, never a repeat of
+    // them: PM/BA comms tax prices those roles' own hours in a meeting, and
+    // process.meetings prices the DEV and QA seats at the same meeting; the QA
+    // regression buffer prices the sweep, process.ticket-reopens the per-reopen
+    // churn. Every hour is claimed by exactly one mechanism. A role that charges
+    // nothing is left null rather than set to 0 — a 0% card is still a card.
+    const overheadItems = [
+      { position: 0, title: 'Code Review', taxonomyKey: 'process.code-review', devPct: 8 },
+      { position: 1, title: 'Unit Testing', taxonomyKey: 'process.unit-testing', devPct: 10 },
+      { position: 2, title: 'Manual End-to-End Passes', taxonomyKey: 'process.manual-e2e', qaPct: 15 },
+      { position: 3, title: 'Meeting Attendance', taxonomyKey: 'process.meetings', devPct: 5, qaPct: 5 },
+      { position: 4, title: 'Ticket Re-open Churn', taxonomyKey: 'process.ticket-reopens', devPct: 5, qaPct: 5 },
+    ];
     const configData = {
       active: true,
-      // Shape MUST match the complexity engine's ComplexityRulesSchema
-      // (packages/agents/src/complexity.ts) or a run will fail to parse it.
-      complexityRules: {
-        apiIntegrationThresholds: [
-          { minCount: 0, maxCount: 1, score: 1 },
-          { minCount: 2, maxCount: 3, score: 3 },
-          { minCount: 4, maxCount: 6, score: 4 },
-          { minCount: 7, maxCount: 999, score: 5 },
-        ],
-        legacyKeywords: [
-          'legacy',
-          'mainframe',
-          'cobol',
-          'migration',
-          'rewrite',
-          'monolith',
-          'end-of-life',
-        ],
-        legacyScoreBonus: 1.5,
-        dataVolumeMultipliers: { NONE: 1.0, LOW: 1.1, HIGH: 1.5 },
-        aiKeywords: ['machine learning', 'ai assist', 'neural', 'prediction model', 'llm', 'nlp'],
-        aiScoreBonus: 1.3,
-      },
       pmCommunicationTaxPct: 15,
       baCommunicationTaxPct: 10,
       qaRegressionBufferPct: 20,
       hiddenWorkBlocksFinalise: false,
-      // Delivery overhead: work every project carries that no SOW names.
-      // Shape MUST match ProcessOverheadSchema (packages/agents/src/taxation.ts)
-      // or a run injects nothing and warns. Percentages, not flat hours —
-      // 24h of ceremony is 6% of a nine-month build and 120% of a two-week one.
-      //
-      // These are the complement of the tax percentages above, never a repeat of
-      // them: PM/BA comms tax prices those roles' own hours in a meeting, and
-      // process.meetings prices the DEV and QA seats at the same meeting; the QA
-      // regression buffer prices the sweep, process.ticket-reopens the per-reopen
-      // churn. Every hour is claimed by exactly one mechanism.
-      infraBaseline: {
-        items: [
-          { title: 'Code Review', taxonomyKey: 'process.code-review', pct: { DEV: 8 } },
-          { title: 'Unit Testing', taxonomyKey: 'process.unit-testing', pct: { DEV: 10 } },
-          { title: 'Manual End-to-End Passes', taxonomyKey: 'process.manual-e2e', pct: { QA: 15 } },
-          { title: 'Meeting Attendance', taxonomyKey: 'process.meetings', pct: { DEV: 5, QA: 5 } },
-          { title: 'Ticket Re-open Churn', taxonomyKey: 'process.ticket-reopens', pct: { DEV: 5, QA: 5 } },
-        ],
-      },
+      legacyKeywords: [
+        'legacy',
+        'mainframe',
+        'cobol',
+        'migration',
+        'rewrite',
+        'monolith',
+        'end-of-life',
+      ],
+      legacyScoreBonus: 1.5,
+      aiKeywords: ['machine learning', 'ai assist', 'neural', 'prediction model', 'llm', 'nlp'],
+      aiScoreBonus: 1.3,
+      dataVolumeMultiplierNone: 1.0,
+      dataVolumeMultiplierLow: 1.1,
+      dataVolumeMultiplierHigh: 1.5,
       changeReason: 'bootstrap seed',
     };
+    // Clear the child rows in their own statements rather than as a nested
+    // `deleteMany` beside the `create` below. Both orderings are legal to write,
+    // only one is legal to run: (configId, position) is unique, so a create that
+    // landed before the delete would collide with the rows it is replacing.
+    await prisma.complexityApiThreshold.deleteMany({ where: { config: { version: 1 } } });
+    await prisma.processOverheadItem.deleteMany({ where: { config: { version: 1 } } });
     // Restore the full values on update too, so re-seeding over an existing v1
-    // (e.g. an e2e run left it with empty JSON) brings back the rich seed data.
+    // (e.g. an e2e run left it stripped back) brings back the rich seed data.
     const config = await prisma.estimationConfig.upsert({
       where: { version: 1 },
-      update: configData,
-      create: { version: 1, ...configData },
+      update: {
+        ...configData,
+        apiThresholds: { create: apiThresholds },
+        overheadItems: { create: overheadItems },
+      },
+      create: {
+        version: 1,
+        ...configData,
+        apiThresholds: { create: apiThresholds },
+        overheadItems: { create: overheadItems },
+      },
     });
 
     // 3. Sample estimates --------------------------------------------------
