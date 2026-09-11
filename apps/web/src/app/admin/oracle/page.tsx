@@ -55,13 +55,28 @@ export default async function AdminOraclePage({
     _count: { _all: true, costUsd: true },
   });
 
-  type ThreadSpend = { tokens: number; cost: number; priced: number; models: Set<string> };
+  // In and out kept apart, not pre-added: output is priced several times higher
+  // than input, so one Tokens figure hides the ratio that explains the bill.
+  // AEH-313.
+  type ThreadSpend = {
+    promptTokens: number;
+    completionTokens: number;
+    cost: number;
+    priced: number;
+    models: Set<string>;
+  };
   const spendByThread = new Map<string, ThreadSpend>();
   for (const g of spend) {
     if (!g.threadId) continue;
-    const s =
-      spendByThread.get(g.threadId) ?? { tokens: 0, cost: 0, priced: 0, models: new Set<string>() };
-    s.tokens += (g._sum.promptTokens ?? 0) + (g._sum.completionTokens ?? 0);
+    const s = spendByThread.get(g.threadId) ?? {
+      promptTokens: 0,
+      completionTokens: 0,
+      cost: 0,
+      priced: 0,
+      models: new Set<string>(),
+    };
+    s.promptTokens += g._sum.promptTokens ?? 0;
+    s.completionTokens += g._sum.completionTokens ?? 0;
     s.cost += g._sum.costUsd ?? 0;
     s.priced += g._count.costUsd;
     if (g.model) s.models.add(g.model);
@@ -120,7 +135,9 @@ export default async function AdminOraclePage({
                   // A thread with no usage rows at all is absent from the map,
                   // which renders as "—" throughout rather than as zero.
                   const s = spendByThread.get(t.id);
-                  const tokens = s?.tokens ?? 0;
+                  const promptTokens = s?.promptTokens ?? 0;
+                  const completionTokens = s?.completionTokens ?? 0;
+                  const tokens = promptTokens + completionTokens;
                   const cost = s?.cost ?? 0;
                   const priced = s?.priced ?? 0;
                   const models = [...(s?.models ?? [])].sort();
@@ -157,7 +174,17 @@ export default async function AdminOraclePage({
                       </td>
                       <td className="num px-4 py-3 text-right text-ink-2">{t._count.messages}</td>
                       <td className="num px-4 py-3 text-right text-ink-2">
-                        {tokens > 0 ? tokens.toLocaleString() : '—'}
+                        {tokens > 0 ? (
+                          <>
+                            {tokens.toLocaleString()}
+                            <span className="block text-[11px] text-ink-4">
+                              {promptTokens.toLocaleString()} in /{' '}
+                              {completionTokens.toLocaleString()} out
+                            </span>
+                          </>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="num px-4 py-3 text-right text-ink-2">
                         {priced > 0 ? `$${cost.toFixed(4)}` : '—'}

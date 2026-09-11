@@ -87,12 +87,32 @@ export default async function AdminUsagePage({
 
   const totalCalls = totals._count._all;
   const totalCost = totals._sum.costUsd ?? 0;
-  const totalTokens = (totals._sum.promptTokens ?? 0) + (totals._sum.completionTokens ?? 0);
+  const totalIn = totals._sum.promptTokens ?? 0;
+  const totalOut = totals._sum.completionTokens ?? 0;
+  const totalTokens = totalIn + totalOut;
   const unpricedCalls = totalCalls - totals._count.costUsd;
 
   // ─── Per agent, and per model: two rollups of one grouping ─────────────────
-  type Agg = { calls: number; unpriced: number; tokens: number; cost: number };
-  const blank = (): Agg => ({ calls: 0, unpriced: 0, tokens: 0, cost: 0 });
+  // Carried in and out separately rather than pre-added. Output is priced
+  // several times higher than input, so a single Tokens figure cannot tell an
+  // agent burning money on long completions from one reading a large context —
+  // the one ratio that explains a bill. Display-only: these have been separate
+  // columns since AEH-286, and every total here was always an addition done in
+  // this file. AEH-313.
+  type Agg = {
+    calls: number;
+    unpriced: number;
+    promptTokens: number;
+    completionTokens: number;
+    cost: number;
+  };
+  const blank = (): Agg => ({
+    calls: 0,
+    unpriced: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    cost: 0,
+  });
   // Structural, so the same rollup serves both groupings — their `by` tuples
   // differ but the aggregate shape this reads is identical.
   type Grouped = {
@@ -106,7 +126,8 @@ export default async function AdminUsagePage({
   const add = (a: Agg, g: Grouped) => {
     a.calls += g._count._all;
     a.unpriced += g._count._all - g._count.costUsd;
-    a.tokens += (g._sum.promptTokens ?? 0) + (g._sum.completionTokens ?? 0);
+    a.promptTokens += g._sum.promptTokens ?? 0;
+    a.completionTokens += g._sum.completionTokens ?? 0;
     a.cost += g._sum.costUsd ?? 0;
     return a;
   };
@@ -192,7 +213,15 @@ export default async function AdminUsagePage({
               : undefined
           }
         />
-        <Stat label="Total tokens" value={totalTokens.toLocaleString()} />
+        <Stat
+          label="Total tokens"
+          value={totalTokens.toLocaleString()}
+          hint={
+            totalTokens > 0
+              ? `${totalIn.toLocaleString()} in / ${totalOut.toLocaleString()} out`
+              : undefined
+          }
+        />
         <Stat label="Total calls" value={totalCalls.toLocaleString()} />
         <Stat
           label="Of that, steering"
@@ -212,7 +241,7 @@ export default async function AdminUsagePage({
           body={kindRows.map(([kind, v]) => [
             <span key="k">{usageLabel(kind)}</span>,
             <span key="c" className="num">{v.calls.toLocaleString()}</span>,
-            <span key="t" className="num">{v.tokens.toLocaleString()}</span>,
+            <Tokens key="t" prompt={v.promptTokens} completion={v.completionTokens} />,
             <span key="m" className="num">
               {money(v.cost)}
               {unpricedNote(v)}
@@ -235,7 +264,7 @@ export default async function AdminUsagePage({
               {titles.get(id) ?? id}
             </Link>,
             <span key="c" className="num">{v.calls.toLocaleString()}</span>,
-            <span key="t" className="num">{v.tokens.toLocaleString()}</span>,
+            <Tokens key="t" prompt={v.promptTokens} completion={v.completionTokens} />,
             <span key="m" className="num">
               {money(v.cost)}
               {unpricedNote(v)}
@@ -252,7 +281,7 @@ export default async function AdminUsagePage({
           body={modelRows.map(([model, v]) => [
             <span key="m" className="num">{model}</span>,
             <span key="c" className="num">{v.calls.toLocaleString()}</span>,
-            <span key="t" className="num">{v.tokens.toLocaleString()}</span>,
+            <Tokens key="t" prompt={v.promptTokens} completion={v.completionTokens} />,
             <span key="x" className="num">
               {money(v.cost)}
               {unpricedNote(v)}
@@ -286,7 +315,7 @@ export default async function AdminUsagePage({
             body={runRows.map(([runId, v]) => [
               <span key="r" className="num font-mono text-[11px]">{runId}</span>,
               <span key="c" className="num">{v.calls.toLocaleString()}</span>,
-              <span key="t" className="num">{v.tokens.toLocaleString()}</span>,
+              <Tokens key="t" prompt={v.promptTokens} completion={v.completionTokens} />,
               <span key="x" className="num">
                 {money(v.cost)}
                 {unpricedNote(v)}
@@ -306,6 +335,29 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="num mt-1 text-[22px] font-medium text-ink">{value}</div>
       {hint && <div className="mt-1 text-[11px] text-ink-4">{hint}</div>}
     </Card>
+  );
+}
+
+/**
+ * A token count, split.
+ *
+ * The total stays the number you read; the split sits under it as secondary
+ * text. Cost deliberately does NOT get the same treatment — OpenRouter reports
+ * one figure per call and an in/out cost split could only be derived from a
+ * price table that goes stale underneath old rows and would not reconcile with
+ * the billed total wherever caching or a surcharge is in play. AEH-313.
+ */
+function Tokens({ prompt, completion }: { prompt: number; completion: number }) {
+  const total = prompt + completion;
+  return (
+    <span className="num">
+      {total.toLocaleString()}
+      {total > 0 && (
+        <span className="block text-[11px] text-ink-4">
+          {prompt.toLocaleString()} in / {completion.toLocaleString()} out
+        </span>
+      )}
+    </span>
   );
 }
 
